@@ -1,0 +1,9 @@
+series_id,source_rows,included
+DTU::delabole::mast1_44m,40047,False
+DTU::delabole::mast2_33m,40056,False
+DTU::hornsrev_offshore_mast::sonic_50m,9423,False
+DTU::norre_m2::mast1_31m,21452,False
+DTU::norre_m2::mast2_31m_34m_dir,21452,False
+DWD::02115_Helgoland::10min_wind,1441931,True
+NOAA_NDBC::44065::continuous_winds,156813,False
+NOAA_NDBC::46026::continuous_winds,122000,False

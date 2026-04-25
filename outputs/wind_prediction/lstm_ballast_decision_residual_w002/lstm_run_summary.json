@@ -1,0 +1,7 @@
+{
+  "best_epoch": 8,
+  "best_validation_loss": 0.041345330456235944,
+  "regression_metrics_csv": "outputs/wind_prediction/lstm_ballast_decision_residual_w002/lstm_regression_metrics.csv",
+  "event_metrics_csv": "outputs/wind_prediction/lstm_ballast_decision_residual_w002/lstm_event_metrics.csv",
+  "checkpoint": "outputs/wind_prediction/lstm_ballast_decision_residual_w002/lstm_best.pt"
+}

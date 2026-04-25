@@ -1,0 +1,7 @@
+{
+  "speed_ramp_ms": 3.0,
+  "direction_shift_deg": 45.0,
+  "future_speed_train_p95_ms": 16.100000381469727,
+  "vector_change_train_p90_ms": 3.6636977195739746,
+  "threshold_source": "fixed engineering bins for ramp/direction plus empirical train-only quantiles"
+}

@@ -1,0 +1,35 @@
+{
+  "dataset_dir": "data/processed/wind_ml_10min/ballast_decision_dwd_helgoland",
+  "output_dir": "outputs/wind_prediction/lstm_ballast_decision_residual_w002",
+  "epochs": 8,
+  "batch_size": 4096,
+  "hidden_size": 64,
+  "num_layers": 1,
+  "dropout": 0.1,
+  "learning_rate": 0.001,
+  "weight_decay": 1e-05,
+  "event_loss_weight": 0.02,
+  "patience": 3,
+  "seed": 20260425,
+  "threads": 8,
+  "shuffle_blocks": true,
+  "threshold_mode": "best_f1",
+  "residual_regression": true,
+  "device": "cpu",
+  "input_size": 31,
+  "future_steps": 6,
+  "event_count": 5,
+  "event_pos_weight": [
+    34.29227066040039,
+    21.434940338134766,
+    8.99992847442627,
+    18.458831787109375,
+    5.063534259796143
+  ],
+  "metadata_source": "data/processed/wind_ml_10min/ballast_decision_dwd_helgoland/metadata.json",
+  "torch_version": "2.8.0",
+  "uv_feature_indices": [
+    3,
+    4
+  ]
+}

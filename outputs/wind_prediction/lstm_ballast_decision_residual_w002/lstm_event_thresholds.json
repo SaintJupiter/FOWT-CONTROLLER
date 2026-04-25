@@ -1,0 +1,11 @@
+{
+  "threshold_mode": "best_f1",
+  "thresholds": {
+    "speed_ramp_ge_3ms": 0.8999999761581421,
+    "direction_shift_ge_45deg": 0.8500000238418579,
+    "vector_change_ge_train_p90": 0.699999988079071,
+    "future_speed_ge_train_p95": 0.8500000238418579,
+    "ballast_attention_event": 0.6499999761581421
+  },
+  "selected_on": "validation"
+}
