@@ -1,19 +1,27 @@
-.DS_Store
+.history/
+results/
 __pycache__/
 *.py[cod]
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 .venv/
+.venv312/
 venv/
 env/
-
-# Large local data files are regenerated from scripts and should not be committed.
-data/raw/
-data/processed/**/*.npy
-data/processed/**/*.csv.gz
-data/processed/**/sample_index.csv.gz
-
-# Downloaded literature PDFs are kept locally only.
-风预测规划/文献/*.pdf
-
-# Keep compact run summaries, metrics and the small current checkpoint, but ignore ad-hoc logs.
-outputs/**/*.log
-
+.miniforge3/
+.env
+.env.*
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini
+data/processed/wind_ml_10min/supervised_learning_table_10min.csv
+data/processed/wind_ml_10min/sequences/
+data/processed/wind_ml_10min/sequences_dwd_helgoland/
+outputs/wind_prediction/**/lstm_best.pt
+outputs/wind_prediction/**/*.joblib

@@ -1,4 +1,7 @@
+joblib>=1.5
+lightgbm>=4.6
 numpy>=2.0
-pandas>=2.0
-torch>=2.8
-
+pandas>=2.2
+scikit-learn>=1.6
+scipy>=1.13
+torch>=2.7

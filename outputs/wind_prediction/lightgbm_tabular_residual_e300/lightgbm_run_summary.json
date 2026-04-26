@@ -1,0 +1,6 @@
+{
+  "model": "residual_lightgbm_tabular",
+  "regression_metrics_csv": "outputs/wind_prediction/lightgbm_tabular_residual_e300/lightgbm_regression_metrics.csv",
+  "event_metrics_csv": "outputs/wind_prediction/lightgbm_tabular_residual_e300/lightgbm_event_metrics.csv",
+  "models": "outputs/wind_prediction/lightgbm_tabular_residual_e300/lightgbm_models.joblib"
+}

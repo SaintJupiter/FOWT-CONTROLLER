@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train a dual-head LSTM for ballast-preview wind forecasting.
+"""Train a dual-head recurrent model for ballast-preview wind forecasting.
 
 The model follows the dataset design in
 ``data/processed/wind_ml_10min/ballast_decision_dwd_helgoland``:
@@ -44,16 +44,20 @@ class TrainConfig:
     learning_rate: float
     weight_decay: float
     event_loss_weight: float
+    direction_loss_weight: float
     patience: int
+    lr_patience: int
+    lr_factor: float
     seed: int
     threads: int
     shuffle_blocks: bool
     threshold_mode: str
     residual_regression: bool
+    model_type: str
     device: str
 
 
-class WindLSTM(nn.Module):
+class WindRNN(nn.Module):
     def __init__(
         self,
         input_size: int,
@@ -62,15 +66,24 @@ class WindLSTM(nn.Module):
         event_count: int,
         num_layers: int,
         dropout: float,
+        model_type: str,
     ) -> None:
         super().__init__()
-        lstm_dropout = dropout if num_layers > 1 else 0.0
+        recurrent_dropout = dropout if num_layers > 1 else 0.0
         self.future_steps = future_steps
-        self.lstm = nn.LSTM(
+        model_type = model_type.lower()
+        if model_type == "lstm":
+            recurrent_cls = nn.LSTM
+        elif model_type == "gru":
+            recurrent_cls = nn.GRU
+        else:
+            raise ValueError(f"Unsupported recurrent model type: {model_type}")
+        self.model_type = model_type
+        self.recurrent = recurrent_cls(
             input_size=input_size,
             hidden_size=hidden_size,
             num_layers=num_layers,
-            dropout=lstm_dropout,
+            dropout=recurrent_dropout,
             batch_first=True,
         )
         self.shared = nn.Sequential(
@@ -83,7 +96,10 @@ class WindLSTM(nn.Module):
         self.event_head = nn.Linear(hidden_size, event_count)
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        _, (hidden, _) = self.lstm(x)
+        if self.model_type == "lstm":
+            _, (hidden, _) = self.recurrent(x)
+        else:
+            _, hidden = self.recurrent(x)
         features = self.shared(hidden[-1])
         uv = self.regression_head(features).view(x.shape[0], self.future_steps, 2)
         event_logits = self.event_head(features)
@@ -110,7 +126,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--learning-rate", type=float, default=1e-3)
     parser.add_argument("--weight-decay", type=float, default=1e-5)
     parser.add_argument("--event-loss-weight", type=float, default=0.10)
+    parser.add_argument(
+        "--direction-loss-weight",
+        type=float,
+        default=0.0,
+        help="Weight for a speed-weighted wind-vector direction loss computed in raw u/v space.",
+    )
     parser.add_argument("--patience", type=int, default=3)
+    parser.add_argument("--lr-patience", type=int, default=2)
+    parser.add_argument("--lr-factor", type=float, default=0.5)
     parser.add_argument("--seed", type=int, default=20260425)
     parser.add_argument("--threads", type=int, default=max(1, min(8, os.cpu_count() or 1)))
     parser.add_argument("--no-shuffle-blocks", action="store_true")
@@ -120,6 +144,7 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Train the regression head to predict future scaled u/v changes relative to the latest input u/v.",
     )
+    parser.add_argument("--model-type", choices=["lstm", "gru"], default="lstm")
     parser.add_argument("--device", choices=["auto", "cpu", "cuda", "mps"], default="auto")
     return parser.parse_args()
 
@@ -193,6 +218,41 @@ def regression_target(
     return y_uv - current_uv
 
 
+def full_scaled_prediction(
+    pred_regression: torch.Tensor,
+    x: torch.Tensor,
+    residual_regression: bool,
+    uv_feature_indices: tuple[int, int],
+) -> torch.Tensor:
+    if not residual_regression:
+        return pred_regression
+    current_uv = x[:, -1, list(uv_feature_indices)].unsqueeze(1)
+    return pred_regression + current_uv
+
+
+def wind_direction_loss(
+    pred_regression: torch.Tensor,
+    y_uv_scaled: torch.Tensor,
+    x: torch.Tensor,
+    residual_regression: bool,
+    uv_feature_indices: tuple[int, int],
+    target_uv_mean: torch.Tensor,
+    target_uv_std: torch.Tensor,
+) -> torch.Tensor:
+    pred_scaled = full_scaled_prediction(pred_regression, x, residual_regression, uv_feature_indices)
+    pred_raw = pred_scaled * target_uv_std + target_uv_mean
+    true_raw = y_uv_scaled * target_uv_std + target_uv_mean
+
+    pred_norm = torch.linalg.vector_norm(pred_raw, dim=-1).clamp_min(1e-3)
+    true_norm = torch.linalg.vector_norm(true_raw, dim=-1).clamp_min(1e-3)
+    cosine = (pred_raw * true_raw).sum(dim=-1) / (pred_norm * true_norm)
+    angular = 1.0 - cosine.clamp(-1.0, 1.0)
+
+    # Direction becomes physically noisy at very low wind speed; reduce its loss weight there.
+    speed_weight = (true_norm / 5.0).clamp(max=1.0)
+    return (angular * speed_weight).sum() / speed_weight.sum().clamp_min(1.0)
+
+
 def train_one_epoch(
     model: nn.Module,
     arrays: dict[str, np.ndarray],
@@ -202,16 +262,20 @@ def train_one_epoch(
     device: torch.device,
     batch_size: int,
     event_loss_weight: float,
+    direction_loss_weight: float,
     rng: np.random.Generator,
     shuffle_blocks: bool,
     residual_regression: bool,
     uv_feature_indices: tuple[int, int],
+    target_uv_mean: torch.Tensor,
+    target_uv_std: torch.Tensor,
 ) -> dict[str, float]:
     model.train()
     n = arrays["X"].shape[0]
     total_loss = 0.0
     total_reg = 0.0
     total_event = 0.0
+    total_direction = 0.0
     total_count = 0
 
     for start, end in iter_slices(n, batch_size, rng, shuffle_blocks):
@@ -224,7 +288,19 @@ def train_one_epoch(
         y_reg = regression_target(y_uv, xb, residual_regression, uv_feature_indices)
         reg_loss = regression_loss_fn(pred_uv, y_reg)
         event_loss = event_loss_fn(event_logits, y_event)
-        loss = reg_loss + event_loss_weight * event_loss
+        if direction_loss_weight > 0.0:
+            direction_loss = wind_direction_loss(
+                pred_uv,
+                y_uv,
+                xb,
+                residual_regression,
+                uv_feature_indices,
+                target_uv_mean,
+                target_uv_std,
+            )
+        else:
+            direction_loss = pred_uv.new_tensor(0.0)
+        loss = reg_loss + event_loss_weight * event_loss + direction_loss_weight * direction_loss
         loss.backward()
         nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
@@ -233,12 +309,14 @@ def train_one_epoch(
         total_loss += float(loss.detach().cpu()) * batch_count
         total_reg += float(reg_loss.detach().cpu()) * batch_count
         total_event += float(event_loss.detach().cpu()) * batch_count
+        total_direction += float(direction_loss.detach().cpu()) * batch_count
         total_count += batch_count
 
     return {
         "loss": total_loss / total_count,
         "regression_loss": total_reg / total_count,
         "event_loss": total_event / total_count,
+        "direction_loss": total_direction / total_count,
     }
 
 
@@ -251,14 +329,18 @@ def evaluate_loss(
     device: torch.device,
     batch_size: int,
     event_loss_weight: float,
+    direction_loss_weight: float,
     residual_regression: bool,
     uv_feature_indices: tuple[int, int],
+    target_uv_mean: torch.Tensor,
+    target_uv_std: torch.Tensor,
 ) -> dict[str, float]:
     model.eval()
     n = arrays["X"].shape[0]
     total_loss = 0.0
     total_reg = 0.0
     total_event = 0.0
+    total_direction = 0.0
     total_count = 0
 
     for start, end in iter_slices(n, batch_size, np.random.default_rng(0), shuffle_blocks=False):
@@ -269,17 +351,31 @@ def evaluate_loss(
         y_reg = regression_target(y_uv, xb, residual_regression, uv_feature_indices)
         reg_loss = regression_loss_fn(pred_uv, y_reg)
         event_loss = event_loss_fn(event_logits, y_event)
-        loss = reg_loss + event_loss_weight * event_loss
+        if direction_loss_weight > 0.0:
+            direction_loss = wind_direction_loss(
+                pred_uv,
+                y_uv,
+                xb,
+                residual_regression,
+                uv_feature_indices,
+                target_uv_mean,
+                target_uv_std,
+            )
+        else:
+            direction_loss = pred_uv.new_tensor(0.0)
+        loss = reg_loss + event_loss_weight * event_loss + direction_loss_weight * direction_loss
         batch_count = end - start
         total_loss += float(loss.detach().cpu()) * batch_count
         total_reg += float(reg_loss.detach().cpu()) * batch_count
         total_event += float(event_loss.detach().cpu()) * batch_count
+        total_direction += float(direction_loss.detach().cpu()) * batch_count
         total_count += batch_count
 
     return {
         "loss": total_loss / total_count,
         "regression_loss": total_reg / total_count,
         "event_loss": total_event / total_count,
+        "direction_loss": total_direction / total_count,
     }
 
 
@@ -302,9 +398,7 @@ def predict_split(
     for start, end in iter_slices(n, batch_size, np.random.default_rng(0), shuffle_blocks=False):
         xb = numpy_batch(arrays["X"], start, end).to(device)
         pred_uv, event_logits = model(xb)
-        if residual_regression:
-            current_uv = xb[:, -1, list(uv_feature_indices)].unsqueeze(1)
-            pred_uv = pred_uv + current_uv
+        pred_uv = full_scaled_prediction(pred_uv, xb, residual_regression, uv_feature_indices)
         pred_uv_scaled[start:end] = pred_uv.detach().cpu().numpy().astype("float32")
         pred_event_prob[start:end] = torch.sigmoid(event_logits).detach().cpu().numpy().astype("float32")
 
@@ -338,6 +432,7 @@ def circular_diff_deg(target: np.ndarray, base: np.ndarray) -> np.ndarray:
 
 def regression_metrics(
     split: str,
+    model_name: str,
     pred_uv_raw: np.ndarray,
     y_uv_raw: np.ndarray,
     y_speed_dir_raw: np.ndarray,
@@ -354,7 +449,7 @@ def regression_metrics(
 
     def build_row(scope: str, uv_err: np.ndarray, speed_err: np.ndarray, dir_err: np.ndarray) -> dict[str, object]:
         return {
-            "model": "lstm_dual_head",
+            "model": model_name,
             "split": split,
             "scope": scope,
             "vector_mae_ms": float(np.mean(np.abs(uv_err))),
@@ -415,6 +510,7 @@ def best_f1_thresholds(y_true: np.ndarray, probs: np.ndarray) -> np.ndarray:
 
 def event_metrics(
     split: str,
+    model_name: str,
     y_true: np.ndarray,
     probs: np.ndarray,
     thresholds: np.ndarray,
@@ -425,7 +521,7 @@ def event_metrics(
         pred = probs[:, idx] >= thresholds[idx]
         rows.append(
             {
-                "model": "lstm_dual_head",
+                "model": model_name,
                 "split": split,
                 "event": event_name,
                 "threshold": float(thresholds[idx]),
@@ -464,6 +560,21 @@ def uv_feature_indices(metadata: dict) -> tuple[int, int]:
         raise SystemExit("Residual regression requires wind_u_ms and wind_v_ms input features.") from exc
 
 
+def target_uv_tensors(scaler: dict, device: torch.device) -> tuple[torch.Tensor, torch.Tensor]:
+    target_scaler = scaler["target_uv_scaler"]
+    mean = torch.tensor(
+        [target_scaler["wind_u_ms"]["mean"], target_scaler["wind_v_ms"]["mean"]],
+        dtype=torch.float32,
+        device=device,
+    ).view(1, 1, 2)
+    std = torch.tensor(
+        [target_scaler["wind_u_ms"]["std"], target_scaler["wind_v_ms"]["std"]],
+        dtype=torch.float32,
+        device=device,
+    ).view(1, 1, 2)
+    return mean, std
+
+
 def main() -> None:
     args = parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -478,19 +589,27 @@ def main() -> None:
     future_steps = arrays["train"]["y_uv"].shape[1]
     event_count = arrays["train"]["y_event"].shape[1]
     uv_indices = uv_feature_indices(metadata)
-    model = WindLSTM(
+    target_uv_mean, target_uv_std = target_uv_tensors(scaler, device)
+    model = WindRNN(
         input_size=input_size,
         hidden_size=args.hidden_size,
         future_steps=future_steps,
         event_count=event_count,
         num_layers=args.num_layers,
         dropout=args.dropout,
+        model_type=args.model_type,
     ).to(device)
 
     pos_weight = torch.tensor(event_pos_weight(arrays["train"]["y_event"]), dtype=torch.float32, device=device)
     regression_loss_fn = nn.MSELoss()
     event_loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer,
+        mode="min",
+        factor=args.lr_factor,
+        patience=args.lr_patience,
+    )
 
     config = TrainConfig(
         dataset_dir=str(args.dataset_dir),
@@ -503,12 +622,16 @@ def main() -> None:
         learning_rate=args.learning_rate,
         weight_decay=args.weight_decay,
         event_loss_weight=args.event_loss_weight,
+        direction_loss_weight=args.direction_loss_weight,
         patience=args.patience,
+        lr_patience=args.lr_patience,
+        lr_factor=args.lr_factor,
         seed=args.seed,
         threads=args.threads,
         shuffle_blocks=not args.no_shuffle_blocks,
         threshold_mode=args.threshold_mode,
         residual_regression=args.residual_regression,
+        model_type=args.model_type,
         device=str(device),
     )
     (args.output_dir / "lstm_config.json").write_text(
@@ -522,6 +645,7 @@ def main() -> None:
                 "metadata_source": str(args.dataset_dir / "metadata.json"),
                 "torch_version": torch.__version__,
                 "uv_feature_indices": list(uv_indices),
+                "parameter_count": sum(p.numel() for p in model.parameters() if p.requires_grad),
             },
             ensure_ascii=False,
             indent=2,
@@ -535,6 +659,8 @@ def main() -> None:
     print(f"Test samples: {arrays['test']['X'].shape[0]}")
     print(f"Input shape: history={metadata['history_steps']} features={input_size}")
     print(f"Output shape: future={future_steps} uv=2 events={event_count}")
+    print(f"Model: {args.model_type} layers={args.num_layers} hidden={args.hidden_size}")
+    print(f"Trainable parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
 
     history_rows = []
     best_val_loss = math.inf
@@ -552,10 +678,13 @@ def main() -> None:
             device,
             args.batch_size,
             args.event_loss_weight,
+            args.direction_loss_weight,
             rng,
             shuffle_blocks=not args.no_shuffle_blocks,
             residual_regression=args.residual_regression,
             uv_feature_indices=uv_indices,
+            target_uv_mean=target_uv_mean,
+            target_uv_std=target_uv_std,
         )
         val_metrics = evaluate_loss(
             model,
@@ -565,26 +694,36 @@ def main() -> None:
             device,
             args.batch_size,
             args.event_loss_weight,
+            args.direction_loss_weight,
             residual_regression=args.residual_regression,
             uv_feature_indices=uv_indices,
+            target_uv_mean=target_uv_mean,
+            target_uv_std=target_uv_std,
         )
+        current_lr = float(optimizer.param_groups[0]["lr"])
         row = {
             "epoch": epoch,
+            "learning_rate": current_lr,
             **{f"train_{k}": v for k, v in train_metrics.items()},
             **{f"validation_{k}": v for k, v in val_metrics.items()},
         }
         history_rows.append(row)
         pd.DataFrame(history_rows).to_csv(args.output_dir / "lstm_training_history.csv", index=False)
         print(
-            "epoch={epoch} train_loss={train_loss:.6f} val_loss={val_loss:.6f} "
-            "train_reg={train_reg:.6f} val_reg={val_reg:.6f} train_event={train_event:.6f} val_event={val_event:.6f}".format(
+            "epoch={epoch} lr={lr:.6g} train_loss={train_loss:.6f} val_loss={val_loss:.6f} "
+            "train_reg={train_reg:.6f} val_reg={val_reg:.6f} "
+            "train_event={train_event:.6f} val_event={val_event:.6f} "
+            "train_dir={train_dir:.6f} val_dir={val_dir:.6f}".format(
                 epoch=epoch,
+                lr=current_lr,
                 train_loss=train_metrics["loss"],
                 val_loss=val_metrics["loss"],
                 train_reg=train_metrics["regression_loss"],
                 val_reg=val_metrics["regression_loss"],
                 train_event=train_metrics["event_loss"],
                 val_event=val_metrics["event_loss"],
+                train_dir=train_metrics["direction_loss"],
+                val_dir=val_metrics["direction_loss"],
             ),
             flush=True,
         )
@@ -608,6 +747,7 @@ def main() -> None:
             if stale_epochs >= args.patience:
                 print(f"Early stopping after epoch {epoch}; best epoch was {best_epoch}.", flush=True)
                 break
+        scheduler.step(val_metrics["loss"])
 
     checkpoint = torch.load(args.output_dir / "lstm_best.pt", map_location=device)
     model.load_state_dict(checkpoint["model_state_dict"])
@@ -632,9 +772,15 @@ def main() -> None:
     test_pred_uv_raw = inverse_scale_uv(test_pred_uv_scaled, scaler)
 
     reg_rows = []
+    model_name = f"{args.model_type}_dual_head"
+    if args.residual_regression:
+        model_name = f"residual_{model_name}"
+    if args.direction_loss_weight > 0:
+        model_name = f"{model_name}_direction_loss"
     reg_rows.extend(
         regression_metrics(
             "validation",
+            model_name,
             val_pred_uv_raw,
             np.asarray(arrays["validation"]["y_uv_raw"]),
             np.asarray(arrays["validation"]["y_speed_dir_raw"]),
@@ -643,6 +789,7 @@ def main() -> None:
     reg_rows.extend(
         regression_metrics(
             "test",
+            model_name,
             test_pred_uv_raw,
             np.asarray(arrays["test"]["y_uv_raw"]),
             np.asarray(arrays["test"]["y_speed_dir_raw"]),
@@ -660,6 +807,7 @@ def main() -> None:
     event_rows.extend(
         event_metrics(
             "validation",
+            model_name,
             np.asarray(arrays["validation"]["y_event"]),
             val_event_prob,
             thresholds,
@@ -669,6 +817,7 @@ def main() -> None:
     event_rows.extend(
         event_metrics(
             "test",
+            model_name,
             np.asarray(arrays["test"]["y_event"]),
             test_event_prob,
             thresholds,

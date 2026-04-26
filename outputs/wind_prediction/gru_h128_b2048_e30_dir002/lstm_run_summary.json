@@ -1,0 +1,7 @@
+{
+  "best_epoch": 17,
+  "best_validation_loss": 0.04110214494671902,
+  "regression_metrics_csv": "outputs/wind_prediction/gru_h128_b2048_e30_dir002/lstm_regression_metrics.csv",
+  "event_metrics_csv": "outputs/wind_prediction/gru_h128_b2048_e30_dir002/lstm_event_metrics.csv",
+  "checkpoint": "outputs/wind_prediction/gru_h128_b2048_e30_dir002/lstm_best.pt"
+}

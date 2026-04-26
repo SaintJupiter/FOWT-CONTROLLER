@@ -1,0 +1,11 @@
+{
+  "split": "test",
+  "dataset_dir": "data/processed/wind_ml_10min/ballast_decision_dwd_helgoland",
+  "gru_dir": "outputs/wind_prediction/gru_h128_b2048_e30_dir002",
+  "lightgbm_dir": "outputs/wind_prediction/lightgbm_tabular_residual_e300",
+  "output_files": {
+    "regression_by_regime": "outputs/wind_prediction/regime_threshold_analysis/test_regression_by_regime.csv",
+    "attention_event_by_regime": "outputs/wind_prediction/regime_threshold_analysis/test_attention_event_by_regime.csv",
+    "attention_threshold_tradeoff": "outputs/wind_prediction/regime_threshold_analysis/test_attention_threshold_tradeoff.csv"
+  }
+}
