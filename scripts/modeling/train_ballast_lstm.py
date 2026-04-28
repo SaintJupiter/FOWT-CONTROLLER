@@ -55,6 +55,7 @@ class TrainConfig:
     residual_regression: bool
     model_type: str
     device: str
+    conv_kernel_size: int
 
 
 class WindRNN(nn.Module):
@@ -106,6 +107,165 @@ class WindRNN(nn.Module):
         return uv, event_logits
 
 
+class CNNGRU(nn.Module):
+    def __init__(
+        self,
+        input_size: int,
+        hidden_size: int,
+        future_steps: int,
+        event_count: int,
+        num_layers: int,
+        dropout: float,
+        conv_kernel_size: int,
+    ) -> None:
+        super().__init__()
+        if conv_kernel_size % 2 == 0:
+            raise ValueError("conv_kernel_size must be odd to keep sequence length stable.")
+        self.future_steps = future_steps
+        self.conv = nn.Sequential(
+            nn.Conv1d(input_size, hidden_size, kernel_size=conv_kernel_size, padding=conv_kernel_size // 2),
+            nn.BatchNorm1d(hidden_size),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+        )
+        self.recurrent = nn.GRU(
+            input_size=hidden_size,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            dropout=dropout if num_layers > 1 else 0.0,
+            batch_first=True,
+        )
+        self.shared = nn.Sequential(
+            nn.LayerNorm(hidden_size),
+            nn.Linear(hidden_size, hidden_size),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+        )
+        self.regression_head = nn.Linear(hidden_size, future_steps * 2)
+        self.event_head = nn.Linear(hidden_size, event_count)
+
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        z = self.conv(x.transpose(1, 2)).transpose(1, 2)
+        _, hidden = self.recurrent(z)
+        features = self.shared(hidden[-1])
+        uv = self.regression_head(features).view(x.shape[0], self.future_steps, 2)
+        event_logits = self.event_head(features)
+        return uv, event_logits
+
+
+class Chomp1d(nn.Module):
+    def __init__(self, chomp_size: int) -> None:
+        super().__init__()
+        self.chomp_size = chomp_size
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.chomp_size == 0:
+            return x
+        return x[:, :, : -self.chomp_size]
+
+
+class TCNBlock(nn.Module):
+    def __init__(self, in_channels: int, out_channels: int, kernel_size: int, dilation: int, dropout: float) -> None:
+        super().__init__()
+        padding = (kernel_size - 1) * dilation
+        self.net = nn.Sequential(
+            nn.Conv1d(in_channels, out_channels, kernel_size, padding=padding, dilation=dilation),
+            Chomp1d(padding),
+            nn.BatchNorm1d(out_channels),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Conv1d(out_channels, out_channels, kernel_size, padding=padding, dilation=dilation),
+            Chomp1d(padding),
+            nn.BatchNorm1d(out_channels),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+        )
+        self.residual = nn.Conv1d(in_channels, out_channels, 1) if in_channels != out_channels else nn.Identity()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.net(x) + self.residual(x)
+
+
+class TCNForecast(nn.Module):
+    def __init__(
+        self,
+        input_size: int,
+        hidden_size: int,
+        future_steps: int,
+        event_count: int,
+        dropout: float,
+        conv_kernel_size: int,
+    ) -> None:
+        super().__init__()
+        self.future_steps = future_steps
+        channels = [input_size, hidden_size, hidden_size, hidden_size]
+        dilations = [1, 2, 4]
+        self.tcn = nn.Sequential(
+            *[
+                TCNBlock(channels[idx], channels[idx + 1], conv_kernel_size, dilations[idx], dropout)
+                for idx in range(len(dilations))
+            ]
+        )
+        self.shared = nn.Sequential(
+            nn.LayerNorm(hidden_size),
+            nn.Linear(hidden_size, hidden_size),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+        )
+        self.regression_head = nn.Linear(hidden_size, future_steps * 2)
+        self.event_head = nn.Linear(hidden_size, event_count)
+
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        z = self.tcn(x.transpose(1, 2)).transpose(1, 2)
+        features = self.shared(z[:, -1, :])
+        uv = self.regression_head(features).view(x.shape[0], self.future_steps, 2)
+        event_logits = self.event_head(features)
+        return uv, event_logits
+
+
+def build_model(
+    input_size: int,
+    hidden_size: int,
+    future_steps: int,
+    event_count: int,
+    num_layers: int,
+    dropout: float,
+    model_type: str,
+    conv_kernel_size: int,
+) -> nn.Module:
+    model_type = model_type.lower()
+    if model_type in {"lstm", "gru"}:
+        return WindRNN(
+            input_size=input_size,
+            hidden_size=hidden_size,
+            future_steps=future_steps,
+            event_count=event_count,
+            num_layers=num_layers,
+            dropout=dropout,
+            model_type=model_type,
+        )
+    if model_type == "cnn_gru":
+        return CNNGRU(
+            input_size=input_size,
+            hidden_size=hidden_size,
+            future_steps=future_steps,
+            event_count=event_count,
+            num_layers=num_layers,
+            dropout=dropout,
+            conv_kernel_size=conv_kernel_size,
+        )
+    if model_type == "tcn":
+        return TCNForecast(
+            input_size=input_size,
+            hidden_size=hidden_size,
+            future_steps=future_steps,
+            event_count=event_count,
+            dropout=dropout,
+            conv_kernel_size=conv_kernel_size,
+        )
+    raise ValueError(f"Unsupported model type: {model_type}")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -144,8 +304,14 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Train the regression head to predict future scaled u/v changes relative to the latest input u/v.",
     )
-    parser.add_argument("--model-type", choices=["lstm", "gru"], default="lstm")
+    parser.add_argument("--model-type", choices=["lstm", "gru", "cnn_gru", "tcn"], default="lstm")
+    parser.add_argument("--conv-kernel-size", type=int, default=3)
     parser.add_argument("--device", choices=["auto", "cpu", "cuda", "mps"], default="auto")
+    parser.add_argument(
+        "--evaluate-only",
+        action="store_true",
+        help="Skip training and evaluate the existing lstm_best.pt checkpoint in output-dir.",
+    )
     return parser.parse_args()
 
 
@@ -590,7 +756,7 @@ def main() -> None:
     event_count = arrays["train"]["y_event"].shape[1]
     uv_indices = uv_feature_indices(metadata)
     target_uv_mean, target_uv_std = target_uv_tensors(scaler, device)
-    model = WindRNN(
+    model = build_model(
         input_size=input_size,
         hidden_size=args.hidden_size,
         future_steps=future_steps,
@@ -598,6 +764,7 @@ def main() -> None:
         num_layers=args.num_layers,
         dropout=args.dropout,
         model_type=args.model_type,
+        conv_kernel_size=args.conv_kernel_size,
     ).to(device)
 
     pos_weight = torch.tensor(event_pos_weight(arrays["train"]["y_event"]), dtype=torch.float32, device=device)
@@ -633,6 +800,7 @@ def main() -> None:
         residual_regression=args.residual_regression,
         model_type=args.model_type,
         device=str(device),
+        conv_kernel_size=args.conv_kernel_size,
     )
     (args.output_dir / "lstm_config.json").write_text(
         json.dumps(
@@ -659,98 +827,105 @@ def main() -> None:
     print(f"Test samples: {arrays['test']['X'].shape[0]}")
     print(f"Input shape: history={metadata['history_steps']} features={input_size}")
     print(f"Output shape: future={future_steps} uv=2 events={event_count}")
-    print(f"Model: {args.model_type} layers={args.num_layers} hidden={args.hidden_size}")
+    print(f"Model: {args.model_type} layers={args.num_layers} hidden={args.hidden_size} kernel={args.conv_kernel_size}")
     print(f"Trainable parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
 
-    history_rows = []
     best_val_loss = math.inf
     best_epoch = -1
-    stale_epochs = 0
-    rng = np.random.default_rng(args.seed)
+    if args.evaluate_only:
+        if not (args.output_dir / "lstm_best.pt").exists():
+            raise SystemExit(f"No checkpoint found at {args.output_dir / 'lstm_best.pt'}")
+        print("Evaluate-only mode: using existing checkpoint.", flush=True)
+    else:
+        history_rows = []
+        stale_epochs = 0
+        rng = np.random.default_rng(args.seed)
 
-    for epoch in range(1, args.epochs + 1):
-        train_metrics = train_one_epoch(
-            model,
-            arrays["train"],
-            optimizer,
-            regression_loss_fn,
-            event_loss_fn,
-            device,
-            args.batch_size,
-            args.event_loss_weight,
-            args.direction_loss_weight,
-            rng,
-            shuffle_blocks=not args.no_shuffle_blocks,
-            residual_regression=args.residual_regression,
-            uv_feature_indices=uv_indices,
-            target_uv_mean=target_uv_mean,
-            target_uv_std=target_uv_std,
-        )
-        val_metrics = evaluate_loss(
-            model,
-            arrays["validation"],
-            regression_loss_fn,
-            event_loss_fn,
-            device,
-            args.batch_size,
-            args.event_loss_weight,
-            args.direction_loss_weight,
-            residual_regression=args.residual_regression,
-            uv_feature_indices=uv_indices,
-            target_uv_mean=target_uv_mean,
-            target_uv_std=target_uv_std,
-        )
-        current_lr = float(optimizer.param_groups[0]["lr"])
-        row = {
-            "epoch": epoch,
-            "learning_rate": current_lr,
-            **{f"train_{k}": v for k, v in train_metrics.items()},
-            **{f"validation_{k}": v for k, v in val_metrics.items()},
-        }
-        history_rows.append(row)
-        pd.DataFrame(history_rows).to_csv(args.output_dir / "lstm_training_history.csv", index=False)
-        print(
-            "epoch={epoch} lr={lr:.6g} train_loss={train_loss:.6f} val_loss={val_loss:.6f} "
-            "train_reg={train_reg:.6f} val_reg={val_reg:.6f} "
-            "train_event={train_event:.6f} val_event={val_event:.6f} "
-            "train_dir={train_dir:.6f} val_dir={val_dir:.6f}".format(
-                epoch=epoch,
-                lr=current_lr,
-                train_loss=train_metrics["loss"],
-                val_loss=val_metrics["loss"],
-                train_reg=train_metrics["regression_loss"],
-                val_reg=val_metrics["regression_loss"],
-                train_event=train_metrics["event_loss"],
-                val_event=val_metrics["event_loss"],
-                train_dir=train_metrics["direction_loss"],
-                val_dir=val_metrics["direction_loss"],
-            ),
-            flush=True,
-        )
-
-        if val_metrics["loss"] < best_val_loss:
-            best_val_loss = val_metrics["loss"]
-            best_epoch = epoch
-            stale_epochs = 0
-            torch.save(
-                {
-                    "model_state_dict": model.state_dict(),
-                    "config": asdict(config),
-                    "metadata": metadata,
-                    "best_epoch": best_epoch,
-                    "best_validation_loss": best_val_loss,
-                },
-                args.output_dir / "lstm_best.pt",
+        for epoch in range(1, args.epochs + 1):
+            train_metrics = train_one_epoch(
+                model,
+                arrays["train"],
+                optimizer,
+                regression_loss_fn,
+                event_loss_fn,
+                device,
+                args.batch_size,
+                args.event_loss_weight,
+                args.direction_loss_weight,
+                rng,
+                shuffle_blocks=not args.no_shuffle_blocks,
+                residual_regression=args.residual_regression,
+                uv_feature_indices=uv_indices,
+                target_uv_mean=target_uv_mean,
+                target_uv_std=target_uv_std,
             )
-        else:
-            stale_epochs += 1
-            if stale_epochs >= args.patience:
-                print(f"Early stopping after epoch {epoch}; best epoch was {best_epoch}.", flush=True)
-                break
-        scheduler.step(val_metrics["loss"])
+            val_metrics = evaluate_loss(
+                model,
+                arrays["validation"],
+                regression_loss_fn,
+                event_loss_fn,
+                device,
+                args.batch_size,
+                args.event_loss_weight,
+                args.direction_loss_weight,
+                residual_regression=args.residual_regression,
+                uv_feature_indices=uv_indices,
+                target_uv_mean=target_uv_mean,
+                target_uv_std=target_uv_std,
+            )
+            current_lr = float(optimizer.param_groups[0]["lr"])
+            row = {
+                "epoch": epoch,
+                "learning_rate": current_lr,
+                **{f"train_{k}": v for k, v in train_metrics.items()},
+                **{f"validation_{k}": v for k, v in val_metrics.items()},
+            }
+            history_rows.append(row)
+            pd.DataFrame(history_rows).to_csv(args.output_dir / "lstm_training_history.csv", index=False)
+            print(
+                "epoch={epoch} lr={lr:.6g} train_loss={train_loss:.6f} val_loss={val_loss:.6f} "
+                "train_reg={train_reg:.6f} val_reg={val_reg:.6f} "
+                "train_event={train_event:.6f} val_event={val_event:.6f} "
+                "train_dir={train_dir:.6f} val_dir={val_dir:.6f}".format(
+                    epoch=epoch,
+                    lr=current_lr,
+                    train_loss=train_metrics["loss"],
+                    val_loss=val_metrics["loss"],
+                    train_reg=train_metrics["regression_loss"],
+                    val_reg=val_metrics["regression_loss"],
+                    train_event=train_metrics["event_loss"],
+                    val_event=val_metrics["event_loss"],
+                    train_dir=train_metrics["direction_loss"],
+                    val_dir=val_metrics["direction_loss"],
+                ),
+                flush=True,
+            )
+
+            if val_metrics["loss"] < best_val_loss:
+                best_val_loss = val_metrics["loss"]
+                best_epoch = epoch
+                stale_epochs = 0
+                torch.save(
+                    {
+                        "model_state_dict": model.state_dict(),
+                        "config": asdict(config),
+                        "metadata": metadata,
+                        "best_epoch": best_epoch,
+                        "best_validation_loss": best_val_loss,
+                    },
+                    args.output_dir / "lstm_best.pt",
+                )
+            else:
+                stale_epochs += 1
+                if stale_epochs >= args.patience:
+                    print(f"Early stopping after epoch {epoch}; best epoch was {best_epoch}.", flush=True)
+                    break
+            scheduler.step(val_metrics["loss"])
 
     checkpoint = torch.load(args.output_dir / "lstm_best.pt", map_location=device)
     model.load_state_dict(checkpoint["model_state_dict"])
+    best_epoch = int(checkpoint.get("best_epoch", best_epoch))
+    best_val_loss = float(checkpoint.get("best_validation_loss", best_val_loss))
 
     val_pred_uv_scaled, val_event_prob = predict_split(
         model,

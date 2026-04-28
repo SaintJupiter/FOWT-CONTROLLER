@@ -61,6 +61,20 @@ FEATURE_COLUMNS = [
     "dayofyear_cos",
 ]
 
+BASE_FEATURE_COLUMNS = FEATURE_COLUMNS.copy()
+ENHANCED_FEATURE_COLUMNS = [
+    *BASE_FEATURE_COLUMNS,
+    "wind_speed_range_30m",
+    "wind_speed_range_60m",
+    "wind_dir_resultant_len_30m",
+    "wind_dir_resultant_len_60m",
+    "wind_vector_delta_norm_10m",
+    "wind_vector_delta_norm_max_30m",
+    "wind_vector_delta_norm_max_60m",
+    "wind_speed_delta2_10m",
+    "wind_dir_delta2_10m_deg",
+]
+
 FUTURE_VALUE_COLUMNS = ["wind_u_ms", "wind_v_ms", "wind_speed_ms", "wind_dir_deg"]
 TARGET_UV_COLUMNS = ["wind_u_ms", "wind_v_ms"]
 SAMPLE_SUMMARY_COLUMNS = [
@@ -75,6 +89,9 @@ EVENT_COLUMNS = [
     "vector_change_ge_train_p90",
     "future_speed_ge_train_p95",
     "ballast_attention_event",
+    "attention_event_0_20m",
+    "attention_event_20_40m",
+    "attention_event_40_60m",
 ]
 
 
@@ -87,6 +104,36 @@ def source_table_path(processed_dir: Path) -> Path:
 
 def circular_diff_deg(target: np.ndarray, base: np.ndarray) -> np.ndarray:
     return (target - base + 180.0) % 360.0 - 180.0
+
+
+def add_enhanced_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Add compact short-term volatility and wind-direction stability features."""
+    parts = []
+    for _series_id, group in df.groupby("series_id", sort=False):
+        group = group.sort_values("timestamp").copy()
+        speed = group["wind_speed_ms"]
+        vector_delta = np.sqrt(group["wind_u_delta_10m"] ** 2 + group["wind_v_delta_10m"] ** 2)
+
+        for window, suffix in [(3, "30m"), (6, "60m")]:
+            group[f"wind_speed_range_{suffix}"] = speed.rolling(window=window, min_periods=window).max() - speed.rolling(
+                window=window, min_periods=window
+            ).min()
+            sin_mean = group["wind_dir_sin"].rolling(window=window, min_periods=window).mean()
+            cos_mean = group["wind_dir_cos"].rolling(window=window, min_periods=window).mean()
+            group[f"wind_dir_resultant_len_{suffix}"] = np.sqrt(sin_mean**2 + cos_mean**2)
+            group[f"wind_vector_delta_norm_max_{suffix}"] = vector_delta.rolling(
+                window=window, min_periods=window
+            ).max()
+
+        group["wind_vector_delta_norm_10m"] = vector_delta
+        group["wind_speed_delta2_10m"] = group["wind_speed_delta_10m"].diff()
+        previous_dir_delta = group["wind_dir_delta_10m_deg"].shift(1)
+        group["wind_dir_delta2_10m_deg"] = circular_diff_deg(
+            group["wind_dir_delta_10m_deg"].to_numpy(dtype="float64"),
+            previous_dir_delta.to_numpy(dtype="float64"),
+        )
+        parts.append(group)
+    return pd.concat(parts, ignore_index=True)
 
 
 def standardizer(values: pd.DataFrame) -> dict[str, dict[str, float]]:
@@ -175,6 +222,44 @@ def event_labels(summaries: np.ndarray, thresholds: dict[str, float]) -> np.ndar
     high_speed = summaries[:, 0] >= thresholds["future_speed_train_p95_ms"]
     attention = speed_ramp | direction_shift | vector_change | high_speed
     return np.column_stack([speed_ramp, direction_shift, vector_change, high_speed, attention]).astype("int8")
+
+
+def segmented_event_labels(
+    group: pd.DataFrame,
+    ends: np.ndarray,
+    future_steps: int,
+    thresholds: dict[str, float],
+) -> np.ndarray:
+    speed = group["wind_speed_ms"].astype("float64").to_numpy()
+    direction = group["wind_dir_deg"].astype("float64").to_numpy()
+    u = group["wind_u_ms"].astype("float64").to_numpy()
+    v = group["wind_v_ms"].astype("float64").to_numpy()
+
+    future_offsets = np.arange(1, future_steps + 1, dtype=np.int64)
+    future_idx = ends[:, None] + future_offsets[None, :]
+    current_speed = speed[ends][:, None]
+    current_dir = direction[ends][:, None]
+    current_u = u[ends][:, None]
+    current_v = v[ends][:, None]
+
+    future_speed = speed[future_idx]
+    future_dir = direction[future_idx]
+    future_u = u[future_idx]
+    future_v = v[future_idx]
+
+    speed_ramp = future_speed - current_speed
+    dir_shift = np.abs(circular_diff_deg(future_dir, current_dir))
+    vector_change = np.sqrt((future_u - current_u) ** 2 + (future_v - current_v) ** 2)
+
+    segment_slices = [slice(0, 2), slice(2, 4), slice(4, 6)]
+    segment_events = []
+    for segment in segment_slices:
+        speed_event = np.max(speed_ramp[:, segment], axis=1) >= thresholds["speed_ramp_ms"]
+        dir_event = np.max(dir_shift[:, segment], axis=1) >= thresholds["direction_shift_deg"]
+        vector_event = np.max(vector_change[:, segment], axis=1) >= thresholds["vector_change_train_p90_ms"]
+        high_speed = np.max(future_speed[:, segment], axis=1) >= thresholds["future_speed_train_p95_ms"]
+        segment_events.append(speed_event | dir_event | vector_event | high_speed)
+    return np.column_stack(segment_events).astype("int8")
 
 
 def collect_counts_and_thresholds(
@@ -292,7 +377,9 @@ def build_dataset(
         uv_rows_scaled = scale_uv(uv_rows_raw, target_stats)
         speed_dir_rows_raw = group[["wind_speed_ms", "wind_dir_deg"]].astype("float32").to_numpy()
         summaries = sample_summaries(group, ends, future_steps)
-        events = event_labels(summaries, thresholds)
+        base_events = event_labels(summaries, thresholds)
+        segment_events = segmented_event_labels(group, ends, future_steps, thresholds)
+        events = np.column_stack([base_events, segment_events]).astype("int8")
 
         future_offsets = np.arange(1, future_steps + 1, dtype=np.int64)
         start_offset = offsets[split]
@@ -441,13 +528,24 @@ def main() -> None:
     parser.add_argument("--series-id", action="append", default=[DEFAULT_SERIES_ID])
     parser.add_argument("--history-steps", type=int, default=12, help="10-minute samples in the input history.")
     parser.add_argument("--future-steps", type=int, default=6, help="10-minute samples in the future output sequence.")
+    parser.add_argument("--feature-set", choices=["base", "enhanced_v1"], default="base")
     args = parser.parse_args()
+
+    global FEATURE_COLUMNS
+    if args.feature_set == "enhanced_v1":
+        FEATURE_COLUMNS = ENHANCED_FEATURE_COLUMNS
+        if args.out_dir == Path("data/processed/wind_ml_10min/ballast_decision_dwd_helgoland"):
+            args.out_dir = Path("data/processed/wind_ml_10min/ballast_decision_dwd_helgoland_enhanced_v1")
+    else:
+        FEATURE_COLUMNS = BASE_FEATURE_COLUMNS
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     table = source_table_path(args.processed_dir)
-    usecols = sorted(set(["timestamp", "series_id", "split", *FEATURE_COLUMNS, *FUTURE_VALUE_COLUMNS]))
+    usecols = sorted(set(["timestamp", "series_id", "split", *BASE_FEATURE_COLUMNS, *FUTURE_VALUE_COLUMNS]))
     df = pd.read_csv(table, usecols=usecols, parse_dates=["timestamp"])
     df = df.sort_values(["series_id", "timestamp"]).reset_index(drop=True)
+    if args.feature_set == "enhanced_v1":
+        df = add_enhanced_features(df)
 
     source_counts = df.groupby("series_id").size().reset_index(name="source_rows")
     requested = set(args.series_id)
