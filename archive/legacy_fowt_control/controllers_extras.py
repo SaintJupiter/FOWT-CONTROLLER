@@ -941,6 +941,7 @@ class ClosedLoopPolicy:
         command_rate_limiter=None,
         heave_balancer=None,
         preview_trim_provider=None,
+        primary_safety_cfg=None,
     ):
         self.controller = controller
         self.trim_governor = trim_governor
@@ -948,6 +949,82 @@ class ClosedLoopPolicy:
         self.command_rate_limiter = command_rate_limiter
         self.heave_balancer = heave_balancer
         self.preview_trim_provider = preview_trim_provider
+        cfg = dict(primary_safety_cfg or {})
+        self.primary_safety_enabled = self._cfg_bool(
+            cfg, "primary_safety_fallback_enabled", True
+        )
+        self.primary_safety_pitch_enter_deg = float(
+            cfg.get("primary_safety_pitch_enter_deg", 6.5)
+        )
+        self.primary_safety_roll_enter_deg = float(
+            cfg.get("primary_safety_roll_enter_deg", 5.5)
+        )
+        self.primary_safety_pitch_exit_deg = float(
+            cfg.get("primary_safety_pitch_exit_deg", 6.0)
+        )
+        self.primary_safety_roll_exit_deg = float(
+            cfg.get("primary_safety_roll_exit_deg", 5.0)
+        )
+        self.primary_safety_use_envelope = self._cfg_bool(
+            cfg, "primary_safety_use_envelope", False
+        )
+        self.primary_safety_envelope_enter_norm = max(
+            float(cfg.get("primary_safety_envelope_enter_norm", 1.5)), 1e-6
+        )
+        self.primary_safety_enter_hold_s = max(
+            float(cfg.get("primary_safety_enter_hold_s", 30.0)), 0.0
+        )
+        self.primary_safety_emergency_pitch_enter_deg = float(
+            cfg.get("primary_safety_emergency_pitch_enter_deg", 9.0)
+        )
+        self.primary_safety_emergency_roll_enter_deg = float(
+            cfg.get("primary_safety_emergency_roll_enter_deg", 7.5)
+        )
+        self.primary_safety_exit_hold_s = max(
+            float(cfg.get("primary_safety_exit_hold_s", 0.0)), 0.0
+        )
+        self.primary_safety_exit_required_windows = max(
+            int(cfg.get("primary_safety_exit_required_windows", 1)), 1
+        )
+        self.deadband_target_release_enabled = self._cfg_bool(
+            cfg, "deadband_target_release_enabled", False
+        )
+        self.deadband_target_release_pitch_deg = float(
+            cfg.get("deadband_target_release_pitch_deg", 0.0)
+        )
+        self.deadband_target_release_roll_deg = float(
+            cfg.get("deadband_target_release_roll_deg", 0.0)
+        )
+        self.deadband_target_release_near_zero_deg = max(
+            float(cfg.get("deadband_target_release_near_zero_deg", 0.15)), 0.0
+        )
+        self.deadband_target_release_rate_eps_deg_s = max(
+            float(cfg.get("deadband_target_release_rate_eps_deg_s", 0.002)), 0.0
+        )
+        self.deadband_target_release_blend = float(
+            np.clip(float(cfg.get("deadband_target_release_blend", 1.0)), 0.0, 1.0)
+        )
+        self.deadband_target_release_require_both_axes = self._cfg_bool(
+            cfg, "deadband_target_release_require_both_axes", True
+        )
+        self.deadband_target_release_reset_limiter = self._cfg_bool(
+            cfg, "deadband_target_release_reset_limiter", True
+        )
+        self.deadband_target_release_exit_pitch_deg = max(
+            float(cfg.get("deadband_target_release_exit_pitch_deg", 0.0)), 0.0
+        )
+        self.deadband_target_release_exit_roll_deg = max(
+            float(cfg.get("deadband_target_release_exit_roll_deg", 0.0)), 0.0
+        )
+        self._deadband_target_release_latched = False
+        self._primary_safety_active = False
+        self._primary_safety_enter_elapsed_s = 0.0
+        self._primary_safety_last_time_s = None
+        self._primary_safety_exit_window_start_s = None
+        self._primary_safety_exit_window_max_pitch_abs_deg = 0.0
+        self._primary_safety_exit_window_max_roll_abs_deg = 0.0
+        self._primary_safety_exit_clean_windows = 0
+        self._deadband_target_release_latched = False
 
     def reset(self, initial_cmd, initial_ws=0.0):
         self.controller.reset()
@@ -963,6 +1040,358 @@ class ClosedLoopPolicy:
             self.heave_balancer.reset()
         if self.preview_trim_provider is not None and hasattr(self.preview_trim_provider, "reset"):
             self.preview_trim_provider.reset()
+        self._primary_safety_active = False
+        self._primary_safety_enter_elapsed_s = 0.0
+        self._primary_safety_last_time_s = None
+        self._primary_safety_exit_window_start_s = None
+        self._primary_safety_exit_window_max_pitch_abs_deg = 0.0
+        self._primary_safety_exit_window_max_roll_abs_deg = 0.0
+        self._primary_safety_exit_clean_windows = 0
+
+    @staticmethod
+    def _cfg_bool(cfg, key, default):
+        value = cfg.get(key, default)
+        if isinstance(value, str):
+            return value.strip().lower() not in ("", "0", "false", "no", "off")
+        return bool(value)
+
+    @staticmethod
+    def _safe_norm_axis(value, scale):
+        scale = abs(float(scale))
+        if scale <= 1e-9:
+            return 0.0
+        return float(value) / scale
+
+    def _primary_safety_env_norm(self, pitch_abs_deg, roll_abs_deg):
+        p = self._safe_norm_axis(pitch_abs_deg, self.primary_safety_pitch_enter_deg)
+        r = self._safe_norm_axis(roll_abs_deg, self.primary_safety_roll_enter_deg)
+        return float(np.sqrt(p * p + r * r))
+
+    def _primary_safety_exit_env_norm(self):
+        p = self._safe_norm_axis(
+            self._primary_safety_exit_window_max_pitch_abs_deg,
+            self.primary_safety_pitch_exit_deg,
+        )
+        r = self._safe_norm_axis(
+            self._primary_safety_exit_window_max_roll_abs_deg,
+            self.primary_safety_roll_exit_deg,
+        )
+        return float(np.sqrt(p * p + r * r))
+
+    def _primary_safety_update_window(self, current_time, pitch_abs_deg, roll_abs_deg):
+        if self._primary_safety_exit_window_start_s is None:
+            self._primary_safety_exit_window_start_s = float(current_time)
+            self._primary_safety_exit_window_max_pitch_abs_deg = float(pitch_abs_deg)
+            self._primary_safety_exit_window_max_roll_abs_deg = float(roll_abs_deg)
+            return
+        self._primary_safety_exit_window_max_pitch_abs_deg = max(
+            self._primary_safety_exit_window_max_pitch_abs_deg,
+            float(pitch_abs_deg),
+        )
+        self._primary_safety_exit_window_max_roll_abs_deg = max(
+            self._primary_safety_exit_window_max_roll_abs_deg,
+            float(roll_abs_deg),
+        )
+
+    def _primary_safety_reset_exit_window(self, current_time, pitch_abs_deg, roll_abs_deg):
+        self._primary_safety_exit_window_start_s = float(current_time)
+        self._primary_safety_exit_window_max_pitch_abs_deg = float(pitch_abs_deg)
+        self._primary_safety_exit_window_max_roll_abs_deg = float(roll_abs_deg)
+
+    def _primary_safety_step_dt(self, current_time):
+        current = float(current_time)
+        if self._primary_safety_last_time_s is None:
+            self._primary_safety_last_time_s = current
+            return 0.0
+        dt = max(current - float(self._primary_safety_last_time_s), 0.0)
+        self._primary_safety_last_time_s = current
+        return float(dt)
+
+    @staticmethod
+    def _primary_safety_reason(prefix, pitch_enter, roll_enter, env_enter):
+        if pitch_enter:
+            return f"{prefix}_pitch"
+        if roll_enter:
+            return f"{prefix}_roll"
+        if env_enter:
+            return f"{prefix}_envelope"
+        return str(prefix)
+
+    def _primary_safety_update(self, state, current_time, primary_enabled, primary_candidate_applied):
+        pitch_deg = float(np.degrees(state[4]))
+        roll_deg = float(np.degrees(state[3]))
+        pitch_abs = abs(pitch_deg)
+        roll_abs = abs(roll_deg)
+        env_norm = self._primary_safety_env_norm(pitch_abs, roll_abs)
+        step_dt = self._primary_safety_step_dt(current_time)
+
+        pitch_enter = pitch_abs > self.primary_safety_pitch_enter_deg
+        roll_enter = roll_abs > self.primary_safety_roll_enter_deg
+        env_enter = (
+            self.primary_safety_use_envelope
+            and env_norm > self.primary_safety_envelope_enter_norm
+        )
+        normal_enter = bool(pitch_enter or roll_enter or env_enter)
+        emergency_pitch_enter = (
+            self.primary_safety_emergency_pitch_enter_deg > 0.0
+            and pitch_abs > self.primary_safety_emergency_pitch_enter_deg
+        )
+        emergency_roll_enter = (
+            self.primary_safety_emergency_roll_enter_deg > 0.0
+            and roll_abs > self.primary_safety_emergency_roll_enter_deg
+        )
+        emergency_enter = bool(emergency_pitch_enter or emergency_roll_enter)
+
+        reason = "disabled"
+        if not self.primary_safety_enabled:
+            self._primary_safety_active = False
+            self._primary_safety_enter_elapsed_s = 0.0
+            self._primary_safety_exit_clean_windows = 0
+        elif not (primary_enabled and primary_candidate_applied):
+            self._primary_safety_active = False
+            self._primary_safety_enter_elapsed_s = 0.0
+            self._primary_safety_exit_clean_windows = 0
+            reason = "primary_not_applied"
+        else:
+            if self._primary_safety_active:
+                reason = "latched"
+                self._primary_safety_enter_elapsed_s = 0.0
+                if self.primary_safety_exit_hold_s <= 0.0:
+                    hold_elapsed = 0.0
+                    exit_clean = (
+                        pitch_abs < self.primary_safety_pitch_exit_deg
+                        and roll_abs < self.primary_safety_roll_exit_deg
+                    )
+                    if exit_clean:
+                        self._primary_safety_active = False
+                        reason = "exit_instant_clean"
+                        self._primary_safety_exit_clean_windows = 0
+                    else:
+                        reason = "exit_instant_dirty"
+                    self._primary_safety_reset_exit_window(current_time, pitch_abs, roll_abs)
+                else:
+                    self._primary_safety_update_window(current_time, pitch_abs, roll_abs)
+                    hold_elapsed = (
+                        0.0
+                        if self._primary_safety_exit_window_start_s is None
+                        else float(current_time) - float(self._primary_safety_exit_window_start_s)
+                    )
+                    if hold_elapsed >= self.primary_safety_exit_hold_s:
+                        exit_clean = (
+                            self._primary_safety_exit_window_max_pitch_abs_deg
+                            < self.primary_safety_pitch_exit_deg
+                            and self._primary_safety_exit_window_max_roll_abs_deg
+                            < self.primary_safety_roll_exit_deg
+                        )
+                        if exit_clean:
+                            self._primary_safety_exit_clean_windows += 1
+                        else:
+                            self._primary_safety_exit_clean_windows = 0
+                        if self._primary_safety_exit_clean_windows >= self.primary_safety_exit_required_windows:
+                            self._primary_safety_active = False
+                            reason = "exit_hysteresis_clean"
+                            self._primary_safety_exit_clean_windows = 0
+                        else:
+                            reason = "exit_window_dirty" if not exit_clean else "exit_window_counting"
+                        self._primary_safety_reset_exit_window(current_time, pitch_abs, roll_abs)
+            elif emergency_enter:
+                self._primary_safety_active = True
+                self._primary_safety_enter_elapsed_s = 0.0
+                self._primary_safety_exit_clean_windows = 0
+                self._primary_safety_reset_exit_window(current_time, pitch_abs, roll_abs)
+                if emergency_pitch_enter:
+                    reason = "enter_emergency_pitch"
+                else:
+                    reason = "enter_emergency_roll"
+            elif normal_enter:
+                if self.primary_safety_enter_hold_s <= 0.0:
+                    self._primary_safety_enter_elapsed_s = self.primary_safety_enter_hold_s
+                else:
+                    self._primary_safety_enter_elapsed_s += step_dt
+                if self._primary_safety_enter_elapsed_s >= self.primary_safety_enter_hold_s:
+                    self._primary_safety_active = True
+                    self._primary_safety_enter_elapsed_s = 0.0
+                    self._primary_safety_exit_clean_windows = 0
+                    self._primary_safety_reset_exit_window(current_time, pitch_abs, roll_abs)
+                    reason = self._primary_safety_reason(
+                        "enter_persistent", pitch_enter, roll_enter, env_enter
+                    )
+                else:
+                    reason = self._primary_safety_reason(
+                        "enter_counting", pitch_enter, roll_enter, env_enter
+                    )
+            else:
+                reason = "free"
+                self._primary_safety_enter_elapsed_s = 0.0
+                self._primary_safety_exit_clean_windows = 0
+
+        return {
+            "enabled": int(self.primary_safety_enabled),
+            "active": int(self._primary_safety_active),
+            "fallback": int(self.primary_safety_enabled and self._primary_safety_active),
+            "reason": str(reason),
+            "pitch_deg": float(pitch_deg),
+            "roll_deg": float(roll_deg),
+            "pitch_abs_deg": float(pitch_abs),
+            "roll_abs_deg": float(roll_abs),
+            "env_norm": float(env_norm),
+            "use_envelope": int(self.primary_safety_use_envelope),
+            "envelope_enter_norm": float(self.primary_safety_envelope_enter_norm),
+            "normal_enter": int(normal_enter),
+            "emergency_enter": int(emergency_enter),
+            "enter_elapsed_s": float(self._primary_safety_enter_elapsed_s),
+            "enter_hold_s": float(self.primary_safety_enter_hold_s),
+            "pitch_enter_deg": float(self.primary_safety_pitch_enter_deg),
+            "roll_enter_deg": float(self.primary_safety_roll_enter_deg),
+            "emergency_pitch_enter_deg": float(self.primary_safety_emergency_pitch_enter_deg),
+            "emergency_roll_enter_deg": float(self.primary_safety_emergency_roll_enter_deg),
+            "pitch_exit_deg": float(self.primary_safety_pitch_exit_deg),
+            "roll_exit_deg": float(self.primary_safety_roll_exit_deg),
+            "exit_window_max_pitch_abs_deg": float(
+                self._primary_safety_exit_window_max_pitch_abs_deg
+            ),
+            "exit_window_max_roll_abs_deg": float(
+                self._primary_safety_exit_window_max_roll_abs_deg
+            ),
+            "exit_env_norm": float(self._primary_safety_exit_env_norm()),
+            "exit_clean_windows": int(self._primary_safety_exit_clean_windows),
+            "exit_hold_s": float(self.primary_safety_exit_hold_s),
+            "exit_required_windows": int(self.primary_safety_exit_required_windows),
+        }
+
+    def _deadband_target_release_update(
+        self,
+        state,
+        plant_info_prev,
+        ctrl_dbg,
+        m_cmd_applied,
+        m_cmd_reference,
+    ):
+        zero = {
+            "active": 0,
+            "reason": "disabled" if not self.deadband_target_release_enabled else "inactive",
+            "delta_mean_kg": 0.0,
+            "blend": float(self.deadband_target_release_blend),
+            "pitch_ok": 0,
+            "roll_ok": 0,
+            "exit_pitch_ok": 0,
+            "exit_roll_ok": 0,
+            "latched": int(self._deadband_target_release_latched),
+            "reset_limiter": 0,
+        }
+        if not self.deadband_target_release_enabled:
+            self._deadband_target_release_latched = False
+            return m_cmd_applied, zero
+        if plant_info_prev is None or "tank_masses" not in plant_info_prev:
+            zero["reason"] = "missing_tank_feedback"
+            return m_cmd_applied, zero
+
+        masses = np.asarray(plant_info_prev["tank_masses"], dtype=float).reshape(-1)
+        if masses.size < 3:
+            zero["reason"] = "invalid_tank_feedback"
+            return m_cmd_applied, zero
+        masses = masses[:3]
+
+        pid_details = ctrl_dbg.get("pid_details", {}) if isinstance(ctrl_dbg, dict) else {}
+        pitch_pid = pid_details.get("pitch", {})
+        roll_pid = pid_details.get("roll", {})
+        pitch_limit = self.deadband_target_release_pitch_deg
+        roll_limit = self.deadband_target_release_roll_deg
+        if pitch_limit <= 0.0:
+            pitch_limit = float(pitch_pid.get("deadband_exit", 0.5))
+        if roll_limit <= 0.0:
+            roll_limit = float(roll_pid.get("deadband_exit", 0.4))
+        exit_pitch_limit = max(
+            self.deadband_target_release_exit_pitch_deg,
+            pitch_limit,
+        )
+        exit_roll_limit = max(
+            self.deadband_target_release_exit_roll_deg,
+            roll_limit,
+        )
+
+        pitch_deg = float(np.degrees(state[4]))
+        roll_deg = float(np.degrees(state[3]))
+        pitch_rate_deg_s = float(np.degrees(state[10])) if len(state) > 10 else 0.0
+        roll_rate_deg_s = float(np.degrees(state[9])) if len(state) > 9 else 0.0
+
+        def axis_ok(value_deg, rate_deg_s, in_deadband, limit_deg):
+            inside = bool(in_deadband) and abs(float(value_deg)) <= max(float(limit_deg), 1e-9)
+            near_zero = abs(float(value_deg)) <= self.deadband_target_release_near_zero_deg
+            moving_to_zero = float(value_deg) * float(rate_deg_s) <= self.deadband_target_release_rate_eps_deg_s
+            return bool(inside and (near_zero or moving_to_zero))
+
+        pitch_ok = axis_ok(
+            pitch_deg,
+            pitch_rate_deg_s,
+            int(pitch_pid.get("in_deadband", 0)) > 0,
+            pitch_limit,
+        )
+        roll_ok = axis_ok(
+            roll_deg,
+            roll_rate_deg_s,
+            int(roll_pid.get("in_deadband", 0)) > 0,
+            roll_limit,
+        )
+        entry_active = (
+            (pitch_ok and roll_ok)
+            if self.deadband_target_release_require_both_axes
+            else (pitch_ok or roll_ok)
+        )
+        exit_pitch_ok = abs(pitch_deg) <= max(exit_pitch_limit, 1e-9)
+        exit_roll_ok = abs(roll_deg) <= max(exit_roll_limit, 1e-9)
+        exit_active = (
+            (exit_pitch_ok and exit_roll_ok)
+            if self.deadband_target_release_require_both_axes
+            else (exit_pitch_ok or exit_roll_ok)
+        )
+        latched_active = bool(self._deadband_target_release_latched and exit_active)
+        active = bool(entry_active or latched_active)
+        if not active:
+            reason = "exit_deadband_hysteresis" if self._deadband_target_release_latched else "axis_not_ready"
+            self._deadband_target_release_latched = False
+            zero.update(
+                {
+                    "reason": reason,
+                    "pitch_ok": int(pitch_ok),
+                    "roll_ok": int(roll_ok),
+                    "exit_pitch_ok": int(exit_pitch_ok),
+                    "exit_roll_ok": int(exit_roll_ok),
+                    "latched": 0,
+                }
+            )
+            return m_cmd_applied, zero
+
+        self._deadband_target_release_latched = True
+        cmd = np.asarray(m_cmd_applied, dtype=float).reshape(-1)[:3]
+        blend = float(self.deadband_target_release_blend)
+        released = masses + (1.0 - blend) * (cmd - masses)
+        released = np.clip(released, 0.0, self.controller.max_mass)
+        delta_mean = float(np.mean(np.abs(cmd - released)))
+        if self.deadband_target_release_reset_limiter and self.command_rate_limiter is not None:
+            self.command_rate_limiter.reset(initial_cmd=released)
+            reset_limiter = 1
+        else:
+            reset_limiter = 0
+        return released, {
+            "active": 1,
+            "reason": "inside_deadband_moving_to_zero" if entry_active else "latched_deadband_hysteresis",
+            "delta_mean_kg": delta_mean,
+            "blend": blend,
+            "pitch_ok": int(pitch_ok),
+            "roll_ok": int(roll_ok),
+            "exit_pitch_ok": int(exit_pitch_ok),
+            "exit_roll_ok": int(exit_roll_ok),
+            "latched": 1,
+            "reset_limiter": int(reset_limiter),
+            "pitch_deg": float(pitch_deg),
+            "roll_deg": float(roll_deg),
+            "pitch_rate_deg_s": float(pitch_rate_deg_s),
+            "roll_rate_deg_s": float(roll_rate_deg_s),
+            "pitch_limit_deg": float(pitch_limit),
+            "roll_limit_deg": float(roll_limit),
+            "reference_gap_mean_kg": float(np.mean(np.abs(np.asarray(m_cmd_reference, dtype=float).reshape(-1)[:3] - masses))),
+        }
 
     def _preview_trim_bias(self, state, wind_obs, plant_info_prev, current_time):
         if self.preview_trim_provider is None:
@@ -1000,6 +1429,7 @@ class ClosedLoopPolicy:
             pitch_sp_raw = trim_dbg["pitch_sp_raw_deg"]
             roll_sp_raw = trim_dbg["roll_sp_raw_deg"]
         else:
+            (preview_pitch, preview_roll), preview_dbg = _coerce_preview_trim_bias(preview_trim_bias)
             trim_dbg = {
                 "trim_scale": 0.0,
                 "trim_enabled": 0,
@@ -1033,21 +1463,25 @@ class ClosedLoopPolicy:
                 "fallback_reason_invalid_state_id": 0,
                 "current_pitch_trim_raw_deg": 0.0,
                 "current_roll_trim_raw_deg": 0.0,
-                "preview_pitch_bias_deg": 0.0,
-                "preview_roll_bias_deg": 0.0,
-                "combined_pitch_trim_raw_deg": 0.0,
-                "combined_roll_trim_raw_deg": 0.0,
+                "preview_pitch_bias_deg": float(preview_pitch),
+                "preview_roll_bias_deg": float(preview_roll),
+                "combined_pitch_trim_raw_deg": float(preview_pitch),
+                "combined_roll_trim_raw_deg": float(preview_roll),
                 "current_pitch_trim_scaled_deg": 0.0,
                 "current_roll_trim_scaled_deg": 0.0,
-                "preview_pitch_scaled_deg": 0.0,
-                "preview_roll_scaled_deg": 0.0,
+                "preview_pitch_scaled_deg": float(preview_pitch),
+                "preview_roll_scaled_deg": float(preview_roll),
                 "preview_scale_mode": "none",
-                "preview_scale_eff": 0.0,
-                "preview_trim_active": 0,
-                "preview_trim_source": "no_trim",
+                "preview_scale_eff": 1.0 if (abs(preview_pitch) > 1e-12 or abs(preview_roll) > 1e-12) else 0.0,
+                "preview_trim_active": int(abs(preview_pitch) > 1e-12 or abs(preview_roll) > 1e-12),
+                "preview_trim_source": str(preview_dbg.get("preview_trim_source", preview_dbg.get("source", "no_trim"))),
             }
-            pitch_sp_raw = float(self.controller.setpoints["pitch"])
-            roll_sp_raw = float(self.controller.setpoints["roll"])
+            for key, value in preview_dbg.items():
+                if key not in trim_dbg:
+                    trim_dbg[key] = value
+            pitch_sp_raw = float(preview_dbg.get("pitch_sp_deg", preview_pitch))
+            roll_sp_raw = float(preview_dbg.get("roll_sp_deg", preview_roll))
+            trim_dbg["target_source"] = str(trim_dbg.get("selected_plan", "preview_direct"))
 
         if self.setpoint_shaper is not None:
             pitch_sp, roll_sp = self.setpoint_shaper.update(pitch_sp_raw, roll_sp_raw)
@@ -1088,14 +1522,144 @@ class ClosedLoopPolicy:
                 "heave_balancer_active": 0,
             }
 
-        if self.command_rate_limiter is not None:
-            m_cmd_applied, cmd_gap = self.command_rate_limiter.update(m_cmd_heave)
+        primary_enabled = int(
+            preview_trim_bias.get("preview_primary_enabled", 0)
+            if isinstance(preview_trim_bias, dict)
+            else 0
+        )
+        primary_active = int(
+            preview_trim_bias.get("preview_primary_active", 0)
+            if isinstance(preview_trim_bias, dict)
+            else 0
+        )
+        primary_target_raw = (
+            preview_trim_bias.get("preview_primary_target_kg")
+            if isinstance(preview_trim_bias, dict)
+            else None
+        )
+        primary_delta_raw = (
+            preview_trim_bias.get("preview_primary_delta_kg")
+            if isinstance(preview_trim_bias, dict)
+            else None
+        )
+        primary_target = np.zeros(3, dtype=float)
+        primary_delta = np.zeros(3, dtype=float)
+        primary_applied = 0
+        primary_candidate_applied = 0
+        m_cmd_primary_candidate = m_cmd_heave
+        if primary_enabled and primary_target_raw is not None:
+            arr = np.asarray(primary_target_raw, dtype=float).reshape(-1)
+            if arr.size >= 3:
+                primary_target = np.clip(arr[:3], 0.0, self.controller.max_mass)
+                m_cmd_primary_candidate = primary_target
+                primary_candidate_applied = 1
+            else:
+                m_cmd_primary_candidate = m_cmd_heave
         else:
-            m_cmd_applied = m_cmd_heave
-            cmd_gap = 0.0
+            m_cmd_primary_candidate = m_cmd_heave
+        if primary_delta_raw is not None:
+            arr_delta = np.asarray(primary_delta_raw, dtype=float).reshape(-1)
+            if arr_delta.size >= 3:
+                primary_delta = arr_delta[:3]
 
+        primary_safety_dbg = self._primary_safety_update(
+            state=state,
+            current_time=current_time,
+            primary_enabled=bool(primary_enabled),
+            primary_candidate_applied=bool(primary_candidate_applied),
+        )
+        if primary_safety_dbg["fallback"]:
+            m_cmd_primary = m_cmd_heave
+            primary_applied = 0
+        else:
+            m_cmd_primary = m_cmd_primary_candidate
+            primary_applied = int(primary_candidate_applied)
+
+        # Preview FF channel: per-tank mass delta direct from the planner,
+        # injected AFTER the PI deadband and the heave balancer, BEFORE the
+        # rate limiter so it still respects the pump rate envelope. This
+        # bypasses the structural ceiling of the setpoint-shift channel
+        # (PI deadband). See configs/planner_sign_contract.json.
+        mass_ff_raw = preview_trim_bias.get("preview_mass_ff_kg") if isinstance(preview_trim_bias, dict) else None
+        if mass_ff_raw is not None:
+            mass_ff = np.asarray(mass_ff_raw, dtype=float).reshape(-1)
+            if mass_ff.size >= 3:
+                mass_ff = mass_ff[:3]
+                # Clip into capacity bounds before rate limiting.
+                m_cmd_with_ff = np.clip(m_cmd_primary + mass_ff, 0.0, self.controller.max_mass)
+            else:
+                mass_ff = np.zeros(3, dtype=float)
+                m_cmd_with_ff = m_cmd_primary
+        else:
+            mass_ff = np.zeros(3, dtype=float)
+            m_cmd_with_ff = m_cmd_primary
+        if primary_safety_dbg["fallback"]:
+            mass_ff = np.zeros(3, dtype=float)
+            m_cmd_with_ff = m_cmd_primary
+
+        suppression_active = int(
+            preview_trim_bias.get("preview_pump_suppression_active", 0)
+            if isinstance(preview_trim_bias, dict)
+            else 0
+        )
+        suppression_restart_err_kg = float(
+            preview_trim_bias.get("preview_pump_restart_err_kg", 0.0)
+            if isinstance(preview_trim_bias, dict)
+            else 0.0
+        )
+        suppression_reason = str(
+            preview_trim_bias.get("preview_pump_suppression_reason", "")
+            if isinstance(preview_trim_bias, dict)
+            else ""
+        )
+        suppression_blocked_tanks = 0
+        suppression_blocked_mass_kg = 0.0
+        suppression_mask = np.zeros(3, dtype=bool)
+        m_cmd_suppressed = m_cmd_with_ff
+        if (
+            suppression_active
+            and suppression_restart_err_kg > 0.0
+            and plant_info_prev is not None
+            and "tank_masses" in plant_info_prev
+        ):
+            current_masses = np.asarray(plant_info_prev["tank_masses"], dtype=float).reshape(-1)
+            if current_masses.size >= 3:
+                current_masses = current_masses[:3]
+                latched_raw = plant_info_prev.get("pump_latched", [False, False, False])
+                latched = np.asarray(latched_raw, dtype=bool).reshape(-1)
+                if latched.size < 3:
+                    latched = np.pad(latched, (0, 3 - latched.size), constant_values=False)
+                latched = latched[:3]
+                err = m_cmd_with_ff - current_masses
+                abs_err = np.abs(err)
+                suppression_mask = (~latched) & (abs_err > 1e-6) & (abs_err < suppression_restart_err_kg)
+                if np.any(suppression_mask):
+                    m_cmd_suppressed = m_cmd_with_ff.copy()
+                    suppression_blocked_mass_kg = float(np.sum(np.abs(err[suppression_mask])))
+                    m_cmd_suppressed[suppression_mask] = current_masses[suppression_mask]
+                    suppression_blocked_tanks = int(np.sum(suppression_mask))
+
+        if self.command_rate_limiter is not None:
+            m_cmd_applied, cmd_gap = self.command_rate_limiter.update(m_cmd_suppressed)
+        else:
+            m_cmd_applied = m_cmd_suppressed
+            cmd_gap = 0.0
+        m_cmd_applied, release_dbg = self._deadband_target_release_update(
+            state=state,
+            plant_info_prev=plant_info_prev,
+            ctrl_dbg=ctrl_dbg,
+            m_cmd_applied=m_cmd_applied,
+            m_cmd_reference=m_cmd_suppressed,
+        )
+        if int(release_dbg.get("active", 0)):
+            cmd_gap = float(np.mean(np.abs(np.asarray(m_cmd_suppressed, dtype=float) - np.asarray(m_cmd_applied, dtype=float))))
+
+        ff_delta_mean = float(np.mean(np.abs(mass_ff)))
         heave_bias_delta_mean = float(np.mean(np.abs(m_cmd_heave - m_cmd_raw)))
-        limiter_delta_mean = float(np.mean(np.abs(m_cmd_applied - m_cmd_heave)))
+        primary_delta_mean = float(np.mean(np.abs(m_cmd_primary - m_cmd_heave)))
+        primary_candidate_delta_mean = float(np.mean(np.abs(m_cmd_primary_candidate - m_cmd_heave)))
+        suppression_delta_mean = float(np.mean(np.abs(m_cmd_suppressed - m_cmd_with_ff)))
+        limiter_delta_mean = float(np.mean(np.abs(m_cmd_applied - m_cmd_suppressed)))
         post_chain_delta_mean = float(np.mean(np.abs(m_cmd_applied - m_cmd_raw)))
         post_chain_adjusted = int(post_chain_delta_mean > 1e-6)
         ctrl_base_clipped = int(ctrl_dbg.get("clipped", 0))
@@ -1211,6 +1775,16 @@ class ClosedLoopPolicy:
             "limiter_delta_mean_kg": float(limiter_delta_mean),
             "post_chain_delta_mean_kg": float(post_chain_delta_mean),
             "post_chain_adjusted": int(post_chain_adjusted),
+            "deadband_target_release_active": int(release_dbg.get("active", 0)),
+            "deadband_target_release_reason": str(release_dbg.get("reason", "")),
+            "deadband_target_release_delta_mean_kg": float(release_dbg.get("delta_mean_kg", 0.0)),
+            "deadband_target_release_blend": float(release_dbg.get("blend", 0.0)),
+            "deadband_target_release_pitch_ok": int(release_dbg.get("pitch_ok", 0)),
+            "deadband_target_release_roll_ok": int(release_dbg.get("roll_ok", 0)),
+            "deadband_target_release_exit_pitch_ok": int(release_dbg.get("exit_pitch_ok", 0)),
+            "deadband_target_release_exit_roll_ok": int(release_dbg.get("exit_roll_ok", 0)),
+            "deadband_target_release_latched": int(release_dbg.get("latched", 0)),
+            "deadband_target_release_reset_limiter": int(release_dbg.get("reset_limiter", 0)),
             "hm_smoothed_heave_m": float(hm_dbg.get("hm_smoothed_heave_m", state[2])),
             "hm_heave_error_m": float(hm_dbg.get("hm_heave_error_m", 0.0)),
             "hm_total_ballast_kg": float(hm_dbg.get("hm_total_ballast_kg", np.sum(m_cmd_applied))),
@@ -1221,5 +1795,119 @@ class ClosedLoopPolicy:
                 hm_dbg.get("heave_correction_per_tank_kg", 0.0)
             ),
             "heave_balancer_active": int(hm_dbg.get("heave_balancer_active", 0)),
+            "preview_primary_enabled": int(primary_enabled),
+            "preview_primary_active": int(primary_active),
+            "preview_primary_applied": int(primary_applied),
+            "preview_primary_candidate_applied": int(primary_candidate_applied),
+            "preview_primary_target_t1_kg": float(primary_target[0]),
+            "preview_primary_target_t2_kg": float(primary_target[1]),
+            "preview_primary_target_t3_kg": float(primary_target[2]),
+            "preview_primary_delta_t1_kg": float(primary_delta[0]),
+            "preview_primary_delta_t2_kg": float(primary_delta[1]),
+            "preview_primary_delta_t3_kg": float(primary_delta[2]),
+            "preview_primary_delta_mean_kg": float(primary_delta_mean),
+            "preview_primary_candidate_delta_mean_kg": float(primary_candidate_delta_mean),
+            "preview_primary_action": str(
+                preview_trim_bias.get("preview_primary_action", "")
+                if isinstance(preview_trim_bias, dict)
+                else ""
+            ),
+            "preview_primary_event_reset": int(
+                preview_trim_bias.get("preview_primary_event_reset", 0)
+                if isinstance(preview_trim_bias, dict)
+                else 0
+            ),
+            "preview_primary_target_refreshed": int(
+                preview_trim_bias.get("preview_primary_target_refreshed", 0)
+                if isinstance(preview_trim_bias, dict)
+                else 0
+            ),
+            "preview_primary_target_reused": int(
+                preview_trim_bias.get("preview_primary_target_reused", 0)
+                if isinstance(preview_trim_bias, dict)
+                else 0
+            ),
+            "preview_primary_target_age_s": float(
+                preview_trim_bias.get("preview_primary_target_age_s", 0.0)
+                if isinstance(preview_trim_bias, dict)
+                else 0.0
+            ),
+            "preview_primary_safety_enabled": int(primary_safety_dbg["enabled"]),
+            "preview_primary_safety_active": int(primary_safety_dbg["active"]),
+            "preview_primary_safety_fallback": int(primary_safety_dbg["fallback"]),
+            "preview_primary_safety_reason": str(primary_safety_dbg["reason"]),
+            "preview_primary_safety_pitch_abs_deg": float(primary_safety_dbg["pitch_abs_deg"]),
+            "preview_primary_safety_roll_abs_deg": float(primary_safety_dbg["roll_abs_deg"]),
+            "preview_primary_safety_env_norm": float(primary_safety_dbg["env_norm"]),
+            "preview_primary_safety_use_envelope": int(primary_safety_dbg["use_envelope"]),
+            "preview_primary_safety_envelope_enter_norm": float(
+                primary_safety_dbg["envelope_enter_norm"]
+            ),
+            "preview_primary_safety_normal_enter": int(primary_safety_dbg["normal_enter"]),
+            "preview_primary_safety_emergency_enter": int(
+                primary_safety_dbg["emergency_enter"]
+            ),
+            "preview_primary_safety_enter_elapsed_s": float(
+                primary_safety_dbg["enter_elapsed_s"]
+            ),
+            "preview_primary_safety_enter_hold_s": float(primary_safety_dbg["enter_hold_s"]),
+            "preview_primary_safety_pitch_enter_deg": float(primary_safety_dbg["pitch_enter_deg"]),
+            "preview_primary_safety_roll_enter_deg": float(primary_safety_dbg["roll_enter_deg"]),
+            "preview_primary_safety_emergency_pitch_enter_deg": float(
+                primary_safety_dbg["emergency_pitch_enter_deg"]
+            ),
+            "preview_primary_safety_emergency_roll_enter_deg": float(
+                primary_safety_dbg["emergency_roll_enter_deg"]
+            ),
+            "preview_primary_safety_pitch_exit_deg": float(primary_safety_dbg["pitch_exit_deg"]),
+            "preview_primary_safety_roll_exit_deg": float(primary_safety_dbg["roll_exit_deg"]),
+            "preview_primary_safety_exit_window_max_pitch_abs_deg": float(
+                primary_safety_dbg["exit_window_max_pitch_abs_deg"]
+            ),
+            "preview_primary_safety_exit_window_max_roll_abs_deg": float(
+                primary_safety_dbg["exit_window_max_roll_abs_deg"]
+            ),
+            "preview_primary_safety_exit_env_norm": float(primary_safety_dbg["exit_env_norm"]),
+            "preview_primary_safety_exit_clean_windows": int(
+                primary_safety_dbg["exit_clean_windows"]
+            ),
+            "preview_primary_safety_exit_hold_s": float(primary_safety_dbg["exit_hold_s"]),
+            "preview_primary_safety_exit_required_windows": int(
+                primary_safety_dbg["exit_required_windows"]
+            ),
+            "preview_mass_ff_t1_kg": float(mass_ff[0]) if mass_ff.size > 0 else 0.0,
+            "preview_mass_ff_t2_kg": float(mass_ff[1]) if mass_ff.size > 1 else 0.0,
+            "preview_mass_ff_t3_kg": float(mass_ff[2]) if mass_ff.size > 2 else 0.0,
+            "preview_mass_ff_abs_mean_kg": ff_delta_mean,
+            "preview_ff_channel_active": int(ff_delta_mean > 1.0),
+            "preview_pump_suppression_active": int(suppression_active),
+            "preview_pump_restart_err_kg": float(suppression_restart_err_kg),
+            "preview_pump_suppression_reason": suppression_reason,
+            "preview_pressure_block0_norm": float(
+                preview_trim_bias.get("preview_pressure_block0_norm", 0.0)
+                if isinstance(preview_trim_bias, dict)
+                else 0.0
+            ),
+            "preview_pressure_block1_norm": float(
+                preview_trim_bias.get("preview_pressure_block1_norm", 0.0)
+                if isinstance(preview_trim_bias, dict)
+                else 0.0
+            ),
+            "preview_pressure_block2_norm": float(
+                preview_trim_bias.get("preview_pressure_block2_norm", 0.0)
+                if isinstance(preview_trim_bias, dict)
+                else 0.0
+            ),
+            "preview_pressure_block02_dot": float(
+                preview_trim_bias.get("preview_pressure_block02_dot", 0.0)
+                if isinstance(preview_trim_bias, dict)
+                else 0.0
+            ),
+            "suppression_blocked_tanks": int(suppression_blocked_tanks),
+            "suppression_blocked_mass_kg": float(suppression_blocked_mass_kg),
+            "suppression_delta_mean_kg": float(suppression_delta_mean),
+            "suppression_mask_t1": int(suppression_mask[0]) if suppression_mask.size > 0 else 0,
+            "suppression_mask_t2": int(suppression_mask[1]) if suppression_mask.size > 1 else 0,
+            "suppression_mask_t3": int(suppression_mask[2]) if suppression_mask.size > 2 else 0,
         }
         return m_cmd_applied, dbg

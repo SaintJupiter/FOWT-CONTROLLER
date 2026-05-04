@@ -194,6 +194,42 @@ def _build_protocol_meta(protocol_name, controller_cfg, heave_cfg, target_shape_
         "shaper_enabled": shaper_enabled,
         "shaper_alpha": float(target_shape_cfg.get("setpoint_alpha", np.nan)),
         "shaper_rate_deg_s": float(target_shape_cfg.get("setpoint_rate_deg_s", np.nan)),
+        "primary_safety_fallback_enabled": int(
+            bool(target_shape_cfg.get("primary_safety_fallback_enabled", True))
+        ),
+        "primary_safety_pitch_enter_deg": float(
+            target_shape_cfg.get("primary_safety_pitch_enter_deg", np.nan)
+        ),
+        "primary_safety_roll_enter_deg": float(
+            target_shape_cfg.get("primary_safety_roll_enter_deg", np.nan)
+        ),
+        "primary_safety_pitch_exit_deg": float(
+            target_shape_cfg.get("primary_safety_pitch_exit_deg", np.nan)
+        ),
+        "primary_safety_roll_exit_deg": float(
+            target_shape_cfg.get("primary_safety_roll_exit_deg", np.nan)
+        ),
+        "primary_safety_use_envelope": int(
+            bool(target_shape_cfg.get("primary_safety_use_envelope", False))
+        ),
+        "primary_safety_envelope_enter_norm": float(
+            target_shape_cfg.get("primary_safety_envelope_enter_norm", np.nan)
+        ),
+        "primary_safety_enter_hold_s": float(
+            target_shape_cfg.get("primary_safety_enter_hold_s", np.nan)
+        ),
+        "primary_safety_emergency_pitch_enter_deg": float(
+            target_shape_cfg.get("primary_safety_emergency_pitch_enter_deg", np.nan)
+        ),
+        "primary_safety_emergency_roll_enter_deg": float(
+            target_shape_cfg.get("primary_safety_emergency_roll_enter_deg", np.nan)
+        ),
+        "primary_safety_exit_hold_s": float(
+            target_shape_cfg.get("primary_safety_exit_hold_s", np.nan)
+        ),
+        "primary_safety_exit_required_windows": int(
+            target_shape_cfg.get("primary_safety_exit_required_windows", 1)
+        ),
     }
 
 
@@ -734,6 +770,164 @@ def _append_timeseries_row(
                 dbg.get("post_chain_delta_mean_kg", 0.0)
             ),
             "post_chain_adjusted": int(dbg.get("post_chain_adjusted", 0)),
+            "deadband_target_release_active": int(
+                dbg.get("deadband_target_release_active", 0)
+            ),
+            "deadband_target_release_reason": str(
+                dbg.get("deadband_target_release_reason", "")
+            ),
+            "deadband_target_release_delta_mean_kg": float(
+                dbg.get("deadband_target_release_delta_mean_kg", 0.0)
+            ),
+            "deadband_target_release_pitch_ok": int(
+                dbg.get("deadband_target_release_pitch_ok", 0)
+            ),
+            "deadband_target_release_roll_ok": int(
+                dbg.get("deadband_target_release_roll_ok", 0)
+            ),
+            "deadband_target_release_exit_pitch_ok": int(
+                dbg.get("deadband_target_release_exit_pitch_ok", 0)
+            ),
+            "deadband_target_release_exit_roll_ok": int(
+                dbg.get("deadband_target_release_exit_roll_ok", 0)
+            ),
+            "deadband_target_release_latched": int(
+                dbg.get("deadband_target_release_latched", 0)
+            ),
+            "deadband_target_release_reset_limiter": int(
+                dbg.get("deadband_target_release_reset_limiter", 0)
+            ),
+            "preview_pump_suppression_active": int(
+                dbg.get("preview_pump_suppression_active", 0)
+            ),
+            "preview_pump_restart_err_kg": float(
+                dbg.get("preview_pump_restart_err_kg", 0.0)
+            ),
+            "preview_pump_suppression_reason": str(
+                dbg.get("preview_pump_suppression_reason", "")
+            ),
+            "preview_primary_enabled": int(dbg.get("preview_primary_enabled", 0)),
+            "preview_primary_active": int(dbg.get("preview_primary_active", 0)),
+            "preview_primary_applied": int(dbg.get("preview_primary_applied", 0)),
+            "preview_primary_candidate_applied": int(
+                dbg.get("preview_primary_candidate_applied", 0)
+            ),
+            "preview_primary_target_t1_kg": float(dbg.get("preview_primary_target_t1_kg", 0.0)),
+            "preview_primary_target_t2_kg": float(dbg.get("preview_primary_target_t2_kg", 0.0)),
+            "preview_primary_target_t3_kg": float(dbg.get("preview_primary_target_t3_kg", 0.0)),
+            "preview_primary_delta_t1_kg": float(dbg.get("preview_primary_delta_t1_kg", 0.0)),
+            "preview_primary_delta_t2_kg": float(dbg.get("preview_primary_delta_t2_kg", 0.0)),
+            "preview_primary_delta_t3_kg": float(dbg.get("preview_primary_delta_t3_kg", 0.0)),
+            "preview_primary_delta_mean_kg": float(dbg.get("preview_primary_delta_mean_kg", 0.0)),
+            "preview_primary_candidate_delta_mean_kg": float(
+                dbg.get("preview_primary_candidate_delta_mean_kg", 0.0)
+            ),
+            "preview_primary_action": str(dbg.get("preview_primary_action", "")),
+            "preview_primary_event_reset": int(dbg.get("preview_primary_event_reset", 0)),
+            "preview_primary_target_refreshed": int(
+                dbg.get("preview_primary_target_refreshed", 0)
+            ),
+            "preview_primary_target_reused": int(
+                dbg.get("preview_primary_target_reused", 0)
+            ),
+            "preview_primary_target_age_s": float(
+                dbg.get("preview_primary_target_age_s", 0.0)
+            ),
+            "preview_primary_safety_enabled": int(
+                dbg.get("preview_primary_safety_enabled", 0)
+            ),
+            "preview_primary_safety_active": int(
+                dbg.get("preview_primary_safety_active", 0)
+            ),
+            "preview_primary_safety_fallback": int(
+                dbg.get("preview_primary_safety_fallback", 0)
+            ),
+            "preview_primary_safety_reason": str(
+                dbg.get("preview_primary_safety_reason", "")
+            ),
+            "preview_primary_safety_pitch_abs_deg": float(
+                dbg.get("preview_primary_safety_pitch_abs_deg", 0.0)
+            ),
+            "preview_primary_safety_roll_abs_deg": float(
+                dbg.get("preview_primary_safety_roll_abs_deg", 0.0)
+            ),
+            "preview_primary_safety_env_norm": float(
+                dbg.get("preview_primary_safety_env_norm", 0.0)
+            ),
+            "preview_primary_safety_use_envelope": int(
+                dbg.get("preview_primary_safety_use_envelope", 0)
+            ),
+            "preview_primary_safety_envelope_enter_norm": float(
+                dbg.get("preview_primary_safety_envelope_enter_norm", 0.0)
+            ),
+            "preview_primary_safety_normal_enter": int(
+                dbg.get("preview_primary_safety_normal_enter", 0)
+            ),
+            "preview_primary_safety_emergency_enter": int(
+                dbg.get("preview_primary_safety_emergency_enter", 0)
+            ),
+            "preview_primary_safety_enter_elapsed_s": float(
+                dbg.get("preview_primary_safety_enter_elapsed_s", 0.0)
+            ),
+            "preview_primary_safety_enter_hold_s": float(
+                dbg.get("preview_primary_safety_enter_hold_s", 0.0)
+            ),
+            "preview_primary_safety_pitch_enter_deg": float(
+                dbg.get("preview_primary_safety_pitch_enter_deg", 0.0)
+            ),
+            "preview_primary_safety_roll_enter_deg": float(
+                dbg.get("preview_primary_safety_roll_enter_deg", 0.0)
+            ),
+            "preview_primary_safety_emergency_pitch_enter_deg": float(
+                dbg.get("preview_primary_safety_emergency_pitch_enter_deg", 0.0)
+            ),
+            "preview_primary_safety_emergency_roll_enter_deg": float(
+                dbg.get("preview_primary_safety_emergency_roll_enter_deg", 0.0)
+            ),
+            "preview_primary_safety_pitch_exit_deg": float(
+                dbg.get("preview_primary_safety_pitch_exit_deg", 0.0)
+            ),
+            "preview_primary_safety_roll_exit_deg": float(
+                dbg.get("preview_primary_safety_roll_exit_deg", 0.0)
+            ),
+            "preview_primary_safety_exit_window_max_pitch_abs_deg": float(
+                dbg.get("preview_primary_safety_exit_window_max_pitch_abs_deg", 0.0)
+            ),
+            "preview_primary_safety_exit_window_max_roll_abs_deg": float(
+                dbg.get("preview_primary_safety_exit_window_max_roll_abs_deg", 0.0)
+            ),
+            "preview_primary_safety_exit_env_norm": float(
+                dbg.get("preview_primary_safety_exit_env_norm", 0.0)
+            ),
+            "preview_primary_safety_exit_clean_windows": int(
+                dbg.get("preview_primary_safety_exit_clean_windows", 0)
+            ),
+            "preview_primary_safety_exit_hold_s": float(
+                dbg.get("preview_primary_safety_exit_hold_s", 0.0)
+            ),
+            "preview_primary_safety_exit_required_windows": int(
+                dbg.get("preview_primary_safety_exit_required_windows", 0)
+            ),
+            "preview_pressure_block0_norm": float(
+                dbg.get("preview_pressure_block0_norm", 0.0)
+            ),
+            "preview_pressure_block1_norm": float(
+                dbg.get("preview_pressure_block1_norm", 0.0)
+            ),
+            "preview_pressure_block2_norm": float(
+                dbg.get("preview_pressure_block2_norm", 0.0)
+            ),
+            "preview_pressure_block02_dot": float(
+                dbg.get("preview_pressure_block02_dot", 0.0)
+            ),
+            "suppression_blocked_tanks": int(dbg.get("suppression_blocked_tanks", 0)),
+            "suppression_blocked_mass_kg": float(
+                dbg.get("suppression_blocked_mass_kg", 0.0)
+            ),
+            "suppression_delta_mean_kg": float(dbg.get("suppression_delta_mean_kg", 0.0)),
+            "suppression_mask_t1": int(dbg.get("suppression_mask_t1", 0)),
+            "suppression_mask_t2": int(dbg.get("suppression_mask_t2", 0)),
+            "suppression_mask_t3": int(dbg.get("suppression_mask_t3", 0)),
         }
     )
 
@@ -934,6 +1128,7 @@ def _build_case_components(
         command_rate_limiter=cmd_limiter,
         heave_balancer=heave_balancer,
         preview_trim_provider=preview_trim_provider,
+        primary_safety_cfg=target_shape_cfg,
     )
     initial_ws = 0.0
     if wind_trace is not None and len(wind_trace["ws"]) > 0:
@@ -1048,6 +1243,124 @@ def _extract_step_obs(plant, info, dbg, ctrl_diag, limits, wind_obs):
     preview_scale_eff = float(dbg.get("preview_scale_eff", 0.0))
     preview_trim_active = int(dbg.get("preview_trim_active", 0))
     preview_trim_source = str(dbg.get("preview_trim_source", "none"))
+    preview_pump_suppression_active = int(dbg.get("preview_pump_suppression_active", 0))
+    preview_pump_restart_err_kg = float(dbg.get("preview_pump_restart_err_kg", 0.0))
+    preview_pump_suppression_reason = str(dbg.get("preview_pump_suppression_reason", ""))
+    preview_primary_enabled = int(dbg.get("preview_primary_enabled", 0))
+    preview_primary_active = int(dbg.get("preview_primary_active", 0))
+    preview_primary_applied = int(dbg.get("preview_primary_applied", 0))
+    preview_primary_candidate_applied = int(dbg.get("preview_primary_candidate_applied", 0))
+    preview_primary_target_t1_kg = float(dbg.get("preview_primary_target_t1_kg", 0.0))
+    preview_primary_target_t2_kg = float(dbg.get("preview_primary_target_t2_kg", 0.0))
+    preview_primary_target_t3_kg = float(dbg.get("preview_primary_target_t3_kg", 0.0))
+    preview_primary_delta_t1_kg = float(dbg.get("preview_primary_delta_t1_kg", 0.0))
+    preview_primary_delta_t2_kg = float(dbg.get("preview_primary_delta_t2_kg", 0.0))
+    preview_primary_delta_t3_kg = float(dbg.get("preview_primary_delta_t3_kg", 0.0))
+    preview_primary_delta_mean_kg = float(dbg.get("preview_primary_delta_mean_kg", 0.0))
+    preview_primary_candidate_delta_mean_kg = float(
+        dbg.get("preview_primary_candidate_delta_mean_kg", 0.0)
+    )
+    preview_primary_action = str(dbg.get("preview_primary_action", ""))
+    preview_primary_event_reset = int(dbg.get("preview_primary_event_reset", 0))
+    preview_primary_target_refreshed = int(
+        dbg.get("preview_primary_target_refreshed", 0)
+    )
+    preview_primary_target_reused = int(dbg.get("preview_primary_target_reused", 0))
+    preview_primary_target_age_s = float(dbg.get("preview_primary_target_age_s", 0.0))
+    preview_primary_safety_enabled = int(dbg.get("preview_primary_safety_enabled", 0))
+    preview_primary_safety_active = int(dbg.get("preview_primary_safety_active", 0))
+    preview_primary_safety_fallback = int(dbg.get("preview_primary_safety_fallback", 0))
+    preview_primary_safety_reason = str(dbg.get("preview_primary_safety_reason", ""))
+    preview_primary_safety_pitch_abs_deg = float(
+        dbg.get("preview_primary_safety_pitch_abs_deg", 0.0)
+    )
+    preview_primary_safety_roll_abs_deg = float(
+        dbg.get("preview_primary_safety_roll_abs_deg", 0.0)
+    )
+    preview_primary_safety_env_norm = float(dbg.get("preview_primary_safety_env_norm", 0.0))
+    preview_primary_safety_use_envelope = int(
+        dbg.get("preview_primary_safety_use_envelope", 0)
+    )
+    preview_primary_safety_envelope_enter_norm = float(
+        dbg.get("preview_primary_safety_envelope_enter_norm", 0.0)
+    )
+    preview_primary_safety_normal_enter = int(
+        dbg.get("preview_primary_safety_normal_enter", 0)
+    )
+    preview_primary_safety_emergency_enter = int(
+        dbg.get("preview_primary_safety_emergency_enter", 0)
+    )
+    preview_primary_safety_enter_elapsed_s = float(
+        dbg.get("preview_primary_safety_enter_elapsed_s", 0.0)
+    )
+    preview_primary_safety_enter_hold_s = float(
+        dbg.get("preview_primary_safety_enter_hold_s", 0.0)
+    )
+    preview_primary_safety_pitch_enter_deg = float(
+        dbg.get("preview_primary_safety_pitch_enter_deg", 0.0)
+    )
+    preview_primary_safety_roll_enter_deg = float(
+        dbg.get("preview_primary_safety_roll_enter_deg", 0.0)
+    )
+    preview_primary_safety_emergency_pitch_enter_deg = float(
+        dbg.get("preview_primary_safety_emergency_pitch_enter_deg", 0.0)
+    )
+    preview_primary_safety_emergency_roll_enter_deg = float(
+        dbg.get("preview_primary_safety_emergency_roll_enter_deg", 0.0)
+    )
+    preview_primary_safety_pitch_exit_deg = float(
+        dbg.get("preview_primary_safety_pitch_exit_deg", 0.0)
+    )
+    preview_primary_safety_roll_exit_deg = float(
+        dbg.get("preview_primary_safety_roll_exit_deg", 0.0)
+    )
+    preview_primary_safety_exit_window_max_pitch_abs_deg = float(
+        dbg.get("preview_primary_safety_exit_window_max_pitch_abs_deg", 0.0)
+    )
+    preview_primary_safety_exit_window_max_roll_abs_deg = float(
+        dbg.get("preview_primary_safety_exit_window_max_roll_abs_deg", 0.0)
+    )
+    preview_primary_safety_exit_env_norm = float(
+        dbg.get("preview_primary_safety_exit_env_norm", 0.0)
+    )
+    preview_primary_safety_exit_clean_windows = int(
+        dbg.get("preview_primary_safety_exit_clean_windows", 0)
+    )
+    preview_primary_safety_exit_hold_s = float(
+        dbg.get("preview_primary_safety_exit_hold_s", 0.0)
+    )
+    preview_primary_safety_exit_required_windows = int(
+        dbg.get("preview_primary_safety_exit_required_windows", 0)
+    )
+    preview_pressure_block0_norm = float(dbg.get("preview_pressure_block0_norm", 0.0))
+    preview_pressure_block1_norm = float(dbg.get("preview_pressure_block1_norm", 0.0))
+    preview_pressure_block2_norm = float(dbg.get("preview_pressure_block2_norm", 0.0))
+    preview_pressure_block02_dot = float(dbg.get("preview_pressure_block02_dot", 0.0))
+    suppression_blocked_tanks = int(dbg.get("suppression_blocked_tanks", 0))
+    suppression_blocked_mass_kg = float(dbg.get("suppression_blocked_mass_kg", 0.0))
+    suppression_delta_mean_kg = float(dbg.get("suppression_delta_mean_kg", 0.0))
+    suppression_mask_t1 = int(dbg.get("suppression_mask_t1", 0))
+    suppression_mask_t2 = int(dbg.get("suppression_mask_t2", 0))
+    suppression_mask_t3 = int(dbg.get("suppression_mask_t3", 0))
+    deadband_target_release_active = int(dbg.get("deadband_target_release_active", 0))
+    deadband_target_release_reason = str(dbg.get("deadband_target_release_reason", ""))
+    deadband_target_release_delta_mean_kg = float(
+        dbg.get("deadband_target_release_delta_mean_kg", 0.0)
+    )
+    deadband_target_release_pitch_ok = int(dbg.get("deadband_target_release_pitch_ok", 0))
+    deadband_target_release_roll_ok = int(dbg.get("deadband_target_release_roll_ok", 0))
+    deadband_target_release_exit_pitch_ok = int(
+        dbg.get("deadband_target_release_exit_pitch_ok", 0)
+    )
+    deadband_target_release_exit_roll_ok = int(
+        dbg.get("deadband_target_release_exit_roll_ok", 0)
+    )
+    deadband_target_release_latched = int(
+        dbg.get("deadband_target_release_latched", 0)
+    )
+    deadband_target_release_reset_limiter = int(
+        dbg.get("deadband_target_release_reset_limiter", 0)
+    )
     trim_scale = float(dbg.get("trim_scale", 0.0))
     trim_enabled = int(dbg.get("trim_enabled", 0))
     trim_freeze = int(dbg.get("trim_freeze", 0))
@@ -1140,6 +1453,70 @@ def _extract_step_obs(plant, info, dbg, ctrl_diag, limits, wind_obs):
         "preview_scale_eff": preview_scale_eff,
         "preview_trim_active": preview_trim_active,
         "preview_trim_source": preview_trim_source,
+        "preview_pump_suppression_active": preview_pump_suppression_active,
+        "preview_pump_restart_err_kg": preview_pump_restart_err_kg,
+        "preview_pump_suppression_reason": preview_pump_suppression_reason,
+        "preview_primary_enabled": preview_primary_enabled,
+        "preview_primary_active": preview_primary_active,
+        "preview_primary_applied": preview_primary_applied,
+        "preview_primary_candidate_applied": preview_primary_candidate_applied,
+        "preview_primary_target_t1_kg": preview_primary_target_t1_kg,
+        "preview_primary_target_t2_kg": preview_primary_target_t2_kg,
+        "preview_primary_target_t3_kg": preview_primary_target_t3_kg,
+        "preview_primary_delta_t1_kg": preview_primary_delta_t1_kg,
+        "preview_primary_delta_t2_kg": preview_primary_delta_t2_kg,
+        "preview_primary_delta_t3_kg": preview_primary_delta_t3_kg,
+        "preview_primary_delta_mean_kg": preview_primary_delta_mean_kg,
+        "preview_primary_candidate_delta_mean_kg": preview_primary_candidate_delta_mean_kg,
+        "preview_primary_action": preview_primary_action,
+        "preview_primary_event_reset": preview_primary_event_reset,
+        "preview_primary_target_refreshed": preview_primary_target_refreshed,
+        "preview_primary_target_reused": preview_primary_target_reused,
+        "preview_primary_target_age_s": preview_primary_target_age_s,
+        "preview_primary_safety_enabled": preview_primary_safety_enabled,
+        "preview_primary_safety_active": preview_primary_safety_active,
+        "preview_primary_safety_fallback": preview_primary_safety_fallback,
+        "preview_primary_safety_reason": preview_primary_safety_reason,
+        "preview_primary_safety_pitch_abs_deg": preview_primary_safety_pitch_abs_deg,
+        "preview_primary_safety_roll_abs_deg": preview_primary_safety_roll_abs_deg,
+        "preview_primary_safety_env_norm": preview_primary_safety_env_norm,
+        "preview_primary_safety_use_envelope": preview_primary_safety_use_envelope,
+        "preview_primary_safety_envelope_enter_norm": preview_primary_safety_envelope_enter_norm,
+        "preview_primary_safety_normal_enter": preview_primary_safety_normal_enter,
+        "preview_primary_safety_emergency_enter": preview_primary_safety_emergency_enter,
+        "preview_primary_safety_enter_elapsed_s": preview_primary_safety_enter_elapsed_s,
+        "preview_primary_safety_enter_hold_s": preview_primary_safety_enter_hold_s,
+        "preview_primary_safety_pitch_enter_deg": preview_primary_safety_pitch_enter_deg,
+        "preview_primary_safety_roll_enter_deg": preview_primary_safety_roll_enter_deg,
+        "preview_primary_safety_emergency_pitch_enter_deg": preview_primary_safety_emergency_pitch_enter_deg,
+        "preview_primary_safety_emergency_roll_enter_deg": preview_primary_safety_emergency_roll_enter_deg,
+        "preview_primary_safety_pitch_exit_deg": preview_primary_safety_pitch_exit_deg,
+        "preview_primary_safety_roll_exit_deg": preview_primary_safety_roll_exit_deg,
+        "preview_primary_safety_exit_window_max_pitch_abs_deg": preview_primary_safety_exit_window_max_pitch_abs_deg,
+        "preview_primary_safety_exit_window_max_roll_abs_deg": preview_primary_safety_exit_window_max_roll_abs_deg,
+        "preview_primary_safety_exit_env_norm": preview_primary_safety_exit_env_norm,
+        "preview_primary_safety_exit_clean_windows": preview_primary_safety_exit_clean_windows,
+        "preview_primary_safety_exit_hold_s": preview_primary_safety_exit_hold_s,
+        "preview_primary_safety_exit_required_windows": preview_primary_safety_exit_required_windows,
+        "preview_pressure_block0_norm": preview_pressure_block0_norm,
+        "preview_pressure_block1_norm": preview_pressure_block1_norm,
+        "preview_pressure_block2_norm": preview_pressure_block2_norm,
+        "preview_pressure_block02_dot": preview_pressure_block02_dot,
+        "suppression_blocked_tanks": suppression_blocked_tanks,
+        "suppression_blocked_mass_kg": suppression_blocked_mass_kg,
+        "suppression_delta_mean_kg": suppression_delta_mean_kg,
+        "suppression_mask_t1": suppression_mask_t1,
+        "suppression_mask_t2": suppression_mask_t2,
+        "suppression_mask_t3": suppression_mask_t3,
+        "deadband_target_release_active": deadband_target_release_active,
+        "deadband_target_release_reason": deadband_target_release_reason,
+        "deadband_target_release_delta_mean_kg": deadband_target_release_delta_mean_kg,
+        "deadband_target_release_pitch_ok": deadband_target_release_pitch_ok,
+        "deadband_target_release_roll_ok": deadband_target_release_roll_ok,
+        "deadband_target_release_exit_pitch_ok": deadband_target_release_exit_pitch_ok,
+        "deadband_target_release_exit_roll_ok": deadband_target_release_exit_roll_ok,
+        "deadband_target_release_latched": deadband_target_release_latched,
+        "deadband_target_release_reset_limiter": deadband_target_release_reset_limiter,
         "trim_scale": trim_scale,
         "trim_enabled": trim_enabled,
         "trim_freeze": trim_freeze,
@@ -1253,6 +1630,13 @@ def _update_case_accumulators(acc, obs, dbg, t_sim):
     acc["fallback_reason_missing_table"] = int(obs.get("fallback_reason_missing_table", acc.get("fallback_reason_missing_table", 0)))
     acc["fallback_reason_missing_columns"] = int(obs.get("fallback_reason_missing_columns", acc.get("fallback_reason_missing_columns", 0)))
     acc["fallback_reason_invalid_state_id"] = int(obs.get("fallback_reason_invalid_state_id", acc.get("fallback_reason_invalid_state_id", 0)))
+    safety_active = int(obs.get("preview_primary_safety_active", 0))
+    safety_fallback = int(obs.get("preview_primary_safety_fallback", 0))
+    acc["preview_primary_safety_active_steps"] += safety_active
+    acc["preview_primary_safety_fallback_steps"] += safety_fallback
+    if safety_active != int(acc.get("preview_primary_safety_prev_active", 0)):
+        acc["preview_primary_safety_transition_count"] += 1
+    acc["preview_primary_safety_prev_active"] = safety_active
 
     if t_sim >= acc["tail_start_s"]:
         acc["tail_steps"] += 1
@@ -1307,6 +1691,12 @@ def _finalize_case_summary(
     trim_pressure_fullspeed_ratio = acc["trim_pressure_fullspeed_steps"] / n_steps
     cmd_gap_mean = acc["cmd_gap_sum"] / n_steps
     cmd_limited_ratio = acc["cmd_limited_steps"] / n_steps
+    preview_primary_safety_active_ratio = (
+        acc.get("preview_primary_safety_active_steps", 0) / n_steps
+    )
+    preview_primary_safety_fallback_ratio = (
+        acc.get("preview_primary_safety_fallback_steps", 0) / n_steps
+    )
     p95_cmd_gap = float(np.percentile(np.array(acc["cmd_gap_values"]), 95))
     pump_fullspeed_any_ratio = acc["pump_fullspeed_any_steps"] / n_steps
 
@@ -1376,6 +1766,7 @@ def _finalize_case_summary(
         f"pump_global_backlog_p95={pump_global_backlog_p95_kg:.1f}kg, "
         f"pump_quiet_blocks={int(acc['pump_quiet_stop_block_count'])}, "
         f"pump_latch_switches={int(acc['pump_latch_switch_count'])}, "
+        f"primary_safety_fallback={preview_primary_safety_fallback_ratio:.3f}, "
         f"rate_limit_enabled={int(rate_limit_enabled)}, "
         f"authority={target_shape_cfg.get('actuator_authority', 'plant')}, "
         f"target_mode={acc.get('target_mode', 'g1')}, "
@@ -1445,6 +1836,11 @@ def _finalize_case_summary(
         "tail_mean_trim_scale": float(tail_mean_trim_scale),
         "tail_mean_trim_pressure": float(tail_mean_trim_pressure),
         "cmd_limited_ratio": float(cmd_limited_ratio),
+        "preview_primary_safety_active_ratio": float(preview_primary_safety_active_ratio),
+        "preview_primary_safety_fallback_ratio": float(preview_primary_safety_fallback_ratio),
+        "preview_primary_safety_transition_count": int(
+            acc.get("preview_primary_safety_transition_count", 0)
+        ),
         "max_consecutive_sat_s": max_consecutive_sat_s,
         "hm_active_ratio": float(hm_active_ratio),
         "hm_mean_abs_heave_error_m": float(hm_mean_abs_heave_error_m),
@@ -1485,6 +1881,42 @@ def _finalize_case_summary(
         "protocol_shaper_enabled": int(protocol_meta.get("shaper_enabled", 0)),
         "protocol_shaper_alpha": float(protocol_meta.get("shaper_alpha", np.nan)),
         "protocol_shaper_rate_deg_s": float(protocol_meta.get("shaper_rate_deg_s", np.nan)),
+        "protocol_primary_safety_fallback_enabled": int(
+            protocol_meta.get("primary_safety_fallback_enabled", 0)
+        ),
+        "protocol_primary_safety_pitch_enter_deg": float(
+            protocol_meta.get("primary_safety_pitch_enter_deg", np.nan)
+        ),
+        "protocol_primary_safety_roll_enter_deg": float(
+            protocol_meta.get("primary_safety_roll_enter_deg", np.nan)
+        ),
+        "protocol_primary_safety_pitch_exit_deg": float(
+            protocol_meta.get("primary_safety_pitch_exit_deg", np.nan)
+        ),
+        "protocol_primary_safety_roll_exit_deg": float(
+            protocol_meta.get("primary_safety_roll_exit_deg", np.nan)
+        ),
+        "protocol_primary_safety_use_envelope": int(
+            protocol_meta.get("primary_safety_use_envelope", 0)
+        ),
+        "protocol_primary_safety_envelope_enter_norm": float(
+            protocol_meta.get("primary_safety_envelope_enter_norm", np.nan)
+        ),
+        "protocol_primary_safety_enter_hold_s": float(
+            protocol_meta.get("primary_safety_enter_hold_s", np.nan)
+        ),
+        "protocol_primary_safety_emergency_pitch_enter_deg": float(
+            protocol_meta.get("primary_safety_emergency_pitch_enter_deg", np.nan)
+        ),
+        "protocol_primary_safety_emergency_roll_enter_deg": float(
+            protocol_meta.get("primary_safety_emergency_roll_enter_deg", np.nan)
+        ),
+        "protocol_primary_safety_exit_hold_s": float(
+            protocol_meta.get("primary_safety_exit_hold_s", np.nan)
+        ),
+        "protocol_primary_safety_exit_required_windows": int(
+            protocol_meta.get("primary_safety_exit_required_windows", 1)
+        ),
         "pass": int(passed),
     }
     return summary
@@ -1630,6 +2062,10 @@ def run_closed_loop_case(
         "fallback_reason_missing_table": 0,
         "fallback_reason_missing_columns": 0,
         "fallback_reason_invalid_state_id": 0,
+        "preview_primary_safety_fallback_steps": 0,
+        "preview_primary_safety_active_steps": 0,
+        "preview_primary_safety_transition_count": 0,
+        "preview_primary_safety_prev_active": 0,
     }
 
     target_cmd = plant.current_ballast_mass.copy()
