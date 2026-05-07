@@ -32,6 +32,8 @@ class MIMOController(BaseController):
         tank_pos=None,
         k_wind_comp_pitch=0.0,
         k_wind_comp_roll=0.0,
+        integral_deadband_decay_tau_s=0.0,
+        integral_reversal_decay_tau_s=0.0,
     ):
         self.dt = float(dt)
         max_mass_arr = np.asarray(max_capacity, dtype=float)
@@ -63,6 +65,8 @@ class MIMOController(BaseController):
             "pitch": float(k_wind_comp_pitch),
             "roll": float(k_wind_comp_roll),
         }
+        self.integral_deadband_decay_tau_s = max(float(integral_deadband_decay_tau_s), 0.0)
+        self.integral_reversal_decay_tau_s = max(float(integral_reversal_decay_tau_s), 0.0)
         self.update_interval = float(update_interval)
         self.filter_tau = float(filter_tau)
 
@@ -87,6 +91,15 @@ class MIMOController(BaseController):
         self.last_debug_info = {}
 
         print(f">>> [MIMO Init] Pitch Kp={kp_p}, Roll Kp={kp_r}, Heave Kp={kp_h}")
+
+    @staticmethod
+    def _decay_value(value, dt, tau_s):
+        tau = max(float(tau_s), 0.0)
+        if tau <= 1e-12:
+            return float(value), 0.0
+        factor = float(np.exp(-max(float(dt), 0.0) / tau))
+        new_value = float(value) * factor
+        return new_value, float(value) - new_value
 
     def _build_allocation_matrix(self, tank_pos):
         default_alloc = np.array(
@@ -221,6 +234,29 @@ class MIMOController(BaseController):
             elif k == "roll" and self.ff_gains["roll"] != 0.0:
                 ff_term = self.ff_gains["roll"] * (ws**2) * np.sin(wd_rad)
 
+            integral_decay = 0.0
+            integral_decay_reason = ""
+            if in_deadband and self.integral_deadband_decay_tau_s > 0.0:
+                self.integrals[k], integral_decay = self._decay_value(
+                    self.integrals[k],
+                    effective_dt,
+                    self.integral_deadband_decay_tau_s,
+                )
+                integral_decay_reason = "deadband"
+            elif (
+                (not in_deadband)
+                and self.integral_reversal_decay_tau_s > 0.0
+                and abs(error) > 1e-12
+                and abs(self.integrals[k]) > 1e-12
+                and float(error) * float(self.integrals[k]) < 0.0
+            ):
+                self.integrals[k], integral_decay = self._decay_value(
+                    self.integrals[k],
+                    effective_dt,
+                    self.integral_reversal_decay_tau_s,
+                )
+                integral_decay_reason = "error_reversal"
+
             i_term_old = ki * self.integrals[k]
             u_force = p_term + d_term + ff_term
             u_vec_force[i] = u_force
@@ -239,6 +275,9 @@ class MIMOController(BaseController):
                 "ki": ki,
                 "saturated": False,
                 "int_update": 0.0,
+                "integral_state": self.integrals[k],
+                "integral_decay": integral_decay,
+                "integral_decay_reason": integral_decay_reason,
             }
 
         m_deltas_force = self.B_alloc @ u_vec_force
@@ -291,6 +330,9 @@ class MIMOController(BaseController):
                 "deadband_enter": comp["deadband_enter"],
                 "deadband_exit": comp["deadband_exit"],
                 "saturated": 1 if comp["saturated"] else 0,
+                "integral_state": self.integrals[k],
+                "integral_decay": comp["integral_decay"],
+                "integral_decay_reason": comp["integral_decay_reason"],
             }
 
         m_deltas_final = self.B_alloc @ u_vec_total
@@ -339,6 +381,9 @@ class MIMOController(BaseController):
                         "deadband_enter": comp["deadband_enter"],
                         "deadband_exit": comp["deadband_exit"],
                         "saturated": 1 if comp["saturated"] else 0,
+                        "integral_state": self.integrals[k],
+                        "integral_decay": comp["integral_decay"],
+                        "integral_decay_reason": comp["integral_decay_reason"],
                     }
                 m_deltas_final = self.B_alloc @ u_vec_total
                 m_raw = self.baselines + m_deltas_final
@@ -402,4 +447,3 @@ class MIMOController(BaseController):
         self.last_update_time = -999.0
         self.last_output_cmds = None
         self.last_debug_info = {}
-

@@ -1,7 +1,31 @@
 ﻿import numpy as np
 import pandas as pd
-from scipy.interpolate import interp1d
 import os
+
+try:
+    from scipy.interpolate import interp1d
+except ModuleNotFoundError:  # pragma: no cover - optional dependency fallback
+    def interp1d(x, y, bounds_error=False, fill_value=None):
+        x_arr = np.asarray(x, dtype=float)
+        y_arr = np.asarray(y, dtype=float)
+        if x_arr.ndim != 1 or y_arr.ndim != 1 or x_arr.size != y_arr.size:
+            raise ValueError("interp1d fallback expects 1D x/y arrays of equal length")
+        if x_arr.size == 0:
+            raise ValueError("interp1d fallback requires at least one sample")
+
+        def _call(x_new):
+            xq = np.asarray(x_new, dtype=float)
+            if fill_value is None:
+                left = float(y_arr[0])
+                right = float(y_arr[-1])
+            elif isinstance(fill_value, tuple) and len(fill_value) == 2:
+                left = float(fill_value[0])
+                right = float(fill_value[1])
+            else:
+                left = right = float(fill_value)
+            return np.interp(xq, x_arr, y_arr, left=left, right=right)
+
+        return _call
 
 from defaults import DEFAULT_PLATFORM_PROFILE, clone_cfg, resolve_platform_profile
 
@@ -113,6 +137,9 @@ class FloatingPlatform:
         )
         self.pump_low_end_stage_max_idx = int(
             max(0, int(pump_cfg_eff.get("pump_low_end_stage_max_idx", 2)))
+        )
+        self.pump_stage_allow_zero_rate_latched = bool(
+            pump_cfg_eff.get("pump_stage_allow_zero_rate_latched", False)
         )
         self._pump_active_latch = np.array([False, False, False], dtype=bool)
         self._pump_on_elapsed_s = np.array([0.0, 0.0, 0.0], dtype=float)
@@ -542,15 +569,14 @@ class FloatingPlatform:
                 self._pump_latch_switch_count += 1
 
             if self._pump_active_latch[i]:
-                # When a pump is still latched on, the stage layer should only choose
-                # among positive-flow bands. Dropping into the 0-flow band while the
-                # quiet-stop gate still blocks unlatch creates meaningless zero-rate
-                # plateaus that look like pulses and delay the next response.
+                # By default, latched pumps choose among positive-flow bands. The
+                # actuator-smoothed baseline can opt into zero-rate latched dwell so
+                # stage hysteresis does not keep pumping after the target is reached.
                 target_rate_m3_min, stage_idx_i, stage_switch_i = self._get_pump_rate_with_stage_logic(
                     pump_idx=i,
                     abs_err_kg=abs_err,
                     dt=dt,
-                    allow_zero_stage=False,
+                    allow_zero_stage=bool(self.pump_stage_allow_zero_rate_latched),
                 )
                 released_rate_m3_min = self._release_rate_target(
                     pump_idx=i,
@@ -811,5 +837,3 @@ class FloatingPlatform:
 
 # MarkovWindGenerator has moved to wind_env.py; keep a compatibility re-export.
 from wind_env import MarkovWindGenerator
-
-

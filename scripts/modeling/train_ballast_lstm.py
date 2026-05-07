@@ -56,6 +56,34 @@ class TrainConfig:
     model_type: str
     device: str
     conv_kernel_size: int
+    event_loss_type: str
+    focal_gamma: float
+    focal_alpha: float
+
+
+class FocalBCEWithLogitsLoss(nn.Module):
+    """Multi-label focal BCE for imbalanced wind-change events."""
+
+    def __init__(self, gamma: float = 2.0, alpha: float = -1.0, pos_weight: torch.Tensor | None = None) -> None:
+        super().__init__()
+        self.gamma = float(gamma)
+        self.alpha = float(alpha)
+        self.register_buffer("pos_weight", pos_weight if pos_weight is not None else None)
+
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        bce = nn.functional.binary_cross_entropy_with_logits(
+            logits,
+            targets,
+            pos_weight=self.pos_weight,
+            reduction="none",
+        )
+        prob = torch.sigmoid(logits)
+        p_t = prob * targets + (1.0 - prob) * (1.0 - targets)
+        loss = bce * (1.0 - p_t).clamp_min(1e-6).pow(self.gamma)
+        if self.alpha >= 0.0:
+            alpha_t = self.alpha * targets + (1.0 - self.alpha) * (1.0 - targets)
+            loss = alpha_t * loss
+        return loss.mean()
 
 
 class WindRNN(nn.Module):
@@ -306,6 +334,19 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--model-type", choices=["lstm", "gru", "cnn_gru", "tcn"], default="lstm")
     parser.add_argument("--conv-kernel-size", type=int, default=3)
+    parser.add_argument(
+        "--event-loss-type",
+        choices=["bce", "focal"],
+        default="bce",
+        help="Event-classification loss. Focal loss is useful for rare wind-change events.",
+    )
+    parser.add_argument("--focal-gamma", type=float, default=2.0)
+    parser.add_argument(
+        "--focal-alpha",
+        type=float,
+        default=-1.0,
+        help="Optional focal alpha in [0,1]. Use negative value to disable alpha balancing.",
+    )
     parser.add_argument("--device", choices=["auto", "cpu", "cuda", "mps"], default="auto")
     parser.add_argument(
         "--evaluate-only",
@@ -769,7 +810,14 @@ def main() -> None:
 
     pos_weight = torch.tensor(event_pos_weight(arrays["train"]["y_event"]), dtype=torch.float32, device=device)
     regression_loss_fn = nn.MSELoss()
-    event_loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    if args.event_loss_type == "focal":
+        event_loss_fn = FocalBCEWithLogitsLoss(
+            gamma=args.focal_gamma,
+            alpha=args.focal_alpha,
+            pos_weight=pos_weight,
+        )
+    else:
+        event_loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
@@ -801,6 +849,9 @@ def main() -> None:
         model_type=args.model_type,
         device=str(device),
         conv_kernel_size=args.conv_kernel_size,
+        event_loss_type=args.event_loss_type,
+        focal_gamma=args.focal_gamma,
+        focal_alpha=args.focal_alpha,
     )
     (args.output_dir / "lstm_config.json").write_text(
         json.dumps(

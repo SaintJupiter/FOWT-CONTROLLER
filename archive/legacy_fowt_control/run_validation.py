@@ -230,6 +230,48 @@ def _build_protocol_meta(protocol_name, controller_cfg, heave_cfg, target_shape_
         "primary_safety_exit_required_windows": int(
             target_shape_cfg.get("primary_safety_exit_required_windows", 1)
         ),
+        "primary_safety_bucket_guard_enabled": int(
+            bool(target_shape_cfg.get("primary_safety_bucket_guard_enabled", False))
+        ),
+        "primary_safety_bucket_guard_bucket_s": float(
+            target_shape_cfg.get("primary_safety_bucket_guard_bucket_s", np.nan)
+        ),
+        "primary_safety_bucket_guard_pitch_enter_deg": float(
+            target_shape_cfg.get("primary_safety_bucket_guard_pitch_enter_deg", np.nan)
+        ),
+        "primary_safety_bucket_guard_roll_enter_deg": float(
+            target_shape_cfg.get("primary_safety_bucket_guard_roll_enter_deg", np.nan)
+        ),
+        "primary_safety_bucket_guard_pitch_exit_deg": float(
+            target_shape_cfg.get("primary_safety_bucket_guard_pitch_exit_deg", np.nan)
+        ),
+        "primary_safety_bucket_guard_roll_exit_deg": float(
+            target_shape_cfg.get("primary_safety_bucket_guard_roll_exit_deg", np.nan)
+        ),
+        "primary_safety_bucket_guard_improve_tol_deg": float(
+            target_shape_cfg.get("primary_safety_bucket_guard_improve_tol_deg", np.nan)
+        ),
+        "primary_safety_bucket_guard_exit_required_windows": int(
+            target_shape_cfg.get("primary_safety_bucket_guard_exit_required_windows", 1)
+        ),
+        "reactive_pump_suppression_enabled": int(
+            bool(target_shape_cfg.get("reactive_pump_suppression_enabled", False))
+        ),
+        "reactive_pump_suppression_pitch_enter_deg": float(
+            target_shape_cfg.get("reactive_pump_suppression_pitch_enter_deg", np.nan)
+        ),
+        "reactive_pump_suppression_roll_enter_deg": float(
+            target_shape_cfg.get("reactive_pump_suppression_roll_enter_deg", np.nan)
+        ),
+        "reactive_pump_suppression_pitch_exit_deg": float(
+            target_shape_cfg.get("reactive_pump_suppression_pitch_exit_deg", np.nan)
+        ),
+        "reactive_pump_suppression_roll_exit_deg": float(
+            target_shape_cfg.get("reactive_pump_suppression_roll_exit_deg", np.nan)
+        ),
+        "reactive_pump_suppression_restart_err_kg": float(
+            target_shape_cfg.get("reactive_pump_suppression_restart_err_kg", np.nan)
+        ),
     }
 
 
@@ -256,6 +298,8 @@ def build_default_controller(plant, dt, controller_cfg=None):
         tank_pos=plant.tank_pos,
         k_wind_comp_pitch=cfg["k_wind_comp_pitch"],
         k_wind_comp_roll=cfg["k_wind_comp_roll"],
+        integral_deadband_decay_tau_s=cfg.get("integral_deadband_decay_tau_s", 0.0),
+        integral_reversal_decay_tau_s=cfg.get("integral_reversal_decay_tau_s", 0.0),
     )
 
 
@@ -756,6 +800,24 @@ def _append_timeseries_row(
             "ctrl_pitch_u_total": float(dbg.get("ctrl_pitch_u_total", 0.0)),
             "ctrl_roll_u_total": float(dbg.get("ctrl_roll_u_total", 0.0)),
             "ctrl_heave_u_total": float(dbg.get("ctrl_heave_u_total", 0.0)),
+            "ctrl_pitch_i_term": float(dbg.get("ctrl_pitch_i_term", 0.0)),
+            "ctrl_roll_i_term": float(dbg.get("ctrl_roll_i_term", 0.0)),
+            "ctrl_heave_i_term": float(dbg.get("ctrl_heave_i_term", 0.0)),
+            "ctrl_pitch_integral_state": float(dbg.get("ctrl_pitch_integral_state", 0.0)),
+            "ctrl_roll_integral_state": float(dbg.get("ctrl_roll_integral_state", 0.0)),
+            "ctrl_heave_integral_state": float(dbg.get("ctrl_heave_integral_state", 0.0)),
+            "ctrl_pitch_integral_decay": float(dbg.get("ctrl_pitch_integral_decay", 0.0)),
+            "ctrl_roll_integral_decay": float(dbg.get("ctrl_roll_integral_decay", 0.0)),
+            "ctrl_heave_integral_decay": float(dbg.get("ctrl_heave_integral_decay", 0.0)),
+            "ctrl_pitch_integral_decay_reason": str(
+                dbg.get("ctrl_pitch_integral_decay_reason", "")
+            ),
+            "ctrl_roll_integral_decay_reason": str(
+                dbg.get("ctrl_roll_integral_decay_reason", "")
+            ),
+            "ctrl_heave_integral_decay_reason": str(
+                dbg.get("ctrl_heave_integral_decay_reason", "")
+            ),
             "ctrl_pitch_in_deadband": int(dbg.get("ctrl_pitch_in_deadband", 0)),
             "ctrl_roll_in_deadband": int(dbg.get("ctrl_roll_in_deadband", 0)),
             "ctrl_heave_in_deadband": int(dbg.get("ctrl_heave_in_deadband", 0)),
@@ -797,6 +859,48 @@ def _append_timeseries_row(
             "deadband_target_release_reset_limiter": int(
                 dbg.get("deadband_target_release_reset_limiter", 0)
             ),
+            "reactive_pump_suppression_active": int(
+                dbg.get("reactive_pump_suppression_active", 0)
+            ),
+            "reactive_pump_suppression_reason": str(
+                dbg.get("reactive_pump_suppression_reason", "")
+            ),
+            "reactive_pump_suppression_safe_zone": int(
+                dbg.get("reactive_pump_suppression_safe_zone", 0)
+            ),
+            "reactive_pump_suppression_latched": int(
+                dbg.get("reactive_pump_suppression_latched", 0)
+            ),
+            "reactive_pump_suppression_fullspeed_block": int(
+                dbg.get("reactive_pump_suppression_fullspeed_block", 0)
+            ),
+            "reactive_pump_suppression_pitch_abs_deg": float(
+                dbg.get("reactive_pump_suppression_pitch_abs_deg", 0.0)
+            ),
+            "reactive_pump_suppression_roll_abs_deg": float(
+                dbg.get("reactive_pump_suppression_roll_abs_deg", 0.0)
+            ),
+            "reactive_pump_suppression_restart_err_kg": float(
+                dbg.get("reactive_pump_suppression_restart_err_kg", 0.0)
+            ),
+            "reactive_suppression_blocked_tanks": int(
+                dbg.get("reactive_suppression_blocked_tanks", 0)
+            ),
+            "reactive_suppression_blocked_mass_kg": float(
+                dbg.get("reactive_suppression_blocked_mass_kg", 0.0)
+            ),
+            "reactive_suppression_delta_mean_kg": float(
+                dbg.get("reactive_suppression_delta_mean_kg", 0.0)
+            ),
+            "reactive_suppression_mask_t1": int(
+                dbg.get("reactive_suppression_mask_t1", 0)
+            ),
+            "reactive_suppression_mask_t2": int(
+                dbg.get("reactive_suppression_mask_t2", 0)
+            ),
+            "reactive_suppression_mask_t3": int(
+                dbg.get("reactive_suppression_mask_t3", 0)
+            ),
             "preview_pump_suppression_active": int(
                 dbg.get("preview_pump_suppression_active", 0)
             ),
@@ -805,6 +909,60 @@ def _append_timeseries_row(
             ),
             "preview_pump_suppression_reason": str(
                 dbg.get("preview_pump_suppression_reason", "")
+            ),
+            "preview_event_risk_pressure_floor_enabled": int(
+                dbg.get("preview_event_risk_pressure_floor_enabled", 0)
+            ),
+            "preview_event_risk_floor_active_0_20m": int(
+                dbg.get("preview_event_risk_floor_active_0_20m", 0)
+            ),
+            "preview_event_risk_floor_active_20_40m": int(
+                dbg.get("preview_event_risk_floor_active_20_40m", 0)
+            ),
+            "preview_event_risk_floor_active_40_60m": int(
+                dbg.get("preview_event_risk_floor_active_40_60m", 0)
+            ),
+            "preview_event_risk_floor_norm_0_20m": float(
+                dbg.get("preview_event_risk_floor_norm_0_20m", 0.0)
+            ),
+            "preview_event_risk_floor_norm_20_40m": float(
+                dbg.get("preview_event_risk_floor_norm_20_40m", 0.0)
+            ),
+            "preview_event_risk_floor_norm_40_60m": float(
+                dbg.get("preview_event_risk_floor_norm_40_60m", 0.0)
+            ),
+            "preview_lead_action_enabled": int(
+                dbg.get("preview_lead_action_enabled", 0)
+            ),
+            "preview_lead_action_active": int(
+                dbg.get("preview_lead_action_active", 0)
+            ),
+            "preview_lead_action_reason": str(
+                dbg.get("preview_lead_action_reason", "")
+            ),
+            "preview_lead_action_block_index": int(
+                dbg.get("preview_lead_action_block_index", -1)
+            ),
+            "preview_lead_action_name": str(
+                dbg.get("preview_lead_action_name", "")
+            ),
+            "preview_relief_medium_cap_enabled": int(
+                dbg.get("preview_relief_medium_cap_enabled", 0)
+            ),
+            "preview_relief_medium_cap_active": int(
+                dbg.get("preview_relief_medium_cap_active", 0)
+            ),
+            "preview_relief_medium_cap_reason": str(
+                dbg.get("preview_relief_medium_cap_reason", "")
+            ),
+            "preview_relief_medium_cap_margin": float(
+                dbg.get("preview_relief_medium_cap_margin", 0.0)
+            ),
+            "preview_pump_suppression_event_risk_guard_enabled": int(
+                dbg.get("preview_pump_suppression_event_risk_guard_enabled", 0)
+            ),
+            "preview_pump_suppression_event_risk_guard_threshold": float(
+                dbg.get("preview_pump_suppression_event_risk_guard_threshold", 0.0)
             ),
             "preview_primary_enabled": int(dbg.get("preview_primary_enabled", 0)),
             "preview_primary_active": int(dbg.get("preview_primary_active", 0)),
@@ -830,6 +988,12 @@ def _append_timeseries_row(
             "preview_primary_target_reused": int(
                 dbg.get("preview_primary_target_reused", 0)
             ),
+            "preview_primary_target_resumed": int(
+                dbg.get("preview_primary_target_resumed", 0)
+            ),
+            "preview_primary_hold_target_mode": str(
+                dbg.get("preview_primary_hold_target_mode", "")
+            ),
             "preview_primary_target_age_s": float(
                 dbg.get("preview_primary_target_age_s", 0.0)
             ),
@@ -842,8 +1006,14 @@ def _append_timeseries_row(
             "preview_primary_safety_fallback": int(
                 dbg.get("preview_primary_safety_fallback", 0)
             ),
+            "preview_primary_safety_fallback_source": str(
+                dbg.get("preview_primary_safety_fallback_source", "")
+            ),
             "preview_primary_safety_reason": str(
                 dbg.get("preview_primary_safety_reason", "")
+            ),
+            "preview_primary_safety_hard_active": int(
+                dbg.get("preview_primary_safety_hard_active", 0)
             ),
             "preview_primary_safety_pitch_abs_deg": float(
                 dbg.get("preview_primary_safety_pitch_abs_deg", 0.0)
@@ -907,6 +1077,69 @@ def _append_timeseries_row(
             ),
             "preview_primary_safety_exit_required_windows": int(
                 dbg.get("preview_primary_safety_exit_required_windows", 0)
+            ),
+            "preview_primary_bucket_guard_enabled": int(
+                dbg.get("preview_primary_bucket_guard_enabled", 0)
+            ),
+            "preview_primary_bucket_guard_active": int(
+                dbg.get("preview_primary_bucket_guard_active", 0)
+            ),
+            "preview_primary_bucket_guard_reason": str(
+                dbg.get("preview_primary_bucket_guard_reason", "")
+            ),
+            "preview_primary_bucket_guard_bucket_s": float(
+                dbg.get("preview_primary_bucket_guard_bucket_s", 0.0)
+            ),
+            "preview_primary_bucket_guard_pitch_enter_deg": float(
+                dbg.get("preview_primary_bucket_guard_pitch_enter_deg", 0.0)
+            ),
+            "preview_primary_bucket_guard_roll_enter_deg": float(
+                dbg.get("preview_primary_bucket_guard_roll_enter_deg", 0.0)
+            ),
+            "preview_primary_bucket_guard_pitch_exit_deg": float(
+                dbg.get("preview_primary_bucket_guard_pitch_exit_deg", 0.0)
+            ),
+            "preview_primary_bucket_guard_roll_exit_deg": float(
+                dbg.get("preview_primary_bucket_guard_roll_exit_deg", 0.0)
+            ),
+            "preview_primary_bucket_guard_improve_tol_deg": float(
+                dbg.get("preview_primary_bucket_guard_improve_tol_deg", 0.0)
+            ),
+            "preview_primary_bucket_guard_exit_required_windows": int(
+                dbg.get("preview_primary_bucket_guard_exit_required_windows", 0)
+            ),
+            "preview_primary_bucket_guard_max_active_windows": int(
+                dbg.get("preview_primary_bucket_guard_max_active_windows", 0)
+            ),
+            "preview_primary_bucket_guard_current_pitch_max_deg": float(
+                dbg.get("preview_primary_bucket_guard_current_pitch_max_deg", 0.0)
+            ),
+            "preview_primary_bucket_guard_current_roll_max_deg": float(
+                dbg.get("preview_primary_bucket_guard_current_roll_max_deg", 0.0)
+            ),
+            "preview_primary_bucket_guard_prev_pitch_max_deg": float(
+                dbg.get("preview_primary_bucket_guard_prev_pitch_max_deg", 0.0)
+            ),
+            "preview_primary_bucket_guard_prev_roll_max_deg": float(
+                dbg.get("preview_primary_bucket_guard_prev_roll_max_deg", 0.0)
+            ),
+            "preview_primary_bucket_guard_clean_windows": int(
+                dbg.get("preview_primary_bucket_guard_clean_windows", 0)
+            ),
+            "preview_primary_bucket_guard_active_windows": int(
+                dbg.get("preview_primary_bucket_guard_active_windows", 0)
+            ),
+            "preview_primary_bucket_guard_completed_windows": int(
+                dbg.get("preview_primary_bucket_guard_completed_windows", 0)
+            ),
+            "preview_primary_bucket_guard_high": int(
+                dbg.get("preview_primary_bucket_guard_high", 0)
+            ),
+            "preview_primary_bucket_guard_not_improving": int(
+                dbg.get("preview_primary_bucket_guard_not_improving", 0)
+            ),
+            "preview_primary_bucket_guard_exit_clean": int(
+                dbg.get("preview_primary_bucket_guard_exit_clean", 0)
             ),
             "preview_pressure_block0_norm": float(
                 dbg.get("preview_pressure_block0_norm", 0.0)
@@ -1261,16 +1494,38 @@ def _extract_step_obs(plant, info, dbg, ctrl_diag, limits, wind_obs):
         dbg.get("preview_primary_candidate_delta_mean_kg", 0.0)
     )
     preview_primary_action = str(dbg.get("preview_primary_action", ""))
+    preview_relief_medium_cap_enabled = int(
+        dbg.get("preview_relief_medium_cap_enabled", 0)
+    )
+    preview_relief_medium_cap_active = int(
+        dbg.get("preview_relief_medium_cap_active", 0)
+    )
+    preview_relief_medium_cap_reason = str(
+        dbg.get("preview_relief_medium_cap_reason", "")
+    )
+    preview_relief_medium_cap_margin = float(
+        dbg.get("preview_relief_medium_cap_margin", 0.0)
+    )
     preview_primary_event_reset = int(dbg.get("preview_primary_event_reset", 0))
     preview_primary_target_refreshed = int(
         dbg.get("preview_primary_target_refreshed", 0)
     )
     preview_primary_target_reused = int(dbg.get("preview_primary_target_reused", 0))
+    preview_primary_target_resumed = int(dbg.get("preview_primary_target_resumed", 0))
+    preview_primary_hold_target_mode = str(
+        dbg.get("preview_primary_hold_target_mode", "")
+    )
     preview_primary_target_age_s = float(dbg.get("preview_primary_target_age_s", 0.0))
     preview_primary_safety_enabled = int(dbg.get("preview_primary_safety_enabled", 0))
     preview_primary_safety_active = int(dbg.get("preview_primary_safety_active", 0))
     preview_primary_safety_fallback = int(dbg.get("preview_primary_safety_fallback", 0))
+    preview_primary_safety_fallback_source = str(
+        dbg.get("preview_primary_safety_fallback_source", "")
+    )
     preview_primary_safety_reason = str(dbg.get("preview_primary_safety_reason", ""))
+    preview_primary_safety_hard_active = int(
+        dbg.get("preview_primary_safety_hard_active", 0)
+    )
     preview_primary_safety_pitch_abs_deg = float(
         dbg.get("preview_primary_safety_pitch_abs_deg", 0.0)
     )
@@ -1332,16 +1587,140 @@ def _extract_step_obs(plant, info, dbg, ctrl_diag, limits, wind_obs):
     preview_primary_safety_exit_required_windows = int(
         dbg.get("preview_primary_safety_exit_required_windows", 0)
     )
+    preview_primary_bucket_guard_enabled = int(
+        dbg.get("preview_primary_bucket_guard_enabled", 0)
+    )
+    preview_primary_bucket_guard_active = int(
+        dbg.get("preview_primary_bucket_guard_active", 0)
+    )
+    preview_primary_bucket_guard_reason = str(
+        dbg.get("preview_primary_bucket_guard_reason", "")
+    )
+    preview_primary_bucket_guard_bucket_s = float(
+        dbg.get("preview_primary_bucket_guard_bucket_s", 0.0)
+    )
+    preview_primary_bucket_guard_pitch_enter_deg = float(
+        dbg.get("preview_primary_bucket_guard_pitch_enter_deg", 0.0)
+    )
+    preview_primary_bucket_guard_roll_enter_deg = float(
+        dbg.get("preview_primary_bucket_guard_roll_enter_deg", 0.0)
+    )
+    preview_primary_bucket_guard_pitch_exit_deg = float(
+        dbg.get("preview_primary_bucket_guard_pitch_exit_deg", 0.0)
+    )
+    preview_primary_bucket_guard_roll_exit_deg = float(
+        dbg.get("preview_primary_bucket_guard_roll_exit_deg", 0.0)
+    )
+    preview_primary_bucket_guard_improve_tol_deg = float(
+        dbg.get("preview_primary_bucket_guard_improve_tol_deg", 0.0)
+    )
+    preview_primary_bucket_guard_exit_required_windows = int(
+        dbg.get("preview_primary_bucket_guard_exit_required_windows", 0)
+    )
+    preview_primary_bucket_guard_current_pitch_max_deg = float(
+        dbg.get("preview_primary_bucket_guard_current_pitch_max_deg", 0.0)
+    )
+    preview_primary_bucket_guard_current_roll_max_deg = float(
+        dbg.get("preview_primary_bucket_guard_current_roll_max_deg", 0.0)
+    )
+    preview_primary_bucket_guard_prev_pitch_max_deg = float(
+        dbg.get("preview_primary_bucket_guard_prev_pitch_max_deg", 0.0)
+    )
+    preview_primary_bucket_guard_prev_roll_max_deg = float(
+        dbg.get("preview_primary_bucket_guard_prev_roll_max_deg", 0.0)
+    )
+    preview_primary_bucket_guard_clean_windows = int(
+        dbg.get("preview_primary_bucket_guard_clean_windows", 0)
+    )
+    preview_primary_bucket_guard_completed_windows = int(
+        dbg.get("preview_primary_bucket_guard_completed_windows", 0)
+    )
+    preview_primary_bucket_guard_high = int(
+        dbg.get("preview_primary_bucket_guard_high", 0)
+    )
+    preview_primary_bucket_guard_not_improving = int(
+        dbg.get("preview_primary_bucket_guard_not_improving", 0)
+    )
+    preview_primary_bucket_guard_exit_clean = int(
+        dbg.get("preview_primary_bucket_guard_exit_clean", 0)
+    )
     preview_pressure_block0_norm = float(dbg.get("preview_pressure_block0_norm", 0.0))
     preview_pressure_block1_norm = float(dbg.get("preview_pressure_block1_norm", 0.0))
     preview_pressure_block2_norm = float(dbg.get("preview_pressure_block2_norm", 0.0))
     preview_pressure_block02_dot = float(dbg.get("preview_pressure_block02_dot", 0.0))
+    preview_event_risk_pressure_boost_enabled = int(
+        dbg.get("preview_event_risk_pressure_boost_enabled", 0)
+    )
+    preview_event_risk_prob_0_20m = float(dbg.get("preview_event_risk_prob_0_20m", 0.0))
+    preview_event_risk_prob_20_40m = float(dbg.get("preview_event_risk_prob_20_40m", 0.0))
+    preview_event_risk_prob_40_60m = float(dbg.get("preview_event_risk_prob_40_60m", 0.0))
+    preview_event_risk_scale_0_20m = float(dbg.get("preview_event_risk_scale_0_20m", 1.0))
+    preview_event_risk_scale_20_40m = float(dbg.get("preview_event_risk_scale_20_40m", 1.0))
+    preview_event_risk_scale_40_60m = float(dbg.get("preview_event_risk_scale_40_60m", 1.0))
+    preview_event_risk_pressure_floor_enabled = int(
+        dbg.get("preview_event_risk_pressure_floor_enabled", 0)
+    )
+    preview_event_risk_floor_active_0_20m = int(
+        dbg.get("preview_event_risk_floor_active_0_20m", 0)
+    )
+    preview_event_risk_floor_active_20_40m = int(
+        dbg.get("preview_event_risk_floor_active_20_40m", 0)
+    )
+    preview_event_risk_floor_active_40_60m = int(
+        dbg.get("preview_event_risk_floor_active_40_60m", 0)
+    )
+    preview_event_risk_floor_norm_0_20m = float(
+        dbg.get("preview_event_risk_floor_norm_0_20m", 0.0)
+    )
+    preview_event_risk_floor_norm_20_40m = float(
+        dbg.get("preview_event_risk_floor_norm_20_40m", 0.0)
+    )
+    preview_event_risk_floor_norm_40_60m = float(
+        dbg.get("preview_event_risk_floor_norm_40_60m", 0.0)
+    )
+    preview_lead_action_enabled = int(dbg.get("preview_lead_action_enabled", 0))
+    preview_lead_action_active = int(dbg.get("preview_lead_action_active", 0))
+    preview_lead_action_reason = str(dbg.get("preview_lead_action_reason", ""))
+    preview_lead_action_block_index = int(dbg.get("preview_lead_action_block_index", -1))
+    preview_lead_action_name = str(dbg.get("preview_lead_action_name", ""))
+    preview_pump_suppression_event_risk_guard_enabled = int(
+        dbg.get("preview_pump_suppression_event_risk_guard_enabled", 0)
+    )
+    preview_pump_suppression_event_risk_guard_threshold = float(
+        dbg.get("preview_pump_suppression_event_risk_guard_threshold", 0.0)
+    )
     suppression_blocked_tanks = int(dbg.get("suppression_blocked_tanks", 0))
     suppression_blocked_mass_kg = float(dbg.get("suppression_blocked_mass_kg", 0.0))
     suppression_delta_mean_kg = float(dbg.get("suppression_delta_mean_kg", 0.0))
     suppression_mask_t1 = int(dbg.get("suppression_mask_t1", 0))
     suppression_mask_t2 = int(dbg.get("suppression_mask_t2", 0))
     suppression_mask_t3 = int(dbg.get("suppression_mask_t3", 0))
+    reactive_pump_suppression_active = int(dbg.get("reactive_pump_suppression_active", 0))
+    reactive_pump_suppression_reason = str(dbg.get("reactive_pump_suppression_reason", ""))
+    reactive_pump_suppression_safe_zone = int(dbg.get("reactive_pump_suppression_safe_zone", 0))
+    reactive_pump_suppression_latched = int(dbg.get("reactive_pump_suppression_latched", 0))
+    reactive_pump_suppression_fullspeed_block = int(
+        dbg.get("reactive_pump_suppression_fullspeed_block", 0)
+    )
+    reactive_pump_suppression_pitch_abs_deg = float(
+        dbg.get("reactive_pump_suppression_pitch_abs_deg", 0.0)
+    )
+    reactive_pump_suppression_roll_abs_deg = float(
+        dbg.get("reactive_pump_suppression_roll_abs_deg", 0.0)
+    )
+    reactive_pump_suppression_restart_err_kg = float(
+        dbg.get("reactive_pump_suppression_restart_err_kg", 0.0)
+    )
+    reactive_suppression_blocked_tanks = int(dbg.get("reactive_suppression_blocked_tanks", 0))
+    reactive_suppression_blocked_mass_kg = float(
+        dbg.get("reactive_suppression_blocked_mass_kg", 0.0)
+    )
+    reactive_suppression_delta_mean_kg = float(
+        dbg.get("reactive_suppression_delta_mean_kg", 0.0)
+    )
+    reactive_suppression_mask_t1 = int(dbg.get("reactive_suppression_mask_t1", 0))
+    reactive_suppression_mask_t2 = int(dbg.get("reactive_suppression_mask_t2", 0))
+    reactive_suppression_mask_t3 = int(dbg.get("reactive_suppression_mask_t3", 0))
     deadband_target_release_active = int(dbg.get("deadband_target_release_active", 0))
     deadband_target_release_reason = str(dbg.get("deadband_target_release_reason", ""))
     deadband_target_release_delta_mean_kg = float(
@@ -1472,11 +1851,15 @@ def _extract_step_obs(plant, info, dbg, ctrl_diag, limits, wind_obs):
         "preview_primary_event_reset": preview_primary_event_reset,
         "preview_primary_target_refreshed": preview_primary_target_refreshed,
         "preview_primary_target_reused": preview_primary_target_reused,
+        "preview_primary_target_resumed": preview_primary_target_resumed,
+        "preview_primary_hold_target_mode": preview_primary_hold_target_mode,
         "preview_primary_target_age_s": preview_primary_target_age_s,
         "preview_primary_safety_enabled": preview_primary_safety_enabled,
         "preview_primary_safety_active": preview_primary_safety_active,
         "preview_primary_safety_fallback": preview_primary_safety_fallback,
+        "preview_primary_safety_fallback_source": preview_primary_safety_fallback_source,
         "preview_primary_safety_reason": preview_primary_safety_reason,
+        "preview_primary_safety_hard_active": preview_primary_safety_hard_active,
         "preview_primary_safety_pitch_abs_deg": preview_primary_safety_pitch_abs_deg,
         "preview_primary_safety_roll_abs_deg": preview_primary_safety_roll_abs_deg,
         "preview_primary_safety_env_norm": preview_primary_safety_env_norm,
@@ -1498,16 +1881,80 @@ def _extract_step_obs(plant, info, dbg, ctrl_diag, limits, wind_obs):
         "preview_primary_safety_exit_clean_windows": preview_primary_safety_exit_clean_windows,
         "preview_primary_safety_exit_hold_s": preview_primary_safety_exit_hold_s,
         "preview_primary_safety_exit_required_windows": preview_primary_safety_exit_required_windows,
+        "preview_primary_bucket_guard_enabled": preview_primary_bucket_guard_enabled,
+        "preview_primary_bucket_guard_active": preview_primary_bucket_guard_active,
+        "preview_primary_bucket_guard_reason": preview_primary_bucket_guard_reason,
+        "preview_primary_bucket_guard_bucket_s": preview_primary_bucket_guard_bucket_s,
+        "preview_primary_bucket_guard_pitch_enter_deg": preview_primary_bucket_guard_pitch_enter_deg,
+        "preview_primary_bucket_guard_roll_enter_deg": preview_primary_bucket_guard_roll_enter_deg,
+        "preview_primary_bucket_guard_pitch_exit_deg": preview_primary_bucket_guard_pitch_exit_deg,
+        "preview_primary_bucket_guard_roll_exit_deg": preview_primary_bucket_guard_roll_exit_deg,
+        "preview_primary_bucket_guard_improve_tol_deg": preview_primary_bucket_guard_improve_tol_deg,
+        "preview_primary_bucket_guard_exit_required_windows": preview_primary_bucket_guard_exit_required_windows,
+        "preview_primary_bucket_guard_current_pitch_max_deg": preview_primary_bucket_guard_current_pitch_max_deg,
+        "preview_primary_bucket_guard_current_roll_max_deg": preview_primary_bucket_guard_current_roll_max_deg,
+        "preview_primary_bucket_guard_prev_pitch_max_deg": preview_primary_bucket_guard_prev_pitch_max_deg,
+        "preview_primary_bucket_guard_prev_roll_max_deg": preview_primary_bucket_guard_prev_roll_max_deg,
+        "preview_primary_bucket_guard_clean_windows": preview_primary_bucket_guard_clean_windows,
+        "preview_primary_bucket_guard_completed_windows": preview_primary_bucket_guard_completed_windows,
+        "preview_primary_bucket_guard_high": preview_primary_bucket_guard_high,
+        "preview_primary_bucket_guard_not_improving": preview_primary_bucket_guard_not_improving,
+        "preview_primary_bucket_guard_exit_clean": preview_primary_bucket_guard_exit_clean,
         "preview_pressure_block0_norm": preview_pressure_block0_norm,
         "preview_pressure_block1_norm": preview_pressure_block1_norm,
         "preview_pressure_block2_norm": preview_pressure_block2_norm,
         "preview_pressure_block02_dot": preview_pressure_block02_dot,
+        "preview_event_risk_pressure_boost_enabled": preview_event_risk_pressure_boost_enabled,
+        "preview_event_risk_prob_0_20m": preview_event_risk_prob_0_20m,
+        "preview_event_risk_prob_20_40m": preview_event_risk_prob_20_40m,
+        "preview_event_risk_prob_40_60m": preview_event_risk_prob_40_60m,
+        "preview_event_risk_scale_0_20m": preview_event_risk_scale_0_20m,
+        "preview_event_risk_scale_20_40m": preview_event_risk_scale_20_40m,
+        "preview_event_risk_scale_40_60m": preview_event_risk_scale_40_60m,
+        "preview_event_risk_pressure_floor_enabled": (
+            preview_event_risk_pressure_floor_enabled
+        ),
+        "preview_event_risk_floor_active_0_20m": preview_event_risk_floor_active_0_20m,
+        "preview_event_risk_floor_active_20_40m": preview_event_risk_floor_active_20_40m,
+        "preview_event_risk_floor_active_40_60m": preview_event_risk_floor_active_40_60m,
+        "preview_event_risk_floor_norm_0_20m": preview_event_risk_floor_norm_0_20m,
+        "preview_event_risk_floor_norm_20_40m": preview_event_risk_floor_norm_20_40m,
+        "preview_event_risk_floor_norm_40_60m": preview_event_risk_floor_norm_40_60m,
+        "preview_lead_action_enabled": preview_lead_action_enabled,
+        "preview_lead_action_active": preview_lead_action_active,
+        "preview_lead_action_reason": preview_lead_action_reason,
+        "preview_lead_action_block_index": preview_lead_action_block_index,
+        "preview_lead_action_name": preview_lead_action_name,
+        "preview_relief_medium_cap_enabled": preview_relief_medium_cap_enabled,
+        "preview_relief_medium_cap_active": preview_relief_medium_cap_active,
+        "preview_relief_medium_cap_reason": preview_relief_medium_cap_reason,
+        "preview_relief_medium_cap_margin": preview_relief_medium_cap_margin,
+        "preview_pump_suppression_event_risk_guard_enabled": (
+            preview_pump_suppression_event_risk_guard_enabled
+        ),
+        "preview_pump_suppression_event_risk_guard_threshold": (
+            preview_pump_suppression_event_risk_guard_threshold
+        ),
         "suppression_blocked_tanks": suppression_blocked_tanks,
         "suppression_blocked_mass_kg": suppression_blocked_mass_kg,
         "suppression_delta_mean_kg": suppression_delta_mean_kg,
         "suppression_mask_t1": suppression_mask_t1,
         "suppression_mask_t2": suppression_mask_t2,
         "suppression_mask_t3": suppression_mask_t3,
+        "reactive_pump_suppression_active": reactive_pump_suppression_active,
+        "reactive_pump_suppression_reason": reactive_pump_suppression_reason,
+        "reactive_pump_suppression_safe_zone": reactive_pump_suppression_safe_zone,
+        "reactive_pump_suppression_latched": reactive_pump_suppression_latched,
+        "reactive_pump_suppression_fullspeed_block": reactive_pump_suppression_fullspeed_block,
+        "reactive_pump_suppression_pitch_abs_deg": reactive_pump_suppression_pitch_abs_deg,
+        "reactive_pump_suppression_roll_abs_deg": reactive_pump_suppression_roll_abs_deg,
+        "reactive_pump_suppression_restart_err_kg": reactive_pump_suppression_restart_err_kg,
+        "reactive_suppression_blocked_tanks": reactive_suppression_blocked_tanks,
+        "reactive_suppression_blocked_mass_kg": reactive_suppression_blocked_mass_kg,
+        "reactive_suppression_delta_mean_kg": reactive_suppression_delta_mean_kg,
+        "reactive_suppression_mask_t1": reactive_suppression_mask_t1,
+        "reactive_suppression_mask_t2": reactive_suppression_mask_t2,
+        "reactive_suppression_mask_t3": reactive_suppression_mask_t3,
         "deadband_target_release_active": deadband_target_release_active,
         "deadband_target_release_reason": deadband_target_release_reason,
         "deadband_target_release_delta_mean_kg": deadband_target_release_delta_mean_kg,
@@ -1632,11 +2079,18 @@ def _update_case_accumulators(acc, obs, dbg, t_sim):
     acc["fallback_reason_invalid_state_id"] = int(obs.get("fallback_reason_invalid_state_id", acc.get("fallback_reason_invalid_state_id", 0)))
     safety_active = int(obs.get("preview_primary_safety_active", 0))
     safety_fallback = int(obs.get("preview_primary_safety_fallback", 0))
+    bucket_guard_active = int(obs.get("preview_primary_bucket_guard_active", 0))
     acc["preview_primary_safety_active_steps"] += safety_active
     acc["preview_primary_safety_fallback_steps"] += safety_fallback
     if safety_active != int(acc.get("preview_primary_safety_prev_active", 0)):
         acc["preview_primary_safety_transition_count"] += 1
     acc["preview_primary_safety_prev_active"] = safety_active
+    acc["preview_primary_bucket_guard_active_steps"] += bucket_guard_active
+    if bucket_guard_active != int(
+        acc.get("preview_primary_bucket_guard_prev_active", 0)
+    ):
+        acc["preview_primary_bucket_guard_transition_count"] += 1
+    acc["preview_primary_bucket_guard_prev_active"] = bucket_guard_active
 
     if t_sim >= acc["tail_start_s"]:
         acc["tail_steps"] += 1
@@ -1841,6 +2295,12 @@ def _finalize_case_summary(
         "preview_primary_safety_transition_count": int(
             acc.get("preview_primary_safety_transition_count", 0)
         ),
+        "preview_primary_bucket_guard_active_ratio": float(
+            acc.get("preview_primary_bucket_guard_active_steps", 0) / n_steps
+        ),
+        "preview_primary_bucket_guard_transition_count": int(
+            acc.get("preview_primary_bucket_guard_transition_count", 0)
+        ),
         "max_consecutive_sat_s": max_consecutive_sat_s,
         "hm_active_ratio": float(hm_active_ratio),
         "hm_mean_abs_heave_error_m": float(hm_mean_abs_heave_error_m),
@@ -1916,6 +2376,30 @@ def _finalize_case_summary(
         ),
         "protocol_primary_safety_exit_required_windows": int(
             protocol_meta.get("primary_safety_exit_required_windows", 1)
+        ),
+        "protocol_primary_safety_bucket_guard_enabled": int(
+            protocol_meta.get("primary_safety_bucket_guard_enabled", 0)
+        ),
+        "protocol_primary_safety_bucket_guard_bucket_s": float(
+            protocol_meta.get("primary_safety_bucket_guard_bucket_s", np.nan)
+        ),
+        "protocol_primary_safety_bucket_guard_pitch_enter_deg": float(
+            protocol_meta.get("primary_safety_bucket_guard_pitch_enter_deg", np.nan)
+        ),
+        "protocol_primary_safety_bucket_guard_roll_enter_deg": float(
+            protocol_meta.get("primary_safety_bucket_guard_roll_enter_deg", np.nan)
+        ),
+        "protocol_primary_safety_bucket_guard_pitch_exit_deg": float(
+            protocol_meta.get("primary_safety_bucket_guard_pitch_exit_deg", np.nan)
+        ),
+        "protocol_primary_safety_bucket_guard_roll_exit_deg": float(
+            protocol_meta.get("primary_safety_bucket_guard_roll_exit_deg", np.nan)
+        ),
+        "protocol_primary_safety_bucket_guard_improve_tol_deg": float(
+            protocol_meta.get("primary_safety_bucket_guard_improve_tol_deg", np.nan)
+        ),
+        "protocol_primary_safety_bucket_guard_exit_required_windows": int(
+            protocol_meta.get("primary_safety_bucket_guard_exit_required_windows", 1)
         ),
         "pass": int(passed),
     }
@@ -2066,6 +2550,9 @@ def run_closed_loop_case(
         "preview_primary_safety_active_steps": 0,
         "preview_primary_safety_transition_count": 0,
         "preview_primary_safety_prev_active": 0,
+        "preview_primary_bucket_guard_active_steps": 0,
+        "preview_primary_bucket_guard_transition_count": 0,
+        "preview_primary_bucket_guard_prev_active": 0,
     }
 
     target_cmd = plant.current_ballast_mass.copy()

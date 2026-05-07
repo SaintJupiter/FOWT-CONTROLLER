@@ -14,10 +14,14 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-import matplotlib
+try:
+    import matplotlib
 
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+except ModuleNotFoundError:  # pragma: no cover - optional for --skip-figures runs
+    matplotlib = None
+    plt = None
 import numpy as np
 import pandas as pd
 
@@ -27,6 +31,7 @@ sys.path.insert(0, str(repo_root / "archive" / "legacy_fowt_control"))
 
 from wind_prediction.ballast_planner import PlannerConfig
 from wind_prediction.ballast_planner_provider import BallastPlannerPreviewProvider
+from wind_prediction.forecast_adapter import ForecastModelAdapter, PersistenceMeanForecastAdapter
 from wind_prediction.replay_dataset import Fino1ReplayDataset
 
 
@@ -35,43 +40,140 @@ N_STEPS = 3600
 TIMESTAMP_FMT = "%Y-%m-%d %H:%M:%S"
 
 
-# Presentation-only reactive baseline refinements. These parameters reuse the
-# already-implemented pump-side stop/start and stage hysteresis layers, while
-# leaving the prediction-primary provider untouched.
+# Frozen non-preview reactive baselines for closed_only. The default
+# engineered_minimal profile is the closed_baseline_v1 reference: ordinary PI
+# feedback plus pump actuator constraints, with no forecast or planner access.
+CLOSED_BASELINE_V1_PUMP_CFG = {
+    "pump_stop_err_kg": 300.0,
+    "pump_restart_err_kg": 500.0,
+    "pump_min_on_s": 20.0,
+    "pump_min_off_s": 12.0,
+    "pump_hold_before_stop_s": 10.0,
+    "pump_global_quiet_hold_s": 0.0,
+    "pump_global_quiet_backlog_kg": float("inf"),
+    "pump_target_quiet_rate_kg_s": float("inf"),
+    "pump_ramp_up_m3_min_per_s": 2.0,
+    "pump_ramp_down_m3_min_per_s": 3.0,
+}
+
+CLOSED_ACTUATOR_SMOOTHING_CANDIDATE_PUMP_CFG = {
+    **CLOSED_BASELINE_V1_PUMP_CFG,
+    "pump_min_off_s": 20.0,
+    "pump_hold_before_stop_s": 15.0,
+    "pump_ramp_up_m3_min_per_s": 0.5,
+    "pump_ramp_down_m3_min_per_s": 0.75,
+}
+
+CLOSED_RELAXED_ECONOMY_RAMP1P5_PUMP_CFG = {
+    **CLOSED_BASELINE_V1_PUMP_CFG,
+    "pump_stop_err_kg": 700.0,
+    "pump_restart_err_kg": 1100.0,
+    "pump_min_off_s": 20.0,
+    "pump_hold_before_stop_s": 15.0,
+    "pump_ramp_up_m3_min_per_s": 1.5,
+    "pump_ramp_down_m3_min_per_s": 2.25,
+}
+
+CLOSED_SMOOTH_ECON700_PUMP_CFG = {
+    **CLOSED_ACTUATOR_SMOOTHING_CANDIDATE_PUMP_CFG,
+    "pump_stop_err_kg": 700.0,
+    "pump_restart_err_kg": 1100.0,
+}
+
 CLOSED_PUMP_PROFILES = {
     "raw": None,
-    "smooth": {
-        "pump_stop_err_kg": 225.0,
-        "pump_restart_err_kg": 725.0,
-        "pump_min_on_s": 30.0,
-        "pump_min_off_s": 12.0,
-        "pump_hold_before_stop_s": 20.0,
-        "pump_global_quiet_hold_s": 20.0,
-        "pump_global_quiet_backlog_kg": 800.0,
-        "pump_target_quiet_rate_kg_s": 20.0,
-        "pump_ramp_up_m3_min_per_s": 2.0,
-        "pump_ramp_down_m3_min_per_s": 3.0,
-        "pump_stage_hysteresis_kg": 75.0,
-        "pump_stage_min_dwell_s": 10.0,
-        "pump_low_end_stage_hysteresis_kg": 125.0,
-        "pump_low_end_stage_min_dwell_s": 20.0,
-        "pump_low_end_stage_max_idx": 2,
-    },
+    "formal": CLOSED_BASELINE_V1_PUMP_CFG,
+    "engineered_minimal": CLOSED_BASELINE_V1_PUMP_CFG,
+    # Display-friendly closed profile. It reduces pump-rate total variation by
+    # about 41% in the 5-case check, with <=3.28% pump-work increase and nearly
+    # unchanged attitude metrics. The formal paper baseline remains
+    # engineered_minimal unless explicitly changed.
+    "actuator_smoothed_v2": CLOSED_ACTUATOR_SMOOTHING_CANDIDATE_PUMP_CFG,
+    "smooth": CLOSED_ACTUATOR_SMOOTHING_CANDIDATE_PUMP_CFG,
+    # Supplemental non-preview references for baseline-fairness checks.
+    "relaxed_economy_ramp1p5": CLOSED_RELAXED_ECONOMY_RAMP1P5_PUMP_CFG,
+    "smooth_econ700": CLOSED_SMOOTH_ECON700_PUMP_CFG,
 }
 
 CLOSED_TARGET_SHAPE_PROFILES = {
     "raw": {},
-    "smooth": {
-        "deadband_target_release_enabled": True,
-        "deadband_target_release_pitch_deg": 0.5,
-        "deadband_target_release_roll_deg": 0.4,
-        "deadband_target_release_near_zero_deg": 0.15,
-        "deadband_target_release_rate_eps_deg_s": 0.002,
-        "deadband_target_release_blend": 1.0,
-        "deadband_target_release_require_both_axes": True,
-        "deadband_target_release_reset_limiter": True,
-        "deadband_target_release_exit_pitch_deg": 0.75,
-        "deadband_target_release_exit_roll_deg": 0.6,
+    "formal": {},
+    "engineered_minimal": {},
+    "actuator_smoothed_v2": {},
+    "smooth": {},
+    "relaxed_economy_ramp1p5": {},
+    "smooth_econ700": {},
+}
+
+PRIMARY_SAFETY_PROFILES = {
+    "default": {},
+    "bucket_guard": {
+        "primary_safety_bucket_guard_enabled": True,
+        "primary_safety_bucket_guard_bucket_s": 600.0,
+        "primary_safety_bucket_guard_pitch_enter_deg": 4.0,
+        "primary_safety_bucket_guard_roll_enter_deg": 4.0,
+        "primary_safety_bucket_guard_pitch_exit_deg": 3.5,
+        "primary_safety_bucket_guard_roll_exit_deg": 3.5,
+        "primary_safety_bucket_guard_improve_tol_deg": 0.0,
+        "primary_safety_bucket_guard_exit_required_windows": 1,
+        "primary_safety_bucket_guard_max_active_windows": 1,
+        "primary_safety_bucket_guard_hold_only": False,
+        "primary_safety_bucket_guard_require_current_high": False,
+    },
+    "risk_gate": {
+        "primary_safety_pitch_enter_deg": 4.0,
+        "primary_safety_roll_enter_deg": 4.0,
+        "primary_safety_pitch_exit_deg": 3.5,
+        "primary_safety_roll_exit_deg": 3.5,
+        "primary_safety_enter_hold_s": 0.0,
+        "primary_safety_exit_hold_s": 0.0,
+        "primary_safety_exit_required_windows": 1,
+        "primary_safety_emergency_pitch_enter_deg": 8.0,
+        "primary_safety_emergency_roll_enter_deg": 6.5,
+        "primary_safety_bucket_guard_enabled": True,
+        "primary_safety_bucket_guard_bucket_s": 600.0,
+        "primary_safety_bucket_guard_pitch_enter_deg": 4.0,
+        "primary_safety_bucket_guard_roll_enter_deg": 4.0,
+        "primary_safety_bucket_guard_pitch_exit_deg": 3.5,
+        "primary_safety_bucket_guard_roll_exit_deg": 3.5,
+        "primary_safety_bucket_guard_improve_tol_deg": 0.0,
+        "primary_safety_bucket_guard_exit_required_windows": 1,
+        "primary_safety_bucket_guard_max_active_windows": 1,
+        "primary_safety_bucket_guard_hold_only": False,
+        "primary_safety_bucket_guard_require_current_high": False,
+    },
+    "hold_risk_gate": {
+        "primary_safety_pitch_enter_deg": 4.0,
+        "primary_safety_roll_enter_deg": 4.0,
+        "primary_safety_pitch_exit_deg": 3.5,
+        "primary_safety_roll_exit_deg": 3.5,
+        "primary_safety_enter_hold_s": 0.0,
+        "primary_safety_exit_hold_s": 0.0,
+        "primary_safety_exit_required_windows": 1,
+        "primary_safety_emergency_pitch_enter_deg": 8.0,
+        "primary_safety_emergency_roll_enter_deg": 6.5,
+        "primary_safety_hold_risk_gate_enabled": True,
+        "primary_safety_hold_risk_gate_action": "hold",
+        "primary_safety_bucket_guard_enabled": True,
+        "primary_safety_bucket_guard_bucket_s": 600.0,
+        "primary_safety_bucket_guard_pitch_enter_deg": 4.0,
+        "primary_safety_bucket_guard_roll_enter_deg": 4.0,
+        "primary_safety_bucket_guard_pitch_exit_deg": 3.5,
+        "primary_safety_bucket_guard_roll_exit_deg": 3.5,
+        "primary_safety_bucket_guard_improve_tol_deg": 0.0,
+        "primary_safety_bucket_guard_exit_required_windows": 1,
+        "primary_safety_bucket_guard_max_active_windows": 1,
+        "primary_safety_bucket_guard_hold_only": True,
+        "primary_safety_bucket_guard_require_current_high": False,
+    },
+    "strict": {
+        "primary_safety_pitch_enter_deg": 5.5,
+        "primary_safety_roll_enter_deg": 4.5,
+        "primary_safety_pitch_exit_deg": 4.8,
+        "primary_safety_roll_exit_deg": 3.8,
+        "primary_safety_enter_hold_s": 10.0,
+        "primary_safety_emergency_pitch_enter_deg": 7.5,
+        "primary_safety_emergency_roll_enter_deg": 6.5,
     },
 }
 
@@ -116,6 +218,10 @@ def closed_pump_cfg(profile: str) -> dict | None:
 
 def closed_target_shape_override(profile: str) -> dict:
     return dict(CLOSED_TARGET_SHAPE_PROFILES[str(profile)])
+
+
+def primary_safety_override(profile: str) -> dict:
+    return dict(PRIMARY_SAFETY_PROFILES[str(profile)])
 
 
 def smooth_wind_trace(trace: dict, transition_s: float) -> dict:
@@ -201,6 +307,71 @@ def summarize(df: pd.DataFrame) -> dict:
                 > 0.5
             )
         ),
+        "primary_bucket_guard_active_ratio": float(
+            np.mean(df.get("preview_primary_bucket_guard_active", zeros).to_numpy(dtype=float))
+        ),
+        "primary_bucket_guard_transition_count": int(
+            np.sum(
+                np.abs(
+                    np.diff(
+                        df.get("preview_primary_bucket_guard_active", zeros).to_numpy(dtype=float),
+                        prepend=0.0,
+                    )
+                )
+                > 0.5
+            )
+        ),
+        "preview_pump_suppression_ratio": float(
+            np.mean(df.get("preview_pump_suppression_active", zeros).to_numpy(dtype=float))
+        ),
+        "preview_suppression_delta_mean_kg": float(
+            np.mean(df.get("preview_suppression_delta_mean_kg", zeros).to_numpy(dtype=float))
+        ),
+        "preview_event_risk_boost_ratio": float(
+            np.mean(df.get("preview_event_risk_pressure_boost_enabled", zeros).to_numpy(dtype=float))
+        ),
+        "preview_event_risk_scale_mean": float(
+            np.mean(
+                df.get(
+                    "preview_event_risk_scale_0_20m",
+                    pd.Series(np.ones(len(df)), index=df.index),
+                ).to_numpy(dtype=float)
+            )
+        ),
+        "preview_event_risk_floor_ratio": float(
+            np.mean(
+                np.max(
+                    np.column_stack(
+                        [
+                            df.get("preview_event_risk_floor_active_0_20m", zeros).to_numpy(dtype=float),
+                            df.get("preview_event_risk_floor_active_20_40m", zeros).to_numpy(dtype=float),
+                            df.get("preview_event_risk_floor_active_40_60m", zeros).to_numpy(dtype=float),
+                        ]
+                    ),
+                    axis=1,
+                )
+            )
+        ),
+        "preview_event_risk_floor_norm_mean": float(
+            np.mean(
+                np.column_stack(
+                    [
+                        df.get("preview_event_risk_floor_norm_0_20m", zeros).to_numpy(dtype=float),
+                        df.get("preview_event_risk_floor_norm_20_40m", zeros).to_numpy(dtype=float),
+                        df.get("preview_event_risk_floor_norm_40_60m", zeros).to_numpy(dtype=float),
+                    ]
+                )
+            )
+        ),
+        "preview_lead_action_ratio": float(
+            np.mean(df.get("preview_lead_action_active", zeros).to_numpy(dtype=float))
+        ),
+        "preview_relief_medium_cap_ratio": float(
+            np.mean(df.get("preview_relief_medium_cap_active", zeros).to_numpy(dtype=float))
+        ),
+        "primary_target_resumed_ratio": float(
+            np.mean(df.get("preview_primary_target_resumed", zeros).to_numpy(dtype=float))
+        ),
     }
 
 
@@ -230,6 +401,153 @@ def _format_plan_note(row: pd.Series) -> str:
         f"{action} {refresh}\n"
         f"target {tp:+.2f}/{tr:+.2f} deg\n"
         f"future {b0:.2f}/{b1:.2f}/{b2:.2f}"
+    )
+
+
+def _circular_mean_deg(values: np.ndarray) -> float:
+    vals = np.asarray(values, dtype=float)
+    vals = vals[np.isfinite(vals)]
+    if vals.size == 0:
+        return float("nan")
+    rad = np.deg2rad(vals)
+    mean_sin = float(np.mean(np.sin(rad)))
+    mean_cos = float(np.mean(np.cos(rad)))
+    return float((np.rad2deg(np.arctan2(mean_sin, mean_cos)) + 360.0) % 360.0)
+
+
+def _format_prediction_role(row: pd.Series | None) -> str:
+    if row is None:
+        return "Pred: n/a"
+    action = str(row.get("first_action", "hold"))
+    short = _planner_short_action(action)
+    role_map = {
+        "hold": "hold",
+        "save": "pump-save",
+        "small": "pre-small",
+        "medium": "pre-med",
+        "reverse": "release",
+    }
+    role = role_map.get(short, short)
+    b0 = float(row.get("pressure_block0_norm", 0.0))
+    b1 = float(row.get("pressure_block1_norm", 0.0))
+    b2 = float(row.get("pressure_block2_norm", 0.0))
+    dkg = float(row.get("prediction_primary_delta_abs_mean_kg", 0.0))
+    refreshed = int(float(row.get("prediction_primary_target_refreshed", 0.0))) > 0
+    reused = int(float(row.get("prediction_primary_target_reused", 0.0))) > 0
+    mode = "new" if refreshed or not reused else "reuse"
+    if role == "hold" or dkg <= 1.0:
+        return f"Pred: hold\nrisk {b0:.2f}/{b1:.2f}/{b2:.2f}"
+    return f"Pred: {role}\n{mode}, dM {dkg / 1000.0:.0f}t"
+
+
+def _planner_row_for_interval(
+    planner_log: pd.DataFrame | None,
+    start_s: float,
+    end_s: float,
+) -> pd.Series | None:
+    if planner_log is None or planner_log.empty or "current_time_s" not in planner_log.columns:
+        return None
+    times = planner_log["current_time_s"].to_numpy(dtype=float)
+    mask = (times >= float(start_s) - 1e-6) & (times < float(end_s) - 1e-6)
+    if np.any(mask):
+        return planner_log.iloc[int(np.flatnonzero(mask)[0])]
+    before = np.flatnonzero(times <= float(start_s) + 1e-6)
+    if before.size > 0:
+        return planner_log.iloc[int(before[-1])]
+    return planner_log.iloc[0]
+
+
+def _same_wind_block(a: dict, b: dict, ws_tol: float = 0.05, wd_tol: float = 0.5) -> bool:
+    if not (np.isfinite(a["ws"]) and np.isfinite(b["ws"]) and np.isfinite(a["wd"]) and np.isfinite(b["wd"])):
+        return False
+    wd_delta = abs(((float(a["wd"]) - float(b["wd"]) + 180.0) % 360.0) - 180.0)
+    return abs(float(a["ws"]) - float(b["ws"])) <= float(ws_tol) and wd_delta <= float(wd_tol)
+
+
+def _annotate_wind_prediction_strip(
+    ax,
+    wind_df: pd.DataFrame,
+    planner_log: pd.DataFrame | None,
+    duration_min: float,
+    block_min: float = 10.0,
+) -> None:
+    ax.set_ylim(0.0, 1.0)
+    ax.set_yticks([])
+    ax.set_ylabel("Wind\nPred", rotation=0, ha="right", va="center", labelpad=28)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_visible(False)
+    ax.spines["bottom"].set_color("#bdbdbd")
+    ax.grid(False)
+
+    t = wind_df["t_s"].to_numpy(dtype=float) / 60.0
+    ws = wind_df.get("wind_speed", pd.Series(np.zeros(len(wind_df)))).to_numpy(dtype=float)
+    wd = wind_df.get("wind_dir_deg", pd.Series(np.zeros(len(wind_df)))).to_numpy(dtype=float)
+    cmap = plt.get_cmap("Blues")
+    n_blocks = int(np.ceil(float(duration_min) / float(block_min)))
+    blocks: list[dict] = []
+    for i in range(n_blocks):
+        start = i * float(block_min)
+        end = min((i + 1) * float(block_min), float(duration_min))
+        if end <= start:
+            continue
+        mask = (t >= start - 1e-9) & (t < end - 1e-9)
+        if not np.any(mask):
+            mask = np.abs(t - start) <= 0.5
+        ws_val = float(np.nanmean(ws[mask])) if np.any(mask) else float("nan")
+        wd_val = _circular_mean_deg(wd[mask]) if np.any(mask) else float("nan")
+        blocks.append(
+            {
+                "start": start,
+                "end": end,
+                "mid": 0.5 * (start + end),
+                "ws": ws_val,
+                "wd": wd_val,
+                "planner_row": _planner_row_for_interval(planner_log, start * 60.0, end * 60.0),
+            }
+        )
+
+    groups: list[dict] = []
+    for block in blocks:
+        if groups and _same_wind_block(groups[-1], block):
+            groups[-1]["end"] = block["end"]
+        else:
+            groups.append({"start": block["start"], "end": block["end"], "ws": block["ws"], "wd": block["wd"]})
+
+    for group in groups:
+        speed_norm = 0.0 if not np.isfinite(group["ws"]) else float(np.clip(group["ws"] / 25.0, 0.0, 1.0))
+        face = cmap(0.20 + 0.70 * speed_norm)
+        ax.axvspan(group["start"], group["end"], facecolor=face, alpha=0.72, lw=0.0)
+        ax.axvline(group["start"], color="#ffffff", lw=0.9, alpha=0.85)
+        group_mid = 0.5 * (group["start"] + group["end"])
+        wind_label = (
+            f"WS {group['ws']:.1f} m/s  WD {group['wd']:.0f} deg"
+            if np.isfinite(group["ws"]) and np.isfinite(group["wd"])
+            else "WS n/a  WD n/a"
+        )
+        ax.text(group_mid, 0.76, wind_label, ha="center", va="center", fontsize=7.0, color="#0f2438")
+
+    for block in blocks:
+        ax.text(
+            block["mid"],
+            0.25,
+            _format_prediction_role(block["planner_row"]),
+            ha="center",
+            va="center",
+            fontsize=6.4,
+            color="#2d2d2d",
+            linespacing=1.12,
+        )
+    ax.axvline(float(duration_min), color="#ffffff", lw=0.8, alpha=0.75)
+    ax.text(
+        0.0,
+        1.06,
+        "10-min replay blocks: current wind and prediction-primary role",
+        transform=ax.transAxes,
+        ha="left",
+        va="bottom",
+        fontsize=8.5,
+        color="#444444",
     )
 
 
@@ -275,18 +593,33 @@ def plot_case(
     duration_min: float,
     planner_log: pd.DataFrame | None = None,
 ) -> Path:
+    if plt is None:
+        raise ModuleNotFoundError(
+            "matplotlib is required for plotting; rerun without --skip-figures only in an environment that has matplotlib"
+        )
     t_closed = closed["t_s"].to_numpy(dtype=float) / 60.0
     t_primary = primary["t_s"].to_numpy(dtype=float) / 60.0
     c = "#2468B2"
     p = "#D85C27"
     fig_w = max(12.5, min(24.0, 12.5 * duration_min / 60.0))
-    fig, axes = plt.subplots(3, 1, figsize=(fig_w, 8.4), sharex=True, constrained_layout=True)
+    fig, axes = plt.subplots(
+        4,
+        1,
+        figsize=(fig_w, 9.8),
+        sharex=True,
+        constrained_layout=True,
+        gridspec_kw={"height_ratios": [0.78, 1.0, 1.0, 1.0]},
+    )
+    strip_ax = axes[0]
+    series_axes = axes[1:]
+    wind_source = primary if {"wind_speed", "wind_dir_deg"}.issubset(primary.columns) else closed
+    _annotate_wind_prediction_strip(strip_ax, wind_source, planner_log, duration_min)
     rows = [
         ("Pitch angle (deg)", "pitch_deg"),
         ("Roll angle (deg)", "roll_deg"),
         ("Total pump rate (m3/min)", "pump_total_rate_m3_min"),
     ]
-    for ax, (ylabel, col) in zip(axes, rows):
+    for ax, (ylabel, col) in zip(series_axes, rows):
         ax.plot(t_closed, closed[col].to_numpy(dtype=float), color=c, lw=1.45, label="closed_only")
         ax.plot(t_primary, primary[col].to_numpy(dtype=float), color=p, lw=1.45, label=primary_label)
         ax.axhline(0.0, color="#777777", lw=0.8, alpha=0.55)
@@ -296,10 +629,9 @@ def plot_case(
         ax.grid(True, color="#d9d9d9", lw=0.7, alpha=0.75)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
-    axes[0].legend(loc="upper left", frameon=False, ncol=2)
-    _annotate_planner(axes[0], planner_log, duration_min)
-    axes[2].set_xlabel("Time (min)")
-    axes[2].set_xlim(0, duration_min)
+    series_axes[0].legend(loc="upper left", frameon=False, ncol=2)
+    series_axes[2].set_xlabel("Time (min)")
+    series_axes[2].set_xlim(0, duration_min)
     sc = summarize(closed)
     sp = summarize(primary)
     metric_text = (
@@ -308,11 +640,11 @@ def plot_case(
         f"pitch p95: {sc['pitch_abs_p95']:.2f} -> {sp['pitch_abs_p95']:.2f} deg; "
         f"roll p95: {sc['roll_abs_p95']:.2f} -> {sp['roll_abs_p95']:.2f} deg"
     )
-    axes[0].text(
+    series_axes[0].text(
         0.995,
         0.03,
         metric_text,
-        transform=axes[0].transAxes,
+        transform=series_axes[0].transAxes,
         ha="right",
         va="bottom",
         fontsize=9,
@@ -349,6 +681,27 @@ def parse_args() -> argparse.Namespace:
         help="Comma-separated canonical case ids to run, e.g. 01,04,05,09,10. Empty means first 10 cases.",
     )
     parser.add_argument(
+        "--cases-csv",
+        default="",
+        help="Optional CSV with case_id,timestamp,label columns. Overrides the built-in case list.",
+    )
+    parser.add_argument(
+        "--skip-figures",
+        action="store_true",
+        help=(
+            "Skip PNG plotting during batch runs. Raw 1Hz timeseries, planner logs, "
+            "summary CSV, and report are still written."
+        ),
+    )
+    parser.add_argument(
+        "--primary-only",
+        action="store_true",
+        help=(
+            "Run only the prediction-primary variant. Useful for learned/persistence/oracle "
+            "screening where the closed baseline would be identical and can be added later."
+        ),
+    )
+    parser.add_argument(
         "--wind-transition-s",
         type=float,
         default=0.0,
@@ -357,14 +710,331 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--closed-pump-profile",
         choices=sorted(CLOSED_PUMP_PROFILES),
-        default="smooth",
-        help="Pump-side profile for closed_only only. 'raw' preserves the old reactive baseline.",
+        default="engineered_minimal",
+        help="Pump-side profile for closed_only only. Default is the frozen non-preview baseline.",
+    )
+    parser.add_argument(
+        "--primary-scale",
+        type=float,
+        default=1.0,
+        help="Mass-target scale for prediction_primary only.",
+    )
+    parser.add_argument(
+        "--primary-control-profile",
+        choices=(
+            "manual",
+            "rawenv_holdpause_barrier_v1",
+            "rawenv_holdpause_barrier_reliefcap030_v1",
+        ),
+        default="manual",
+        help=(
+            "Convenience profile for prediction-primary planner/execution switches. "
+            "manual preserves explicit CLI flags; rawenv_holdpause_barrier_v1 applies "
+            "the current guarded value profile: raw envelope, hold target pause, and "
+            "the envelope barrier. rawenv_holdpause_barrier_reliefcap030_v1 additionally "
+            "enables the event-risk-conditioned medium-action cap at ratio 0.30."
+        ),
+    )
+    parser.add_argument(
+        "--primary-safety-profile",
+        choices=sorted(PRIMARY_SAFETY_PROFILES),
+        default="default",
+        help="Runtime fallback profile for prediction_primary only.",
+    )
+    parser.add_argument(
+        "--forecast-source",
+        choices=("oracle", "persistence_mean", "learned"),
+        default="oracle",
+        help="Forecast source for prediction_primary. Oracle uses replay future y_uv_raw.",
+    )
+    parser.add_argument(
+        "--model-dir",
+        default="outputs/wind_prediction/lstm_segmented_fino1_meteo_aux_v1",
+        help="Trained forecast model directory used when --forecast-source=learned.",
+    )
+    parser.add_argument(
+        "--dataset-dir",
+        default="data/processed/wind_ml_10min/ballast_decision_fino1_meteo_aux_v1",
+        help="Replay dataset directory.",
+    )
+    parser.add_argument(
+        "--persistence-history-min",
+        type=float,
+        default=10.0,
+        help="History mean window for --forecast-source=persistence_mean.",
+    )
+    parser.add_argument(
+        "--event-reset-mode",
+        choices=("action", "target_change", "active_bucket"),
+        default="action",
+        help="Prediction-primary target refresh policy. Default preserves current behavior.",
+    )
+    parser.add_argument(
+        "--planner-envelope-raw",
+        action="store_true",
+        help=(
+            "Evaluate planner envelope costs on raw undiscounted pressure blocks. "
+            "Default preserves discounted-envelope behavior."
+        ),
+    )
+    parser.add_argument(
+        "--planner-envelope-barrier",
+        action="store_true",
+        help=(
+            "Enable the existing zone-MPC envelope barrier: if a sequence violates "
+            "the envelope and uses only weak actions, add a fixed scalar cost."
+        ),
+    )
+    parser.add_argument(
+        "--planner-envelope-barrier-const",
+        type=float,
+        default=50.0,
+        help="Fixed scalar cost used by --planner-envelope-barrier.",
+    )
+    parser.add_argument(
+        "--planner-pressure-norm-cap",
+        type=float,
+        default=1.5,
+        help=(
+            "Deadband-normalized cap for pressure_proxy_vec. Default 1.5 preserves "
+            "the current planner; larger values test whether high-wind saturation "
+            "is compressing learned/persistence forecast differences."
+        ),
+    )
+    parser.add_argument(
+        "--target-reset-tol-deg",
+        type=float,
+        default=0.02,
+        help="Planner-frame target-change tolerance for --event-reset-mode=target_change.",
+    )
+    parser.add_argument(
+        "--primary-hold-target-mode",
+        choices=("current", "pause"),
+        default="current",
+        help=(
+            "Prediction-primary hold target handling. current preserves existing behavior; "
+            "pause temporarily anchors hold at current masses but can resume the prior "
+            "same-direction active target instead of re-issuing a fresh target."
+        ),
+    )
+    parser.add_argument(
+        "--pump-suppression",
+        action="store_true",
+        help="Enable forecast-based preview pump suppression in prediction-primary.",
+    )
+    parser.add_argument(
+        "--pump-suppression-restart-err-kg",
+        type=float,
+        default=2000.0,
+        help="Restart-error threshold for forecast-based preview pump suppression.",
+    )
+    parser.add_argument(
+        "--pump-suppression-relief-margin-norm",
+        type=float,
+        default=0.25,
+        help="Required block0-to-block2 relief margin for preview pump suppression.",
+    )
+    parser.add_argument(
+        "--pump-suppression-low-risk-norm",
+        type=float,
+        default=0.75,
+        help="All-block low-risk threshold for preview pump suppression.",
+    )
+    parser.add_argument(
+        "--event-risk-pressure-boost",
+        action="store_true",
+        help="Enable event-probability pressure boost in prediction-primary.",
+    )
+    parser.add_argument(
+        "--event-risk-pressure-boost-gain",
+        type=float,
+        default=0.35,
+        help="Event-risk pressure boost gain above the probability threshold.",
+    )
+    parser.add_argument(
+        "--event-risk-pressure-boost-threshold",
+        type=float,
+        default=0.50,
+        help="Event probability threshold before pressure boost starts.",
+    )
+    parser.add_argument(
+        "--event-risk-pressure-boost-max",
+        type=float,
+        default=0.35,
+        help="Maximum per-block pressure boost from event risk.",
+    )
+    parser.add_argument(
+        "--event-risk-pressure-floor",
+        action="store_true",
+        help="Raise low learned/oracle pressure-block norms when segment event risk is high.",
+    )
+    parser.add_argument(
+        "--event-risk-pressure-floor-threshold",
+        type=float,
+        default=0.70,
+        help="Segment event probability threshold before the pressure floor can activate.",
+    )
+    parser.add_argument(
+        "--event-risk-pressure-floor-norm",
+        type=float,
+        default=0.85,
+        help="Target minimum deadband-normalized pressure norm when the event-risk floor activates.",
+    )
+    parser.add_argument(
+        "--event-risk-pressure-floor-max-lift",
+        type=float,
+        default=0.50,
+        help="Maximum per-block pressure-norm lift applied by the event-risk floor.",
+    )
+    parser.add_argument(
+        "--preview-lead-action",
+        action="store_true",
+        help="Enable forecast-only prepump when low current pressure precedes high future event pressure.",
+    )
+    parser.add_argument(
+        "--preview-lead-event-threshold",
+        type=float,
+        default=0.90,
+        help="Segment event probability required for forecast lead-action.",
+    )
+    parser.add_argument(
+        "--preview-lead-current-norm-max",
+        type=float,
+        default=0.65,
+        help="Maximum current raw pressure norm that still qualifies as a low-pressure lead window.",
+    )
+    parser.add_argument(
+        "--preview-lead-future-norm-min",
+        type=float,
+        default=1.00,
+        help="Minimum future pressure norm required for forecast lead-action.",
+    )
+    parser.add_argument(
+        "--preview-lead-current-wind-max-ms",
+        type=float,
+        default=8.0,
+        help="Maximum current wind-speed proxy for forecast lead-action.",
+    )
+    parser.add_argument(
+        "--preview-lead-pitch-abs-max-deg",
+        type=float,
+        default=2.0,
+        help="Maximum current absolute pitch for forecast lead-action.",
+    )
+    parser.add_argument(
+        "--preview-lead-roll-abs-max-deg",
+        type=float,
+        default=1.5,
+        help="Maximum current absolute roll for forecast lead-action.",
+    )
+    parser.add_argument(
+        "--preview-lead-action-name",
+        choices=("pump_saving", "active_small"),
+        default="active_small",
+        help="Planner action used for a forecast lead-action.",
+    )
+    parser.add_argument(
+        "--pump-suppression-event-risk-guard",
+        action="store_true",
+        help="Block preview pump suppression when learned/oracle event risk is high.",
+    )
+    parser.add_argument(
+        "--pump-suppression-event-risk-guard-threshold",
+        type=float,
+        default=0.70,
+        help="Maximum segment event probability that still permits preview pump suppression.",
+    )
+    parser.add_argument(
+        "--relief-medium-cap",
+        action="store_true",
+        help="Cap active_medium to active_small in high-confidence future-relief windows.",
+    )
+    parser.add_argument(
+        "--relief-medium-cap-event-threshold",
+        type=float,
+        default=0.70,
+        help="Minimum segment event probability required for relief medium cap.",
+    )
+    parser.add_argument(
+        "--relief-medium-cap-ratio",
+        type=float,
+        default=0.25,
+        help="Action ratio used when capping active_medium in future-relief windows.",
     )
     return parser.parse_args()
 
 
+def _load_indexed_cases(cases_csv: str) -> list[tuple[int, str, str, str]]:
+    if not cases_csv:
+        return [
+            (idx, raw_case_id, ts_str, label)
+            for idx, (raw_case_id, ts_str, label) in enumerate(CASES[:10], start=1)
+        ]
+    path = Path(cases_csv)
+    if not path.is_absolute():
+        path = repo_root / path
+    df = pd.read_csv(path)
+    required = {"timestamp"}
+    missing = required.difference(df.columns)
+    if missing:
+        raise ValueError(f"--cases-csv missing required columns: {sorted(missing)}")
+    rows: list[tuple[int, str, str, str]] = []
+    for idx, row in enumerate(df.to_dict("records"), start=1):
+        raw_case_id = str(row.get("case_id", "") or row.get("group", "") or f"case_{idx:02d}")
+        label = str(row.get("label", "") or row.get("selection_group", "") or raw_case_id)
+        rows.append((idx, raw_case_id, str(row["timestamp"]), label))
+    return rows
+
+
+def _numbered_case_id(case_num: int, raw_case_id: str) -> str:
+    clean = str(raw_case_id).strip() or f"case_{case_num:02d}"
+    if len(clean) > 3 and clean[:2].isdigit() and clean[2] == "_":
+        clean = clean[3:]
+    elif "_" in clean and clean.split("_", 1)[0].isdigit():
+        clean = clean.split("_", 1)[1]
+    clean = "".join(ch if ch.isalnum() or ch in ("_", "-") else "_" for ch in clean)
+    return f"{case_num:02d}_{clean}"
+
+
+def _make_forecast_adapter(args: argparse.Namespace):
+    source = str(args.forecast_source)
+    dataset_dir = Path(args.dataset_dir)
+    if not dataset_dir.is_absolute():
+        dataset_dir = repo_root / dataset_dir
+    if source == "oracle":
+        return None
+    if source == "persistence_mean":
+        return PersistenceMeanForecastAdapter(
+            dataset_dir=dataset_dir,
+            history_minutes=float(args.persistence_history_min),
+        )
+    if source == "learned":
+        model_dir = Path(args.model_dir)
+        if not model_dir.is_absolute():
+            model_dir = repo_root / model_dir
+        return ForecastModelAdapter(
+            model_dir=model_dir,
+            dataset_dir=dataset_dir,
+            device="cpu",
+        )
+    raise ValueError(f"unsupported forecast source: {source}")
+
+
 def main() -> None:
     args = parse_args()
+    primary_control_profile = str(args.primary_control_profile)
+    if primary_control_profile in {
+        "rawenv_holdpause_barrier_v1",
+        "rawenv_holdpause_barrier_reliefcap030_v1",
+    }:
+        args.planner_envelope_raw = True
+        args.planner_envelope_barrier = True
+        args.planner_envelope_barrier_const = 50.0
+        args.primary_hold_target_mode = "pause"
+    if primary_control_profile == "rawenv_holdpause_barrier_reliefcap030_v1":
+        args.relief_medium_cap = True
+        args.relief_medium_cap_ratio = 0.30
+        args.relief_medium_cap_event_threshold = 0.70
     t0 = time.perf_counter()
     n_steps = int(round(float(args.duration_s) / DT))
     if n_steps <= 0:
@@ -378,6 +1048,8 @@ def main() -> None:
     closed_profile = str(args.closed_pump_profile)
     closed_profile_cfg = closed_pump_cfg(closed_profile)
     closed_target_shape_cfg = closed_target_shape_override(closed_profile)
+    primary_target_shape_cfg = primary_safety_override(str(args.primary_safety_profile))
+    primary_scale = float(args.primary_scale)
     fig_dir = out_dir / "figures"
     ts_dir = out_dir / "timeseries"
     log_dir = out_dir / "planner_logs"
@@ -387,12 +1059,25 @@ def main() -> None:
     base_planner_out = repo_root / "outputs" / "wind_prediction" / "planner_a1_dryrun"
     sign_cfg = json.loads((base_planner_out / "diagnostics" / "a01_pressure_vec_sign_convention.json").read_text())
     discount_cfg = json.loads((base_planner_out / "diagnostics" / "a1_block_discount_config.json").read_text())
-    cfg = PlannerConfig(pressure_sign_multiplier=float(sign_cfg["planner_sign_multiplier"]))
+    cfg = PlannerConfig(
+        pressure_sign_multiplier=float(sign_cfg["planner_sign_multiplier"]),
+        pressure_norm_cap=float(args.planner_pressure_norm_cap),
+        envelope_use_discount=not bool(args.planner_envelope_raw),
+        envelope_barrier_active=bool(args.planner_envelope_barrier),
+        envelope_barrier_const=float(args.planner_envelope_barrier_const),
+    )
     discounts = discount_cfg["default_discount_blocks"]
     excel_path = discover_excel()
+    dataset_dir = Path(args.dataset_dir)
+    if not dataset_dir.is_absolute():
+        dataset_dir = repo_root / dataset_dir
     replay = Fino1ReplayDataset(
-        dataset_dir=repo_root / "data" / "processed" / "wind_ml_10min" / "ballast_decision_fino1_meteo_aux_v1",
+        dataset_dir=dataset_dir,
         split="test",
+    )
+    forecast_adapter = _make_forecast_adapter(args)
+    forecast_source_label = (
+        "oracle_future" if forecast_adapter is None else str(forecast_adapter.model_version)
     )
 
     from defaults import clone_cfg  # noqa: F401
@@ -400,10 +1085,7 @@ def main() -> None:
 
     rows: list[dict] = []
     issues: list[str] = []
-    indexed_cases = [
-        (idx, raw_case_id, ts_str, label)
-        for idx, (raw_case_id, ts_str, label) in enumerate(CASES[:10], start=1)
-    ]
+    indexed_cases = _load_indexed_cases(str(args.cases_csv))
     if selected_ids:
         indexed_cases = [
             item
@@ -414,7 +1096,7 @@ def main() -> None:
         ]
     completed = 0
     for case_num, raw_case_id, ts_str, label in indexed_cases:
-        case_id = f"{case_num:02d}_{raw_case_id.split('_', 1)[1]}"
+        case_id = _numbered_case_id(case_num, raw_case_id)
         ts = datetime.strptime(ts_str, TIMESTAMP_FMT)
         try:
             row_count = int(np.ceil(n_steps * DT / replay.update_interval_s))
@@ -426,7 +1108,8 @@ def main() -> None:
 
         dfs: dict[str, pd.DataFrame] = {}
         providers: dict[str, BallastPlannerPreviewProvider | None] = {}
-        for variant in ("closed_only", primary_variant):
+        variants = (primary_variant,) if bool(args.primary_only) else ("closed_only", primary_variant)
+        for variant in variants:
             provider = None
             if variant == primary_variant:
                 provider = BallastPlannerPreviewProvider(
@@ -436,10 +1119,73 @@ def main() -> None:
                     block_discounts=discounts,
                     bias_shape="event_decay",
                     objective_mode="economic",
+                    event_reset_mode=str(args.event_reset_mode),
+                    target_reset_tol_deg=float(args.target_reset_tol_deg),
                     setpoint_channel_enabled=False,
                     prediction_primary_enabled=True,
-                    prediction_primary_scale=1.0,
+                    prediction_primary_scale=primary_scale,
+                    primary_hold_target_mode=str(args.primary_hold_target_mode),
                     ff_channel_enabled=False,
+                    pump_suppression_enabled=bool(args.pump_suppression),
+                    pump_suppression_restart_err_kg=float(
+                        args.pump_suppression_restart_err_kg
+                    ),
+                    pump_suppression_relief_margin_norm=float(
+                        args.pump_suppression_relief_margin_norm
+                    ),
+                    pump_suppression_low_risk_norm=float(
+                        args.pump_suppression_low_risk_norm
+                    ),
+                    event_risk_pressure_boost_enabled=bool(
+                        args.event_risk_pressure_boost
+                    ),
+                    event_risk_pressure_boost_gain=float(
+                        args.event_risk_pressure_boost_gain
+                    ),
+                    event_risk_pressure_boost_threshold=float(
+                        args.event_risk_pressure_boost_threshold
+                    ),
+                    event_risk_pressure_boost_max=float(
+                        args.event_risk_pressure_boost_max
+                    ),
+                    event_risk_pressure_floor_enabled=bool(
+                        args.event_risk_pressure_floor
+                    ),
+                    event_risk_pressure_floor_threshold=float(
+                        args.event_risk_pressure_floor_threshold
+                    ),
+                    event_risk_pressure_floor_norm=float(
+                        args.event_risk_pressure_floor_norm
+                    ),
+                    event_risk_pressure_floor_max_lift=float(
+                        args.event_risk_pressure_floor_max_lift
+                    ),
+                    preview_lead_action_enabled=bool(args.preview_lead_action),
+                    preview_lead_event_threshold=float(args.preview_lead_event_threshold),
+                    preview_lead_current_norm_max=float(args.preview_lead_current_norm_max),
+                    preview_lead_future_norm_min=float(args.preview_lead_future_norm_min),
+                    preview_lead_current_wind_max_ms=float(
+                        args.preview_lead_current_wind_max_ms
+                    ),
+                    preview_lead_pitch_abs_max_deg=float(
+                        args.preview_lead_pitch_abs_max_deg
+                    ),
+                    preview_lead_roll_abs_max_deg=float(
+                        args.preview_lead_roll_abs_max_deg
+                    ),
+                    preview_lead_action_name=str(args.preview_lead_action_name),
+                    pump_suppression_event_risk_guard_enabled=bool(
+                        args.pump_suppression_event_risk_guard
+                    ),
+                    pump_suppression_event_risk_guard_threshold=float(
+                        args.pump_suppression_event_risk_guard_threshold
+                    ),
+                    relief_medium_cap_enabled=bool(args.relief_medium_cap),
+                    relief_medium_cap_event_threshold=float(
+                        args.relief_medium_cap_event_threshold
+                    ),
+                    relief_medium_cap_ratio=float(args.relief_medium_cap_ratio),
+                    forecast_adapter=forecast_adapter,
                 )
             providers[variant] = provider
             run_name = f"{case_id}_{ts_str.replace(':', '').replace(' ', '_')}_{variant}"
@@ -458,7 +1204,9 @@ def main() -> None:
                     start_from_heave_equilibrium=True,
                     preview_trim_provider=provider,
                     pump_cfg=closed_profile_cfg if variant == "closed_only" else None,
-                    target_shape_override_cfg=closed_target_shape_cfg if variant == "closed_only" else None,
+                    target_shape_override_cfg=(
+                        closed_target_shape_cfg if variant == "closed_only" else primary_target_shape_cfg
+                    ),
                 )
             except Exception as e:
                 issues.append(f"{run_name}: {type(e).__name__}: {e}")
@@ -470,41 +1218,50 @@ def main() -> None:
             if provider is not None and provider.records:
                 pd.DataFrame(provider.records).to_csv(log_dir / f"{run_name}_planner_log.csv", index=False)
 
-        if "closed_only" not in dfs or primary_variant not in dfs:
+        if primary_variant not in dfs:
+            continue
+        has_closed = "closed_only" in dfs
+        if not has_closed and not bool(args.primary_only):
             continue
 
         planner_log = None
         provider = providers.get(primary_variant)
         if provider is not None and provider.records:
             planner_log = pd.DataFrame(provider.records)
-        fig_path = plot_case(
-            case_id,
-            label,
-            ts_str,
-            dfs["closed_only"],
-            dfs[primary_variant],
-            fig_dir,
-            primary_variant,
-            duration_min=duration_min,
-            planner_log=planner_log,
-        )
-        sc = summarize(dfs["closed_only"])
+        fig_path: Path | None = None
+        if has_closed and not bool(args.skip_figures):
+            fig_path = plot_case(
+                case_id,
+                label,
+                ts_str,
+                dfs["closed_only"],
+                dfs[primary_variant],
+                fig_dir,
+                primary_variant,
+                duration_min=duration_min,
+                planner_log=planner_log,
+            )
+        sc = summarize(dfs["closed_only"]) if has_closed else {}
         sp = summarize(dfs[primary_variant])
         row = {
             "case_id": case_id,
             "timestamp": ts_str,
             "label": label,
-            "figure": str(fig_path.relative_to(repo_root)),
-            "closed_pump_work_m3": sc["pump_work_m3"],
+            "figure": str(fig_path.relative_to(repo_root)) if fig_path is not None else "",
+            "closed_pump_work_m3": sc.get("pump_work_m3", np.nan),
             "primary_pump_work_m3": sp["pump_work_m3"],
-            "d_pump_work_pct": (sp["pump_work_m3"] - sc["pump_work_m3"]) / max(sc["pump_work_m3"], 1e-9) * 100.0,
-            "closed_pitch_p95": sc["pitch_abs_p95"],
+            "d_pump_work_pct": (
+                (sp["pump_work_m3"] - sc["pump_work_m3"]) / max(sc["pump_work_m3"], 1e-9) * 100.0
+                if has_closed
+                else np.nan
+            ),
+            "closed_pitch_p95": sc.get("pitch_abs_p95", np.nan),
             "primary_pitch_p95": sp["pitch_abs_p95"],
-            "d_pitch_p95": sp["pitch_abs_p95"] - sc["pitch_abs_p95"],
-            "closed_roll_p95": sc["roll_abs_p95"],
+            "d_pitch_p95": sp["pitch_abs_p95"] - sc["pitch_abs_p95"] if has_closed else np.nan,
+            "closed_roll_p95": sc.get("roll_abs_p95", np.nan),
             "primary_roll_p95": sp["roll_abs_p95"],
-            "d_roll_p95": sp["roll_abs_p95"] - sc["roll_abs_p95"],
-            "closed_latch_switches": sc["latch_switches"],
+            "d_roll_p95": sp["roll_abs_p95"] - sc["roll_abs_p95"] if has_closed else np.nan,
+            "closed_latch_switches": sc.get("latch_switches", np.nan),
             "primary_latch_switches": sp["latch_switches"],
             "primary_delta_mean_kg": sp["primary_delta_mean_kg"],
             "primary_candidate_ratio": sp["primary_candidate_ratio"],
@@ -512,15 +1269,80 @@ def main() -> None:
             "primary_safety_fallback_ratio": sp["primary_safety_fallback_ratio"],
             "primary_safety_active_ratio": sp["primary_safety_active_ratio"],
             "primary_safety_transition_count": sp["primary_safety_transition_count"],
+            "preview_pump_suppression_ratio": sp["preview_pump_suppression_ratio"],
+            "preview_suppression_delta_mean_kg": sp["preview_suppression_delta_mean_kg"],
+            "preview_event_risk_boost_ratio": sp["preview_event_risk_boost_ratio"],
+            "preview_event_risk_scale_mean": sp["preview_event_risk_scale_mean"],
+            "preview_event_risk_floor_ratio": sp["preview_event_risk_floor_ratio"],
+            "preview_event_risk_floor_norm_mean": sp["preview_event_risk_floor_norm_mean"],
+            "preview_lead_action_ratio": sp["preview_lead_action_ratio"],
+            "preview_relief_medium_cap_ratio": sp["preview_relief_medium_cap_ratio"],
             "closed_pump_profile": closed_profile,
+            "primary_scale": primary_scale,
+            "primary_control_profile": str(args.primary_control_profile),
+            "primary_safety_profile": str(args.primary_safety_profile),
+            "forecast_source_requested": str(args.forecast_source),
+            "forecast_source_effective": forecast_source_label,
+            "event_reset_mode": str(args.event_reset_mode),
+            "primary_hold_target_mode": str(args.primary_hold_target_mode),
+            "primary_target_resumed_ratio": sp["primary_target_resumed_ratio"],
+            "planner_envelope_use_discount": int(bool(cfg.envelope_use_discount)),
+            "planner_envelope_mode": "discounted" if cfg.envelope_use_discount else "raw",
+            "planner_envelope_barrier_active": int(bool(cfg.envelope_barrier_active)),
+            "planner_envelope_barrier_const": float(cfg.envelope_barrier_const),
+            "planner_pressure_norm_cap": float(cfg.pressure_norm_cap),
+            "target_reset_tol_deg": float(args.target_reset_tol_deg),
+            "pump_suppression_enabled": int(bool(args.pump_suppression)),
+            "pump_suppression_restart_err_kg": float(
+                args.pump_suppression_restart_err_kg
+            ),
+            "pump_suppression_relief_margin_norm": float(
+                args.pump_suppression_relief_margin_norm
+            ),
+            "pump_suppression_low_risk_norm": float(
+                args.pump_suppression_low_risk_norm
+            ),
+            "event_risk_pressure_boost_enabled": int(bool(args.event_risk_pressure_boost)),
+            "event_risk_pressure_boost_gain": float(args.event_risk_pressure_boost_gain),
+            "event_risk_pressure_boost_threshold": float(args.event_risk_pressure_boost_threshold),
+            "event_risk_pressure_boost_max": float(args.event_risk_pressure_boost_max),
+            "event_risk_pressure_floor_enabled": int(bool(args.event_risk_pressure_floor)),
+            "event_risk_pressure_floor_threshold": float(args.event_risk_pressure_floor_threshold),
+            "event_risk_pressure_floor_norm": float(args.event_risk_pressure_floor_norm),
+            "event_risk_pressure_floor_max_lift": float(args.event_risk_pressure_floor_max_lift),
+            "preview_lead_action_enabled": int(bool(args.preview_lead_action)),
+            "preview_lead_event_threshold": float(args.preview_lead_event_threshold),
+            "preview_lead_current_norm_max": float(args.preview_lead_current_norm_max),
+            "preview_lead_future_norm_min": float(args.preview_lead_future_norm_min),
+            "preview_lead_current_wind_max_ms": float(args.preview_lead_current_wind_max_ms),
+            "preview_lead_pitch_abs_max_deg": float(args.preview_lead_pitch_abs_max_deg),
+            "preview_lead_roll_abs_max_deg": float(args.preview_lead_roll_abs_max_deg),
+            "preview_lead_action_name": str(args.preview_lead_action_name),
+            "pump_suppression_event_risk_guard_enabled": int(
+                bool(args.pump_suppression_event_risk_guard)
+            ),
+            "pump_suppression_event_risk_guard_threshold": float(
+                args.pump_suppression_event_risk_guard_threshold
+            ),
+            "relief_medium_cap_enabled": int(bool(args.relief_medium_cap)),
+            "relief_medium_cap_event_threshold": float(args.relief_medium_cap_event_threshold),
+            "relief_medium_cap_ratio": float(args.relief_medium_cap_ratio),
         }
         rows.append(row)
         completed += 1
-        print(
-            f"   saved {fig_path.name}: pump {row['d_pump_work_pct']:+.1f}%, "
-            f"d_pitch_p95={row['d_pitch_p95']:+.3f}, d_roll_p95={row['d_roll_p95']:+.3f}",
-            flush=True,
-        )
+        saved_label = f"saved {fig_path.name}" if fig_path is not None else "figures skipped"
+        if has_closed:
+            print(
+                f"   {saved_label}: pump {row['d_pump_work_pct']:+.1f}%, "
+                f"d_pitch_p95={row['d_pitch_p95']:+.3f}, d_roll_p95={row['d_roll_p95']:+.3f}",
+                flush=True,
+            )
+        else:
+            print(
+                f"   {saved_label}: primary pump {row['primary_pump_work_m3']:.2f} m3, "
+                f"pitch_p95={row['primary_pitch_p95']:.3f}, roll_p95={row['primary_roll_p95']:.3f}",
+                flush=True,
+            )
 
     summary = pd.DataFrame(rows)
     summary.to_csv(out_dir / "casebook_summary.csv", index=False)
@@ -529,20 +1351,54 @@ def main() -> None:
         "",
         f"- elapsed: `{time.perf_counter() - t0:.1f}s`",
         f"- completed cases: `{len(summary)}`",
-        f"- variants: `closed_only` vs `{primary_variant}`",
+        f"- variants: `{'primary_only' if bool(args.primary_only) else 'closed_only vs ' + primary_variant}`",
         f"- closed-only pump profile: `{closed_profile}`",
+        f"- prediction-primary scale: `{primary_scale:.3f}`",
+        f"- prediction-primary control profile: `{args.primary_control_profile}`",
+        f"- prediction-primary safety profile: `{args.primary_safety_profile}`",
+        f"- forecast source requested: `{args.forecast_source}`",
+        f"- forecast source effective: `{forecast_source_label}`",
+        f"- event reset mode: `{args.event_reset_mode}`",
+        f"- planner envelope mode: `{'discounted' if cfg.envelope_use_discount else 'raw'}`",
+        f"- planner envelope barrier: `{int(bool(cfg.envelope_barrier_active))}`",
+        f"- planner envelope barrier const: `{float(cfg.envelope_barrier_const):.3f}`",
+        f"- planner pressure norm cap: `{float(cfg.pressure_norm_cap):.3f}`",
+        f"- target reset tol: `{float(args.target_reset_tol_deg):.3f} deg`",
+        f"- forecast pump suppression: `{int(bool(args.pump_suppression))}`",
+        f"- event-risk pressure boost: `{int(bool(args.event_risk_pressure_boost))}`",
+        f"- event-risk pressure floor: `{int(bool(args.event_risk_pressure_floor))}`",
+        f"- preview lead action: `{int(bool(args.preview_lead_action))}`",
+        f"- suppression event-risk guard: `{int(bool(args.pump_suppression_event_risk_guard))}`",
+        f"- relief medium cap: `{int(bool(args.relief_medium_cap))}`",
+        f"- relief medium cap ratio: `{float(args.relief_medium_cap_ratio):.3f}`",
+        f"- replay dataset: `{dataset_dir.relative_to(repo_root) if dataset_dir.is_relative_to(repo_root) else dataset_dir}`",
         f"- duration per case: `{duration_min:.0f} min`",
         f"- replay wind transition: `{float(args.wind_transition_s):.1f}s raised-cosine`",
+        f"- figures skipped: `{int(bool(args.skip_figures))}`",
+        f"- primary-only screening: `{int(bool(args.primary_only))}`",
         "",
-        "| case | label | pump delta | d_pitch_p95 | d_roll_p95 | safety fallback | latch switches | figure |",
-        "|---|---|---:|---:|---:|---:|---:|---|",
+        "| case | label | primary pump | pump delta | d_pitch_p95 | d_roll_p95 | suppression | risk boost | risk floor | lead | relief cap | safety fallback | latch switches | figure |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
     ]
     for _, r in summary.iterrows():
+        pump_txt = "n/a" if pd.isna(r["d_pump_work_pct"]) else f"{r['d_pump_work_pct']:+.1f}%"
+        d_pitch_txt = "n/a" if pd.isna(r["d_pitch_p95"]) else f"{r['d_pitch_p95']:+.3f}"
+        d_roll_txt = "n/a" if pd.isna(r["d_roll_p95"]) else f"{r['d_roll_p95']:+.3f}"
+        latch_txt = (
+            "n/a"
+            if pd.isna(r["closed_latch_switches"])
+            else f"{int(r['closed_latch_switches'])}->{int(r['primary_latch_switches'])}"
+        )
         lines.append(
-            f"| {r['case_id']} | {r['label']} | {r['d_pump_work_pct']:+.1f}% | "
-            f"{r['d_pitch_p95']:+.3f} | {r['d_roll_p95']:+.3f} | "
+            f"| {r['case_id']} | {r['label']} | {r['primary_pump_work_m3']:.2f} | {pump_txt} | "
+            f"{d_pitch_txt} | {d_roll_txt} | "
+            f"{r['preview_pump_suppression_ratio'] * 100:.1f}% | "
+            f"{r['preview_event_risk_scale_mean']:.2f}x | "
+            f"{r['preview_event_risk_floor_ratio'] * 100:.1f}% | "
+            f"{r['preview_lead_action_ratio'] * 100:.1f}% | "
+            f"{r['preview_relief_medium_cap_ratio'] * 100:.1f}% | "
             f"{r['primary_safety_fallback_ratio'] * 100:.1f}% | "
-            f"{int(r['closed_latch_switches'])}->{int(r['primary_latch_switches'])} | "
+            f"{latch_txt} | "
             f"`{r['figure']}` |"
         )
     lines += ["", "## Issues", ""]
