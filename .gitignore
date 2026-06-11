@@ -8,6 +8,7 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.cache/
 .venv/
 .venv312/
 venv/
@@ -23,5 +24,17 @@ Desktop.ini
 data/processed/wind_ml_10min/supervised_learning_table_10min.csv
 data/processed/wind_ml_10min/sequences/
 data/processed/wind_ml_10min/sequences_dwd_helgoland/
-outputs/wind_prediction/**/lstm_best.pt
-outputs/wind_prediction/**/*.joblib
+
+# Experiment outputs and heavyweight local artifacts.
+outputs/
+data/raw/
+data/processed/
+*.npy
+*.npz
+*.pt
+*.pth
+*.joblib
+*.pkl
+*.nc
+*.zip
+*.gz
