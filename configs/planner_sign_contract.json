@@ -1,0 +1,31 @@
+{
+  "schema_version": "v1",
+  "doc": "Sign contract between the ballast planner and the closed-loop controller. Revised 2026-05-04 for pump-first operation after onset sign-flip and FF diagnostics.",
+  "frames": {
+    "planner_frame": {
+      "name": "compensation_direction",
+      "meaning": "The vector pressure_proxy_vec(uv) * pressure_sign_multiplier points in the direction ballast must move to oppose wind-induced pitch/roll. action_vec() and all planner cost terms (residual, envelope, terminal) are evaluated in this frame.",
+      "pressure_sign_multiplier": -1.0,
+      "rationale_source": "outputs/wind_prediction/planner_a1_dryrun/diagnostics/a01_pressure_vec_sign_convention.json (A0 calibration: minimizes |pitch|+|roll| residual when ballast moves in this direction)."
+    },
+    "setpoint_frame": {
+      "name": "setpoint_shift",
+      "meaning": "The pitch_bias_deg / roll_bias_deg consumed by ClosedLoopPolicy is added to the controller setpoint. Pump-first operation uses the sign that empirically relaxes PI effort and reduces pump work, while attitude-first diagnostics may flip the sign to amplify corrective pumping.",
+      "setpoint_bias_sign": 1.0,
+      "rationale_source": "outputs/wind_prediction/planner_a2_onset_signflip/signflip_report.md (2026-05-04: signpos d_pump_total=-1.34% with d_pitch_1h_p95=+0.007deg; signneg improves pitch by millidegrees but increases pump_total by +1.25%)."
+    }
+  },
+  "implementation": {
+    "boundary_location": "src/wind_prediction/ballast_planner_provider.py: BallastPlannerPreviewProvider.compute()",
+    "transformation": "target_pitch_deg = planner_first_avec[0] * setpoint_bias_sign  (and same for roll)",
+    "default_value": 1.0,
+    "do_not_change_planner_internals": "Flipping pressure_sign_multiplier to +1 would break A0-calibrated cost geometry. Keep planner_frame as compensation_direction; choose the provider boundary sign according to the active objective."
+  },
+  "operational_ceiling": {
+    "pump_first_default": "setpoint_bias_sign=+1.0, ff_channel_enabled=false",
+    "attitude_diagnostic": "setpoint_bias_sign=-1.0 or ff_channel_enabled=true",
+    "verified_pump_saving_pct": -1.34,
+    "verified_attitude_cost_pitch_1h_p95_deg": 0.007,
+    "interpretation": "The setpoint-shift channel is a weak pump-saving relaxation path, not a high-authority attitude controller. FF and signneg are retained as diagnostics because they improve pitch only by spending more pump work."
+  }
+}

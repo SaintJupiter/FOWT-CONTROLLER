@@ -1,0 +1,116 @@
+{
+  "name": "prediction_primary_clean_v1",
+  "status": "draft_frozen_for_architecture_cleanup",
+  "created_at": "2026-06-05",
+  "role": "canonical prediction-primary controller identity during control-chain cleanup",
+  "baseline_config": "configs/closed_baseline_v1.json",
+  "source_audits": [
+    "configs/planner_overlay_audit.md",
+    "6.4opus.md",
+    "docs/control_chain_rectification_plan_20260605.md"
+  ],
+  "casebook_profile_registry": "configs/casebook_profile_registry_v1.json",
+  "overlay_freeze_registry": "configs/overlay_freeze_registry_v1.json",
+  "control_chain_smoke_gate": "configs/control_chain_smoke_gate_v1.json",
+  "production_profile": {
+    "primary_control_profile": "rawenv_holdpause_barrier_reliefcap_adaptive_v1",
+    "forecast_source_policy": "advisory_unless_promoted",
+    "prediction_primary_enabled": true,
+    "primary_hold_target_mode": "pause",
+    "event_reset_mode": "action",
+    "planner_envelope_mode": "raw",
+    "planner_envelope_use_discount": false,
+    "planner_envelope_barrier_active": true,
+    "planner_envelope_barrier_const": 50.0,
+    "planner_posture_state_residual_active": true,
+    "planner_posture_state_gain": 0.4,
+    "posture_hold_forecast_credit": 0.0,
+    "setpoint_channel_enabled": true,
+    "ff_channel_enabled": false,
+    "relief_medium_cap_enabled": true,
+    "relief_medium_cap_ratio": 0.3,
+    "relief_medium_cap_adaptive": true
+  },
+  "diagnostic_profiles_allowed": [
+    "rawenv_holdpause_barrier_v1",
+    "rawenv_holdpause_barrier_reliefcap030_v1",
+    "rawenv_pirelease_barrier_reliefcap_adaptive_v1",
+    "rawenv_forecastpause_barrier_reliefcap_adaptive_v1"
+  ],
+  "forbidden_in_production": [
+    "pump_suppression_enabled",
+    "pump_suppression_plateau_enabled",
+    "pump_suppression_event_risk_guard_enabled",
+    "event_risk_pressure_boost_enabled",
+    "event_risk_pressure_floor_enabled",
+    "preview_lead_action_enabled",
+    "sequence_lead_action_enabled",
+    "hold_comfort_release_enabled",
+    "hold_comfort_forecast_veto_enabled",
+    "hold_risk_micro_action_enabled",
+    "posture_action_refresh_enabled",
+    "quiet_posture_action_enabled",
+    "no_unexplained_hold_action_enabled",
+    "active_intent_reproposal_enabled",
+    "medium_escalation_enabled",
+    "recovery_mode_enabled",
+    "posture_hold_barrier_active",
+    "forecast_pressure_trust_gate_enabled",
+    "forecast_advised_economy_enabled",
+    "gusty_oscillation_enabled",
+    "h120_oracle_probe_enabled",
+    "h120_risk_scheduler_enabled",
+    "h120_axis_micro_enabled",
+    "h120_pareto_mode_selector_enabled",
+    "trusted_event_gate_enabled"
+  ],
+  "candidate_only": [
+    "primary_stall_refresh_enabled"
+  ],
+  "required_control_contracts": {
+    "forecast_signal": [
+      "source",
+      "model_version",
+      "horizon_minutes",
+      "sample_period_s",
+      "staleness_s",
+      "is_fresh",
+      "confidence",
+      "persistence_agreement_norm",
+      "current_support_norm",
+      "allowed_effects",
+      "fail_closed_action"
+    ],
+    "supervisor_decision": [
+      "authority",
+      "accepted",
+      "requested_action",
+      "accepted_action",
+      "veto_reason",
+      "safety_state",
+      "decision_trace"
+    ],
+    "control_command": [
+      "authority",
+      "source",
+      "pitch_bias_deg",
+      "roll_bias_deg",
+      "target_masses_kg",
+      "mass_delta_kg",
+      "reason"
+    ]
+  },
+  "experiment_rules": {
+    "new_overlay_requires_old_overlay_freeze": true,
+    "broad_casebook_requires_three_case_smoke": true,
+    "default_off_gate_must_have_go_no_go_report": true,
+    "failed_experiment_must_not_remain_in_production_profile": true,
+    "telemetry_only_change_is_not_promotion_evidence": true
+  },
+  "static_audit_thresholds": {
+    "provider_line_count_warn": 8000,
+    "provider_init_param_count_warn": 120,
+    "casebook_profile_count_warn": 20,
+    "redundant_token_occurrences_warn": 100
+  }
+}

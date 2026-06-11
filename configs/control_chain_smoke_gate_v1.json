@@ -1,0 +1,124 @@
+{
+  "schema_version": "1.0",
+  "created_at": "2026-06-05",
+  "purpose": "Fast gate before deleting redundant overlay runtime paths.",
+  "source_audits": [
+    "configs/planner_overlay_audit.md",
+    "configs/overlay_freeze_registry_v1.json",
+    "outputs/wind_prediction/phase2b_3case_clean_defaults_no_overlay/casebook_report.md"
+  ],
+  "casebook_command": [
+    "python3",
+    "scripts/analysis/run_prediction_primary_casebook.py",
+    "--out-dir",
+    "outputs/wind_prediction/control_chain_smoke_gate_v1",
+    "--cases-csv",
+    "configs/control_chain_smoke_gate_cases_v1.csv",
+    "--case-ids",
+    "01,02,04",
+    "--duration-s",
+    "7200",
+    "--primary-only",
+    "--skip-figures",
+    "--forecast-source",
+    "oracle",
+    "--primary-control-profile",
+    "manual",
+    "--primary-pump-profile",
+    "engineered_minimal",
+    "--primary-hold-target-mode",
+    "pause",
+    "--event-reset-mode",
+    "action",
+    "--planner-envelope-raw",
+    "--planner-envelope-barrier",
+    "--planner-posture-state-residual",
+    "--planner-posture-state-gain",
+    "0.4",
+    "--planner-posture-state-clip-norm",
+    "6.0",
+    "--planner-attitude-residual-weight",
+    "1.0",
+    "--planner-terminal-residual-weight",
+    "1.0",
+    "--planner-posture-hold-forecast-credit",
+    "0.0"
+  ],
+  "expected_cases": [
+    "01_fr_relief_01",
+    "02_fr_relief_09",
+    "04_lowrisk_clean"
+  ],
+  "reference_summary_csv": "outputs/wind_prediction/phase2b_3case_clean_defaults_no_overlay/casebook_summary.csv",
+  "required_config": {
+    "primary_control_profile": "manual",
+    "forecast_source_effective": "oracle_future",
+    "primary_hold_target_mode": "pause",
+    "planner_envelope_mode": "raw",
+    "planner_envelope_barrier_active": 1,
+    "planner_posture_hold_barrier_active": 0,
+    "planner_posture_state_residual_active": 1,
+    "pump_suppression_enabled": 0,
+    "event_risk_pressure_boost_enabled": 0,
+    "event_risk_pressure_floor_enabled": 0,
+    "preview_lead_action_enabled": 0,
+    "relief_medium_cap_enabled": 0,
+    "medium_escalation_enabled": 0,
+    "no_unexplained_hold_action_enabled": 0,
+    "recovery_mode_enabled": 0,
+    "hold_comfort_release_enabled": 0,
+    "hold_comfort_forecast_veto_enabled": 0,
+    "hold_risk_micro_action_enabled": 0,
+    "primary_stall_refresh_enabled": 0,
+    "active_intent_reproposal_enabled": 0
+  },
+  "required_zero_ratio_columns": [
+    "preview_pump_suppression_ratio",
+    "preview_event_risk_boost_ratio",
+    "preview_event_risk_floor_ratio",
+    "preview_lead_action_ratio",
+    "preview_relief_medium_cap_ratio",
+    "preview_medium_escalation_ratio",
+    "preview_hold_comfort_release_ratio",
+    "preview_hold_comfort_veto_ratio",
+    "preview_hold_risk_micro_action_ratio",
+    "preview_no_unexplained_hold_action_ratio",
+    "preview_posture_hold_barrier_ratio"
+  ],
+  "case_thresholds": {
+    "01_fr_relief_01": {
+      "primary_pump_work_m3_max": 520.0,
+      "primary_pitch_p95_max": 3.0,
+      "primary_roll_p95_max": 4.8,
+      "primary_safety_fallback_ratio_max": 0.02
+    },
+    "02_fr_relief_09": {
+      "primary_pump_work_m3_max": 680.0,
+      "primary_pitch_p95_max": 7.0,
+      "primary_roll_p95_max": 5.8,
+      "primary_safety_fallback_ratio_max": 0.09
+    },
+    "04_lowrisk_clean": {
+      "primary_pump_work_m3_max": 210.0,
+      "primary_pitch_p95_max": 5.2,
+      "primary_roll_p95_max": 1.3,
+      "primary_safety_fallback_ratio_max": 0.02
+    }
+  },
+  "reference_tolerance": {
+    "enabled": true,
+    "primary_pump_work_m3_abs_max": 5.0,
+    "primary_pitch_p95_abs_max": 0.05,
+    "primary_roll_p95_abs_max": 0.05,
+    "primary_safety_fallback_ratio_abs_max": 0.005
+  },
+  "delete_gate": {
+    "pass_required_before_runtime_deletion": true,
+    "broad_casebook_allowed_after_pass": false,
+    "notes": [
+      "This gate is behavior-neutral and short. It is not a claim of controller improvement.",
+      "The initial historical reference was primary-only, so before/after deletion should compare against this same summary shape.",
+      "A broader casebook requires a separate approval after this gate passes."
+    ]
+  }
+}

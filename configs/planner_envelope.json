@@ -1,0 +1,30 @@
+{
+  "schema_version": "v1",
+  "doc": "Acceptable attitude envelope and economic-objective weights for the slow-layer ballast planner.",
+  "envelope": {
+    "pitch_envelope_deg": 1.2,
+    "roll_envelope_deg": 0.96,
+    "rationale": [
+      "Designed as 1.2x the closed-loop deadband (pitch_db=1.0, roll_db=0.8) so envelope_norm > 1 is reachable by pressure_proxy_vec.",
+      "pressure_proxy_vec saturates at db * mag_max = db * 1.5 (mag clip in ballast_planner.pressure_proxy_vec), so an envelope of 2.0/1.5 (>= proxy max) would make max_env_norm <= 0.775 in every window and the planner would always select hold (verified in dry-run probe 2026-05-03).",
+      "1.2x deadband puts the envelope just above the value that closed_only naturally holds in clean/residual windows (closed_only p95: clean=1.046, residual_high=0.865, storm=2.369), so planner is silent in normal weather and activated only when pressure proxy indicates the envelope will be exceeded under no-action.",
+      "Soft constraint, not hard: the planner is permitted to leave the envelope when the alternative is worse pump cost (zone-MPC in Maciejowski 2002).",
+      "IEC 61400-3 Annex A typical FOWT operational tilt budget: 5-7 deg; we are well inside it.",
+      "Lemmer 2018 (OO-Star spar): normal-operation pitch p95 ~ 1.5-2 deg; this envelope is consistent."
+    ]
+  },
+  "economic_weights": {
+    "w_pump_work": 1.0,
+    "w_pump_duration": 0.4,
+    "w_startstop": 0.3,
+    "w_direction_switch": 0.6,
+    "w_reverse_penalty": 0.5,
+    "w_envelope_soft": 25.0,
+    "w_terminal_envelope_soft": 25.0,
+    "w_saturation_hard": 1000.0,
+    "doc": "Scalar objective: J = w_pump_work*work + w_pump_duration*dur + w_startstop*ss + w_direction_switch*dsw + w_reverse_penalty*rev + w_envelope_soft*sum_k max(0, residual_k_norm - 1)^2 + w_terminal_envelope_soft*max(0, terminal_norm - 1)^2 + w_saturation_hard*sat. The envelope_soft term is zero whenever the predicted attitude stays inside the envelope, which is exactly when the planner is free to optimize for pump cost. References: Maciejowski (2002) zone MPC; Rawlings/Mayne/Diehl (2017) economic MPC."
+  },
+  "envelope_norm": {
+    "doc": "When residual_norm <= 1.0 the predicted attitude is inside the envelope. residual_norm uses pitch_envelope_deg / roll_envelope_deg as denominators (NOT the closed-loop deadband)."
+  }
+}

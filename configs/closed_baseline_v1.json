@@ -1,0 +1,61 @@
+{
+  "name": "closed_engineered_minimal_v1",
+  "status": "frozen",
+  "role": "ordinary non-preview reactive active-ballast baseline",
+  "frozen_from": "outputs/wind_prediction/closed_baseline_freeze_v2",
+  "decision_report": "outputs/wind_prediction/closed_baseline_freeze_v2/closed_baseline_freeze_report.md",
+  "experiment_protocol": "main",
+  "platform_profile": "default",
+  "preview_disabled": true,
+  "planner_disabled": true,
+  "primary_safety_disabled": true,
+  "controller_structure": {
+    "feedback_controller": "reactive PI/MIMO ballast controller from archive/legacy_fowt_control",
+    "actuator_constraints": [
+      "pump stop/restart hysteresis",
+      "minimum pump on/off dwell",
+      "near-target stop confirmation dwell",
+      "finite pump-rate ramp"
+    ],
+    "excluded_features": [
+      "future wind forecast",
+      "ballast planner candidate actions",
+      "pressure-block preview",
+      "prediction-primary bucket guard",
+      "hold-current prediction target"
+    ]
+  },
+  "pump_cfg": {
+    "pump_stop_err_kg": 300.0,
+    "pump_restart_err_kg": 500.0,
+    "pump_min_on_s": 20.0,
+    "pump_min_off_s": 12.0,
+    "pump_hold_before_stop_s": 10.0,
+    "pump_global_quiet_backlog_kg": "Infinity",
+    "pump_target_quiet_rate_kg_s": "Infinity",
+    "pump_global_quiet_hold_s": 0.0,
+    "pump_ramp_up_m3_min_per_s": 2.0,
+    "pump_ramp_down_m3_min_per_s": 3.0
+  },
+  "target_shape_override_cfg": {},
+  "freeze_checks": {
+    "cases": [
+      "onset",
+      "decay",
+      "sustained_storm",
+      "normal_low",
+      "signflip"
+    ],
+    "duration_per_case_s": 7200.0,
+    "engineered_minimal_vs_raw": {
+      "max_abs_pump_work_delta_pct": 0.18,
+      "max_abs_pitch_p95_delta_deg": 0.003,
+      "max_abs_roll_p95_delta_deg": 0.002,
+      "latch_switch_delta_pct_range": "-74.0 to 0.0"
+    },
+    "smooth_candidate_vs_engineered_minimal": {
+      "decision": "FAIL",
+      "reason": "pump work changed by up to 41.67% while latch switches were not consistently reduced"
+    }
+  }
+}

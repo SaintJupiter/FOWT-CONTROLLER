@@ -1,0 +1,371 @@
+{
+  "schema_version": "1.0",
+  "created_at": "2026-06-05",
+  "purpose": "Freeze default-off overlay mechanisms before deleting provider internals.",
+  "source_audits": [
+    "configs/planner_overlay_audit.md",
+    "6.4opus.md",
+    "outputs/wind_prediction/forecast_pressure_trust_gate_20260604/forecast_pressure_trust_go_no_go_20260604.md"
+  ],
+  "production_keep": [
+    {
+      "id": "prediction_primary_target_lifecycle",
+      "tokens": [
+        "prediction_primary_enabled",
+        "prediction_primary_scale",
+        "primary_hold_target_mode",
+        "event_reset_mode"
+      ],
+      "reason": "Core prediction-primary target lifecycle. Main profile uses hold target pause and action-based reset."
+    },
+    {
+      "id": "setpoint_channel",
+      "tokens": [
+        "setpoint_channel_enabled",
+        "setpoint_bias_sign"
+      ],
+      "reason": "Standard preview setpoint-shift channel and sign convention."
+    },
+    {
+      "id": "envelope_barrier",
+      "tokens": [
+        "envelope_barrier_active",
+        "envelope_barrier_const"
+      ],
+      "reason": "Main profile barrier against weak actions under envelope violation."
+    },
+    {
+      "id": "posture_state_residual",
+      "tokens": [
+        "posture_state_residual_active",
+        "posture_state_gain",
+        "w_attitude_residual",
+        "w_terminal_residual",
+        "posture_hold_forecast_credit"
+      ],
+      "reason": "State-feedback cost defaults that supersede many old overlays."
+    },
+    {
+      "id": "relief_medium_cap",
+      "tokens": [
+        "relief_medium_cap_enabled",
+        "relief_medium_cap_event_threshold",
+        "relief_medium_cap_ratio",
+        "relief_medium_cap_adaptive"
+      ],
+      "reason": "Current production cap for active_medium magnitude under learned event risk."
+    }
+  ],
+  "diagnostic_keep_default_off": [
+    {
+      "id": "ff_channel",
+      "tokens": [
+        "ff_channel_enabled"
+      ],
+      "reason": "Direct mass feedforward is useful for ablation but earlier diagnostics increased pump cost."
+    },
+    {
+      "id": "no_preview_myopic_horizon",
+      "tokens": [
+        "no_preview_myopic_horizon_enabled"
+      ],
+      "reason": "Fairness diagnostic for reactive/current-only no-future comparisons."
+    },
+    {
+      "id": "trusted_event_gate",
+      "tokens": [
+        "trusted_event_gate_enabled",
+        "trusted_event_highwind_threshold",
+        "trusted_event_attention_threshold",
+        "trusted_event_attention_min_heads"
+      ],
+      "reason": "Useful diagnostic/protection evidence, but not sufficient as production control unlock."
+    },
+    {
+      "id": "forecast_pressure_trust_gate",
+      "tokens": [
+        "forecast_pressure_trust_gate_enabled",
+        "forecast_pressure_trust_current_norm_max",
+        "forecast_pressure_trust_future_norm_min",
+        "forecast_pressure_trust_event_threshold",
+        "forecast_pressure_trust_untrusted_scale",
+        "forecast_pressure_trust_min_direction_dot",
+        "forecast_pressure_trust_spike_margin_norm"
+      ],
+      "reason": "20260604 focused validation produced NO-GO beyond default-off."
+    },
+    {
+      "id": "forecast_advised_economy",
+      "tokens": [
+        "forecast_advised_economy_enabled"
+      ],
+      "reason": "Post-audit broad economy experiment family; not production."
+    },
+    {
+      "id": "gusty_oscillation",
+      "tokens": [
+        "gusty_oscillation_enabled"
+      ],
+      "reason": "Post-audit specialist smoothing experiment family; not production."
+    },
+    {
+      "id": "h120_advisory_family",
+      "tokens": [
+        "h120_oracle_probe_enabled",
+        "h120_risk_scheduler_enabled",
+        "h120_axis_micro_enabled",
+        "h120_pareto_mode_selector_enabled"
+      ],
+      "reason": "Far-horizon advisory/safety-watch experiments; not production."
+    },
+    {
+      "id": "attitude_zone_form",
+      "tokens": [
+        "attitude_zone_form"
+      ],
+      "reason": "smooth_huber prototype rejected for production because it loses onset preemption."
+    }
+  ],
+  "candidate_recheck": [
+    {
+      "id": "primary_stall_refresh",
+      "tokens": [
+        "primary_stall_refresh_enabled",
+        "primary_stall_pitch_deg",
+        "primary_stall_roll_deg",
+        "primary_stall_target_err_kg",
+        "primary_stall_min_age_s",
+        "primary_stall_pitch_axis_bias"
+      ],
+      "reason": "Only remaining candidate from planner_overlay_audit.md. Recheck fr_relief_09-style stall after new defaults before promoting or freezing."
+    }
+  ],
+  "redundant_freeze_delete_candidate": [
+    {
+      "id": "pump_suppression",
+      "status": "control_output_frozen_2026_06_05",
+      "tokens": [
+        "pump_suppression_enabled",
+        "pump_suppression_restart_err_kg",
+        "pump_suppression_relief_margin_norm",
+        "pump_suppression_low_risk_norm",
+        "pump_suppression_plateau_enabled",
+        "pump_suppression_plateau_only",
+        "pump_suppression_event_risk_guard_enabled"
+      ],
+      "reason": "Old overlay to prevent pump restart from forecast relief; superseded by rollout cost and posture residual defaults.",
+      "delete_after": [
+        "production_profile_guard passes",
+        "three-case smoke shows production behavior unchanged"
+      ]
+    },
+    {
+      "id": "event_risk_pressure_boost",
+      "status": "runtime_removed_2026_06_05",
+      "tokens": [
+        "event_risk_pressure_boost_enabled",
+        "event_risk_pressure_boost_gain",
+        "event_risk_pressure_boost_threshold",
+        "event_risk_pressure_boost_max"
+      ],
+      "reason": "Classified redundant plus harmful: single-window benefit but +17-23% pump on 30-case.",
+      "delete_after": [
+        "no production profile enables token",
+        "summary/report references retained or migrated"
+      ]
+    },
+    {
+      "id": "event_risk_pressure_floor",
+      "status": "runtime_removed_2026_06_05",
+      "tokens": [
+        "event_risk_pressure_floor_enabled",
+        "event_risk_pressure_floor_threshold",
+        "event_risk_pressure_floor_norm",
+        "event_risk_pressure_floor_max_lift"
+      ],
+      "reason": "Same redundant event-risk pressure path as boost.",
+      "delete_after": [
+        "no production profile enables token",
+        "summary/report references retained or migrated"
+      ]
+    },
+    {
+      "id": "preview_lead_action",
+      "status": "runtime_removed_2026_06_05",
+      "tokens": [
+        "preview_lead_action_enabled",
+        "preview_lead_event_threshold",
+        "preview_lead_current_norm_max",
+        "preview_lead_future_norm_min",
+        "preview_lead_current_wind_max_ms",
+        "preview_lead_pitch_abs_max_deg",
+        "preview_lead_roll_abs_max_deg",
+        "preview_lead_min_direction_norm",
+        "preview_lead_action_name"
+      ],
+      "reason": "Overfit lead-action mechanism; low firing rate and pump increase for marginal attitude change.",
+      "delete_after": [
+        "three-case smoke shows production behavior unchanged"
+      ]
+    },
+    {
+      "id": "sequence_lead_action",
+      "status": "runtime_removed_2026_06_05",
+      "tokens": [
+        "sequence_lead_action_enabled",
+        "sequence_lead_pitch_abs_min_deg",
+        "sequence_lead_roll_abs_min_deg",
+        "sequence_lead_min_future_norm",
+        "sequence_lead_action_name"
+      ],
+      "reason": "Fragile future-action lead overlay, redundant with 125-sequence planner selection.",
+      "delete_after": [
+        "three-case smoke shows production behavior unchanged"
+      ]
+    },
+    {
+      "id": "hold_comfort",
+      "status": "runtime_removed_2026_06_05",
+      "tokens": [
+        "hold_comfort_release_enabled",
+        "hold_comfort_no_preview_only",
+        "hold_comfort_enter_pitch_deg",
+        "hold_comfort_enter_roll_deg",
+        "hold_comfort_exit_pitch_deg",
+        "hold_comfort_exit_roll_deg",
+        "hold_comfort_forecast_veto_enabled"
+      ],
+      "reason": "Output-layer attitude correction compressed learned vs reactive differentiation; redundant under posture residual cost.",
+      "delete_after": [
+        "summary/report references retained or migrated",
+        "three-case smoke shows production behavior unchanged"
+      ]
+    },
+    {
+      "id": "hold_risk_micro",
+      "status": "runtime_removed_2026_06_05",
+      "tokens": [
+        "hold_risk_micro_action_enabled",
+        "hold_risk_micro_event_threshold",
+        "hold_risk_micro_pressure_norm_min",
+        "hold_risk_micro_pitch_abs_min_deg",
+        "hold_risk_micro_roll_abs_min_deg",
+        "hold_risk_micro_action_name"
+      ],
+      "reason": "Single-case micro-action fix, ungeneralizable.",
+      "delete_after": [
+        "three-case smoke shows production behavior unchanged"
+      ]
+    },
+    {
+      "id": "posture_action_refresh",
+      "status": "runtime_removed_2026_06_05",
+      "tokens": [
+        "posture_action_refresh_enabled"
+      ],
+      "reason": "Target refresh workaround now covered by posture residual in the planner cost.",
+      "delete_after": [
+        "three-case smoke shows production behavior unchanged"
+      ]
+    },
+    {
+      "id": "quiet_posture_action",
+      "status": "runtime_removed_2026_06_05",
+      "tokens": [
+        "quiet_posture_action_enabled",
+        "quiet_posture_action_name"
+      ],
+      "reason": "Quiet-wind posture correction now covered because posture residual is independent of wind.",
+      "delete_after": [
+        "three-case smoke shows production behavior unchanged"
+      ]
+    },
+    {
+      "id": "no_unexplained_hold",
+      "status": "runtime_removed_2026_06_05",
+      "tokens": [
+        "no_unexplained_hold_action_enabled",
+        "no_unexplained_hold_threshold_deg",
+        "no_unexplained_hold_trigger_buckets",
+        "no_unexplained_hold_reset_buckets",
+        "no_unexplained_hold_target_err_kg"
+      ],
+      "reason": "Manual hold escape is redundant with posture residual cost making high-posture hold expensive.",
+      "delete_after": [
+        "three-case smoke shows production behavior unchanged"
+      ]
+    },
+    {
+      "id": "active_intent_reproposal",
+      "status": "runtime_removed_2026_06_05",
+      "tokens": [
+        "active_intent_reproposal_enabled",
+        "active_intent_reproposal_min_delta_kg",
+        "active_intent_reproposal_eligibility_enabled"
+      ],
+      "reason": "Target lifecycle workaround; holdpause and stall recheck cover the legitimate use case.",
+      "delete_after": [
+        "primary_stall_refresh candidate recheck complete",
+        "three-case smoke shows production behavior unchanged"
+      ]
+    },
+    {
+      "id": "medium_escalation",
+      "status": "runtime_removed_2026_06_05",
+      "tokens": [
+        "medium_escalation_enabled"
+      ],
+      "reason": "Manual small-to-medium escalation is redundant with global 125-sequence planner selection.",
+      "delete_after": [
+        "three-case smoke shows production behavior unchanged"
+      ]
+    },
+    {
+      "id": "recovery_mode",
+      "status": "runtime_removed_2026_06_05",
+      "tokens": [
+        "recovery_mode_enabled",
+        "recovery_mode_posture_norm_threshold",
+        "recovery_mode_enter_buckets",
+        "recovery_mode_exit_buckets"
+      ],
+      "reason": "Observability-oriented recovery mode, same general purpose as redundant hold-escape overlays.",
+      "delete_after": [
+        "telemetry assembly extracted or migrated"
+      ]
+    },
+    {
+      "id": "posture_hold_barrier",
+      "status": "runtime_removed_2026_06_05",
+      "tokens": [
+        "posture_hold_barrier_active",
+        "posture_hold_barrier_const",
+        "posture_hold_action_uses_posture_vec",
+        "posture_hold_low_risk_norm_max"
+      ],
+      "reason": "Planner barrier superseded by attitude_residual_cost and posture_state_residual_active defaults.",
+      "delete_after": [
+        "planner unit checks pass",
+        "three-case smoke shows production behavior unchanged"
+      ]
+    }
+  ],
+  "delete_gate": {
+    "required_before_runtime_deletion": [
+      "production_profile_guard severity is ok",
+      "casebook_profile_registry severity is ok",
+      "no production profile enables frozen tokens",
+      "three-case smoke is run only after static checks pass"
+    ],
+    "smoke_cases": [
+      "fr_relief_09",
+      "lowrisk_clean",
+      "fr_relief_01"
+    ],
+    "do_not_delete_before": [
+      "Telemetry fields are either removed from reports or migrated to diagnostics.",
+      "primary_stall_refresh candidate is rechecked.",
+      "Dirty worktree files touched by other work are inspected before edit."
+    ]
+  }
+}

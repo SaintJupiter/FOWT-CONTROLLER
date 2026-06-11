@@ -1,0 +1,5 @@
+case_id,timestamp,label
+01_fr_relief_01,2022-02-15 17:10:00,future_relief | UV-only future relief holdout
+02_fr_relief_09,2024-12-19 06:00:00,future_relief | UV-only future relief holdout
+03_b_high_pressure_event,2022-02-04 11:00:00,B/high | high-pressure event reference
+04_lowrisk_clean,2023-09-11 03:40:00,lowrisk | clean low-pressure reference
