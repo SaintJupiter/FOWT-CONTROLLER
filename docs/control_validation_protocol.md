@@ -43,6 +43,34 @@ Use this order for P2/C3 economy or hold-current profiles:
 | limited 24 h confirmation | detect daily lifecycle debt | one hard/boundary 24 h case plus one expected-positive 24 h case |
 | broader 24 h casebook | production/deployment evidence | only after the limited 24 h confirmation is stable |
 
+## Required Gate: Protocol Identity And Smoothing Provenance
+
+Before any result is plotted, summarized, or interpreted, the actual
+`run_protocol.json` must be checked against the intended algorithm identity. A
+run is invalid for a claim if the protocol does not match the expected
+`identity.primary_control_profile`, `configuration.primary_pump_profile`,
+forecast source, horizon, and feature flags.
+
+This gate is mandatory for the smoothed/smooth180 route. If the claim or user
+request says the smoothed controller, smooth180 robustness route, actuator
+smoothing, ramp/dwell smoothing, or the current smoothed branch is being
+analyzed, then a non-smooth `posture_debt` run must not be substituted. Missing
+time-series output in the smoothed run is a blocker for line plots; it is not a
+reason to use an older non-smooth run.
+
+Use the standard checker before plotting:
+
+```bash
+./.venv312/bin/python scripts/analysis/verify_casebook_protocol.py \
+  path/to/run_protocol.json \
+  --expect identity.primary_control_profile=<expected_profile> \
+  --expect configuration.primary_pump_profile=<expected_pump_profile> \
+  --require-timeseries
+```
+
+If the protocol check fails, label the run as historical/diagnostic only and do
+not use it to answer questions about the current algorithm.
+
 ## Required Gate: Prediction-Decision Changes
 
 Prediction-facing controller work must not proceed by stacking one more

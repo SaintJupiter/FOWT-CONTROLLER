@@ -1,0 +1,67 @@
+{
+  "case_name": "06_sel6h_38_2024-11-17_200000",
+  "event_min": 100.0,
+  "recommendation": "较高姿态响应候选",
+  "evidence_note": "未来60 min预测风速下降，预测辅助算法由加强执行降为常规执行，随后转为目标保持；配对窗口内累计泵量降低，主导姿态角P95基本相当。",
+  "transition": {
+    "previous_action": "active_medium",
+    "event_action": "active_small",
+    "event_best_sequence": "active_small>active_medium>pump_saving",
+    "event_action_persistence_cycles_within_figure": 2
+  },
+  "forecast": {
+    "history_end": "2024-11-17 21:40:00",
+    "speed_first_m_s": 17.257402420043945,
+    "speed_last_m_s": 15.805036544799805,
+    "speed_change_m_s": -1.4523658752441406,
+    "direction_change_deg": 1.839111328125,
+    "reconciled_to_frozen_log": true
+  },
+  "paired_window": {
+    "relative_min": [
+      -20.0,
+      60.0
+    ],
+    "prediction_pump_m3": 375.60105041890245,
+    "posture_pump_m3": 564.3032707677173,
+    "pump_saving_m3": 188.70222034881488,
+    "tank_state_abs_difference_at_event_m3": 88.50582724425749,
+    "post_event_60_min": {
+      "prediction_pump_m3": 321.79934505193245,
+      "posture_pump_m3": 468.75394017197453
+    },
+    "prediction_raw_attitude": {
+      "pitch_abs_mean_deg": 0.8001099514068083,
+      "pitch_abs_p95_deg": 1.3343416285839305,
+      "roll_abs_mean_deg": 1.253025474912226,
+      "roll_abs_p95_deg": 2.148220618256329,
+      "theta_mean_deg": 1.3138451797918418,
+      "theta_p95_deg": 2.148220618256329,
+      "theta_gt2_s": 460
+    },
+    "posture_raw_attitude": {
+      "pitch_abs_mean_deg": 0.5638947519871275,
+      "pitch_abs_p95_deg": 1.3695034598382805,
+      "roll_abs_mean_deg": 1.136914604311086,
+      "roll_abs_p95_deg": 2.135182411084956,
+      "theta_mean_deg": 1.1855886191260272,
+      "theta_p95_deg": 2.161002857673142,
+      "theta_gt2_s": 348
+    }
+  },
+  "display_only_smoothing": "one-minute median followed by centred seven-minute median; audit statistics use unsmoothed 1 Hz values",
+  "claim_boundary": "The 0 min forecast explains only the 0 min planning decision. Later action points are rolling replans, and measured wind after 0 min is ex-post verification. Pump and attitude comparisons are local paired-window evidence, not whole-dataset claims.",
+  "post_decision_pump_60min": {
+    "prediction_m3": 321.79934505193245,
+    "posture_m3": 468.75394017197453,
+    "difference_m3": 146.9545951200421,
+    "reduction_percent": 31.350050106486144
+  },
+  "figure_claim_boundary": {
+    "panel_b": "measured wind only; no forecast-accuracy claim",
+    "panel_b_display": "Open circles are the audited 10 min samples. The connecting curve is shape-preserving PCHIP interpolation for display only; it passes through every sample and is not used in calculations.",
+    "action_trace": "each point is a rolling replan at that time",
+    "attitude": "local P95 comparison only; the case does not demonstrate reduced duration above 2 degrees",
+    "population_inference": "not permitted from this representative case"
+  }
+}

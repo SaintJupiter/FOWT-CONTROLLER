@@ -82,6 +82,23 @@ from .target_lifecycle import (
     remember_paused_primary_target,
 )
 
+
+def complete_event_probabilities_available(
+    event_probs: dict[str, float] | None,
+    expected_columns,
+) -> bool:
+    expected = tuple(str(name) for name in expected_columns)
+    if not expected or not isinstance(event_probs, dict):
+        return False
+    try:
+        values = [float(event_probs[name]) for name in expected]
+    except (KeyError, TypeError, ValueError):
+        return False
+    return bool(np.all(np.isfinite(values))) and all(
+        0.0 <= value <= 1.0 for value in values
+    )
+
+
 _EVENT_RISK_KEYS = (
     "attention_event_0_20m",
     "attention_event_20_40m",
@@ -155,6 +172,7 @@ class BallastPlannerPreviewProvider:
         active_posture_refresh_axis_mode: str = "max",
         active_posture_refresh_worsening_eps_deg_s: float = 0.0,
         active_posture_refresh_debt_deg: float = 0.0,
+        active_posture_refresh_include_hold: bool = False,
         fallback_risk_active_release_enabled: bool = False,
         fallback_risk_active_release_enter_deg: float = 5.5,
         fallback_risk_active_release_exit_deg: float = 4.8,
@@ -517,6 +535,9 @@ class BallastPlannerPreviewProvider:
         self.active_posture_refresh_debt_deg = max(
             float(active_posture_refresh_debt_deg),
             0.0,
+        )
+        self.active_posture_refresh_include_hold = bool(
+            active_posture_refresh_include_hold
         )
         if active_posture_refresh_action_name not in (
             "pump_saving",
@@ -1654,7 +1675,8 @@ class BallastPlannerPreviewProvider:
         self._h120_pareto_mode_selector_near_last_norm = 0.0
         self._h120_pareto_mode_selector_current_response_deg = float("nan")
         self._reset_h120_scheduler_bucket_state("init")
-        self._forecast_has_future = True
+        self._forecast_has_future = False
+        self._forecast_event_probs_available = False
         self._reset_forecast_control_trust_state("init")
         self._relief_medium_cap_active = False
         self._relief_medium_cap_reason = "disabled"
@@ -1947,6 +1969,8 @@ class BallastPlannerPreviewProvider:
             self._default_plant_info["tank_masses"],
             refresh_owner="reset",
         )
+        if hasattr(self, "_forecast_deadband_held_target_kg"):
+            del self._forecast_deadband_held_target_kg
         self._forecast_advised_economy_candidate = False
         self._forecast_advised_economy_boundary_veto = False
         self._forecast_advised_economy_headroom_deg = 0.0
@@ -2043,7 +2067,8 @@ class BallastPlannerPreviewProvider:
         self._reset_far_horizon_state("reset")
         self._reset_forecast_speed_shape_state("reset")
         self._reset_psc_v2_short_state("reset")
-        self._forecast_has_future = True
+        self._forecast_has_future = False
+        self._forecast_event_probs_available = False
         self._reset_forecast_control_trust_state("reset")
         self._active_posture_refresh_active = False
         self._active_posture_refresh_reason = "disabled"
@@ -6463,6 +6488,10 @@ class BallastPlannerPreviewProvider:
     ) -> tuple[dict[str, Any], np.ndarray, str, list[dict[str, Any]]]:
         uv, forecast_source, event_probs = self._forecast_uv(sample)
         self._forecast_has_future = bool(forecast_has_future)
+        self._forecast_event_probs_available = complete_event_probabilities_available(
+            event_probs,
+            self.replay_dataset.event_columns,
+        )
         self._observe_current_wind_stability(sample)
         self._observe_forecast_pressure_current_support(
             getattr(sample, "wind_obs", None)
@@ -8593,6 +8622,67 @@ class BallastPlannerPreviewProvider:
             ),
         )
 
+    def synchronize_forecast_deadband_hold(
+        self,
+        plant_info: dict[str, Any] | None,
+        current_time: float,
+        *,
+        blend: float = 1.0,
+        start_new: bool = True,
+    ) -> np.ndarray:
+        """Commit a forecast-approved reduction of the pending primary target."""
+        info = self._plant_info_from(plant_info)
+        masses = plant_primary_masses(info, self._primary_anchor_masses_kg)
+        if start_new or not hasattr(self, "_forecast_deadband_held_target_kg"):
+            blend = float(np.clip(blend, 0.0, 1.0))
+            pending = np.asarray(self._primary_target_kg, dtype=float).reshape(-1)[:3]
+            held_target = np.clip(
+                pending + blend * (masses - pending),
+                0.0,
+                float(self.cfg.tank_capacity_kg),
+            )
+            self._forecast_deadband_held_target_kg = held_target.copy()
+        held_target = np.asarray(
+            self._forecast_deadband_held_target_kg,
+            dtype=float,
+        ).reshape(-1)[:3]
+        self._paused_primary_valid = False
+        self._primary_refresh_owner_pending = "forecast_safe_deadband_hold_current"
+        self._target_action = "hold"
+        self._target_pitch = 0.0
+        self._target_roll = 0.0
+        self._target_pitch_planner_frame = 0.0
+        self._target_roll_planner_frame = 0.0
+        apply_primary_target_transition(
+            self,
+            primary_target_from_paused(
+                masses,
+                held_target,
+                tank_capacity_kg=self.cfg.tank_capacity_kg,
+                current_time_s=float(current_time),
+            ),
+        )
+        return self._primary_target_kg.copy()
+
+    def exit_forecast_deadband_hold(
+        self,
+        plant_info: dict[str, Any] | None,
+        current_time: float,
+    ) -> None:
+        """Discard the held target and force a fresh candidate evaluation."""
+        info = self._plant_info_from(plant_info)
+        self._paused_primary_valid = False
+        if hasattr(self, "_forecast_deadband_held_target_kg"):
+            del self._forecast_deadband_held_target_kg
+        self._primary_refresh_owner_pending = "forecast_safe_deadband_exit_replan"
+        self._release_primary_target_to_pi(info, float(current_time))
+        self._target_action = "hold"
+        self._target_pitch = 0.0
+        self._target_roll = 0.0
+        self._target_pitch_planner_frame = 0.0
+        self._target_roll_planner_frame = 0.0
+        self._last_bucket = -1
+
     def _release_primary_target_to_pi(self, plant_info: dict[str, Any], current_time: float) -> None:
         consume_primary_refresh_owner(self)
         masses = plant_primary_masses(plant_info, self._primary_anchor_masses_kg)
@@ -8697,7 +8787,10 @@ class BallastPlannerPreviewProvider:
         self._active_posture_refresh_roll_worsening_deg_s = 0.0
         if not self.active_posture_refresh_enabled:
             return False, np.zeros(2, dtype=float)
-        if str(self._target_action) not in ("active_small", "active_medium"):
+        allowed_actions = {"active_small", "active_medium"}
+        if self.active_posture_refresh_include_hold:
+            allowed_actions.add("hold")
+        if str(self._target_action) not in allowed_actions:
             self._active_posture_refresh_reason = "current_action_not_active"
             return False, np.zeros(2, dtype=float)
         posture = np.asarray(
@@ -8898,7 +8991,10 @@ class BallastPlannerPreviewProvider:
             )
             and self._primary_target_reused
         )
-        if str(self._target_action) == "hold" or direction_reversal_reuse_guard:
+        if (
+            str(self._target_action) == "hold"
+            and not self.active_posture_refresh_include_hold
+        ) or direction_reversal_reuse_guard:
             return
         active_refresh, active_avec = self._active_posture_refresh_correction(
             plant_info,
@@ -9026,6 +9122,12 @@ class BallastPlannerPreviewProvider:
                 self._effective_pressure_block_vecs = [
                     np.zeros(2, dtype=float) for _ in range(3)
                 ]
+                self._forecast_has_future = False
+                self._forecast_event_probs_available = False
+                self._event_risk_raw_probs = [0.0, 0.0, 0.0]
+                self._event_risk_probs = [0.0, 0.0, 0.0]
+                self._event_risk_block_scales = [1.0, 1.0, 1.0]
+                self._reset_forecast_control_trust_state("missing_sample")
                 self._reset_forecast_pressure_trust_state(
                     "missing_sample",
                     reset_observation=True,
@@ -10720,6 +10822,9 @@ class BallastPlannerPreviewProvider:
                 else 0.0
             ),
             "preview_forecast_has_future": int(bool(self._forecast_has_future)),
+            "preview_forecast_event_probs_available": int(
+                bool(self._forecast_event_probs_available)
+            ),
             "preview_forecast_control_trust_gate_enabled": int(
                 self.forecast_control_trust_gate_enabled
             ),

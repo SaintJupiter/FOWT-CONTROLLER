@@ -1,0 +1,7 @@
+{
+  "best_epoch": 16,
+  "best_validation_loss": 0.03606800882700525,
+  "regression_metrics_csv": "outputs/wind_prediction/lstm_segmented_fino1_meteo_aux_v1/lstm_regression_metrics.csv",
+  "event_metrics_csv": "outputs/wind_prediction/lstm_segmented_fino1_meteo_aux_v1/lstm_event_metrics.csv",
+  "checkpoint": "outputs/wind_prediction/lstm_segmented_fino1_meteo_aux_v1/lstm_best.pt"
+}

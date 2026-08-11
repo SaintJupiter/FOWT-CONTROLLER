@@ -1,0 +1,70 @@
+{
+  "configuration": {
+    "closed_pump_profile": "engineered_minimal",
+    "event_reset_mode": "action",
+    "forecast_pump_suppression": false,
+    "hold_comfort_release": false,
+    "hold_relief_debt": false,
+    "planner_envelope_barrier_active": true,
+    "planner_envelope_mode": "raw",
+    "planner_posture_hold_barrier_active": false,
+    "planner_posture_state_gain": 0.4,
+    "planner_posture_state_residual_active": true,
+    "planner_pressure_norm_cap": 1.5,
+    "primary_hold_target_mode": "pause",
+    "primary_pump_profile": "engineered_minimal",
+    "primary_safety_profile": "default",
+    "primary_scale": 1.0,
+    "recovery_mode": false,
+    "relief_medium_cap": true
+  },
+  "created_at_utc": "2026-07-10T14:38:24+00:00",
+  "environment": {
+    "cwd": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main",
+    "python_executable": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/.venv312/bin/python3.12"
+  },
+  "identity": {
+    "cases_source": "outputs/wind_prediction/frozen_h_holdout150_20260710/cases/batch_3_task_3_10.csv",
+    "forecast_source_effective": "lstm_dual_head_preview",
+    "forecast_source_requested": "learned",
+    "kind": "prediction_primary_casebook",
+    "primary_control_profile": "rawenv_forecastgated_command_deadband_v1",
+    "primary_label": "prediction_primary_econ",
+    "primary_only": false,
+    "reactive_primary_only": false,
+    "replay_split": "test"
+  },
+  "inputs": {
+    "case_ids": [],
+    "cases_csv": "outputs/wind_prediction/frozen_h_holdout150_20260710/cases/batch_3_task_3_10.csv",
+    "dataset_dir": "data/processed/wind_ml_10min/ballast_decision_fino1_meteo_aux_v1",
+    "duration_s": 21600.0,
+    "model_dir": "outputs/wind_prediction/lstm_segmented_fino1_meteo_aux_v1",
+    "skip_figures": true
+  },
+  "outputs": {
+    "out_dir": "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_3_paired/task_3",
+    "planner_log_dir": "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_3_paired/task_3/planner_logs",
+    "protocol_json": "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_3_paired/task_3/run_protocol.json",
+    "report_md": "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_3_paired/task_3/casebook_report.md",
+    "summary_csv": "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_3_paired/task_3/casebook_summary.csv",
+    "timeseries_dir": "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_3_paired/task_3/timeseries"
+  },
+  "result": {
+    "aggregate_metrics": {
+      "d_pitch_p95_mean": 0.5892494483631296,
+      "d_pump_work_pct_mean": -25.146750186698736,
+      "d_roll_p95_mean": 0.6030793568672287,
+      "primary_pitch_p95_mean": 1.941690108173296,
+      "primary_pump_work_m3_sum": 8205.149989692236,
+      "primary_roll_p95_mean": 2.5069806861904693,
+      "primary_time_over_10deg_s_sum": 250.0,
+      "primary_time_over_5deg_s_sum": 2619.0,
+      "primary_time_over_7p5deg_s_sum": 752.0
+    },
+    "completed_cases": 10,
+    "elapsed_s": 1128.507202916997,
+    "issue_count": 0
+  },
+  "schema_version": "run_protocol.v1"
+}

@@ -1,0 +1,157 @@
+{
+  "dataset_role": "wind preview dataset for active ballast decision support",
+  "series_ids": [
+    "BSH_FINO1::FINO1_Platform::fused_102m_speed_91m_dir_v1"
+  ],
+  "input_resolution_minutes": 10,
+  "history_steps": 12,
+  "nominal_history_minutes": 120,
+  "history_timestamp_span_minutes": 110,
+  "future_steps": 6,
+  "future_minutes": 60,
+  "feature_columns": [
+    "wind_speed_ms",
+    "wind_dir_sin",
+    "wind_dir_cos",
+    "wind_u_ms",
+    "wind_v_ms",
+    "wind_speed_delta_10m",
+    "wind_dir_delta_10m_deg",
+    "wind_u_delta_10m",
+    "wind_v_delta_10m",
+    "wind_speed_mean_30m",
+    "wind_speed_std_30m",
+    "wind_u_mean_30m",
+    "wind_v_mean_30m",
+    "wind_dir_sin_mean_30m",
+    "wind_dir_cos_mean_30m",
+    "wind_speed_mean_60m",
+    "wind_speed_std_60m",
+    "wind_u_mean_60m",
+    "wind_v_mean_60m",
+    "wind_dir_sin_mean_60m",
+    "wind_dir_cos_mean_60m",
+    "wind_speed_mean_120m",
+    "wind_speed_std_120m",
+    "wind_u_mean_120m",
+    "wind_v_mean_120m",
+    "wind_dir_sin_mean_120m",
+    "wind_dir_cos_mean_120m",
+    "hour_sin",
+    "hour_cos",
+    "dayofyear_sin",
+    "dayofyear_cos",
+    "air_temp_c_filled",
+    "rel_humidity_pct_filled",
+    "air_temp_missing",
+    "rel_humidity_missing"
+  ],
+  "target_sequence_columns": [
+    "wind_u_ms",
+    "wind_v_ms"
+  ],
+  "raw_speed_direction_sequence_columns": [
+    "wind_speed_ms",
+    "wind_dir_deg"
+  ],
+  "event_columns": [
+    "speed_ramp_ge_3ms",
+    "direction_shift_ge_45deg",
+    "vector_change_ge_train_p90",
+    "future_speed_ge_train_p95",
+    "ballast_attention_event",
+    "attention_event_0_20m",
+    "attention_event_20_40m",
+    "attention_event_40_60m"
+  ],
+  "sample_summary_columns": [
+    "future_speed_max_ms",
+    "future_speed_ramp_max_ms",
+    "future_dir_shift_abs_max_deg",
+    "future_vector_change_max_ms"
+  ],
+  "event_thresholds": {
+    "speed_ramp_ms": 3.0,
+    "direction_shift_deg": 45.0,
+    "future_speed_train_p95_ms": 18.780000686645508,
+    "vector_change_train_p90_ms": 3.6966733932495117,
+    "threshold_source": "fixed engineering bins for ramp/direction plus empirical train-only quantiles"
+  },
+  "arrays": {
+    "train": {
+      "X": "X_train.npy",
+      "y_uv": "y_uv_train.npy",
+      "y_uv_raw": "y_uv_raw_train.npy",
+      "y_speed_dir_raw": "y_speed_dir_raw_train.npy",
+      "y_event": "y_event_train.npy",
+      "y_summary_raw": "y_summary_raw_train.npy",
+      "shape_X": [
+        657747,
+        12,
+        35
+      ],
+      "shape_y_uv": [
+        657747,
+        6,
+        2
+      ],
+      "shape_y_event": [
+        657747,
+        8
+      ]
+    },
+    "validation": {
+      "X": "X_validation.npy",
+      "y_uv": "y_uv_validation.npy",
+      "y_uv_raw": "y_uv_raw_validation.npy",
+      "y_speed_dir_raw": "y_speed_dir_raw_validation.npy",
+      "y_event": "y_event_validation.npy",
+      "y_summary_raw": "y_summary_raw_validation.npy",
+      "shape_X": [
+        138657,
+        12,
+        35
+      ],
+      "shape_y_uv": [
+        138657,
+        6,
+        2
+      ],
+      "shape_y_event": [
+        138657,
+        8
+      ]
+    },
+    "test": {
+      "X": "X_test.npy",
+      "y_uv": "y_uv_test.npy",
+      "y_uv_raw": "y_uv_raw_test.npy",
+      "y_speed_dir_raw": "y_speed_dir_raw_test.npy",
+      "y_event": "y_event_test.npy",
+      "y_summary_raw": "y_summary_raw_test.npy",
+      "shape_X": [
+        142915,
+        12,
+        35
+      ],
+      "shape_y_uv": [
+        142915,
+        6,
+        2
+      ],
+      "shape_y_event": [
+        142915,
+        8
+      ]
+    }
+  },
+  "scaling_rule": "Feature and target z-score scalers are fit on training rows only.",
+  "continuity_rule": "Samples require exact 10-minute continuity across both history and future windows; no sample crosses series_id or split boundaries.",
+  "literature_mapping": {
+    "multi_step_forecast": "Fuentes-Barrios et al. 2022: 10-minute input sequence to multi-step nowcasting output.",
+    "wind_direction_encoding": "Sari et al. 2021 and Blazakis et al. 2025: avoid raw angular regression; use vector/circular representation.",
+    "dual_output_events": "Mode et al. 2025: regression plus event-classification framing for extreme wind.",
+    "multi_resolution_features": "Feng et al. 2025: multi-resolution wind history improves uncertainty-aware forecasting.",
+    "leakage_control": "Liu & Chen 2019 plus data-leakage cautions: train-only scaling and chronological splits."
+  }
+}

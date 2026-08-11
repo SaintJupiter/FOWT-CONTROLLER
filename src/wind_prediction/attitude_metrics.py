@@ -25,6 +25,20 @@ class AttitudeMetricBand:
 
 ATTITUDE_METRIC_BANDS: tuple[AttitudeMetricBand, ...] = (
     AttitudeMetricBand(
+        key="1p5deg",
+        threshold_deg=1.5,
+        label="fine_posture_exposure",
+        meaning="fine posture-deviation occupancy",
+        control_use="early posture-cost accounting",
+    ),
+    AttitudeMetricBand(
+        key="2deg",
+        threshold_deg=2.0,
+        label="moderate_posture_exposure",
+        meaning="moderate posture-deviation occupancy",
+        control_use="economy-versus-posture acceptance accounting",
+    ),
+    AttitudeMetricBand(
         key="3deg",
         threshold_deg=3.0,
         label="comfort_outside",

@@ -1,0 +1,112 @@
+{
+  "schema_version": "frozen_h_validation_summary.v1",
+  "case_count": 150,
+  "duration_s_per_case": 21600.0,
+  "total_duration_h": 900.0,
+  "task_count": 15,
+  "issue_count": 0,
+  "pump": {
+    "baseline_total_m3": 145871.93753174087,
+    "primary_total_m3": 116911.86566099661,
+    "aggregate_reduction_pct": 19.853079598975434,
+    "bootstrap_95pct_ci": [
+      15.91776711014055,
+      23.5571507600434
+    ],
+    "improved_case_count": 127,
+    "improved_case_fraction": 0.8466666666666667,
+    "per_case_reduction_median_pct": 18.345405545263123,
+    "per_case_reduction_p25_pct": 6.427418303554197,
+    "per_case_reduction_p75_pct": 35.62073532922967
+  },
+  "switches": {
+    "baseline_total": 98456.0,
+    "primary_total": 11912.0,
+    "reduction_pct": 87.90119444218737
+  },
+  "posture": {
+    "1p5": {
+      "baseline_time_s": 223777.0,
+      "primary_time_s": 458552.0,
+      "baseline_time_pct": 6.906697530864197,
+      "primary_time_pct": 14.152839506172839,
+      "delta_percentage_points": 7.246141975308642
+    },
+    "2": {
+      "baseline_time_s": 153197.0,
+      "primary_time_s": 298058.0,
+      "baseline_time_pct": 4.728302469135802,
+      "primary_time_pct": 9.199320987654321,
+      "delta_percentage_points": 4.471018518518519
+    },
+    "3": {
+      "baseline_time_s": 91406.0,
+      "primary_time_s": 142003.0,
+      "baseline_time_pct": 2.821172839506173,
+      "primary_time_pct": 4.382808641975308,
+      "delta_percentage_points": 1.5616358024691355
+    },
+    "4": {
+      "baseline_time_s": 58180.0,
+      "primary_time_s": 70654.0,
+      "baseline_time_pct": 1.795679012345679,
+      "primary_time_pct": 2.180679012345679,
+      "delta_percentage_points": 0.38500000000000023
+    },
+    "5": {
+      "baseline_time_s": 32845.0,
+      "primary_time_s": 35271.0,
+      "baseline_time_pct": 1.0137345679012346,
+      "primary_time_pct": 1.0886111111111112,
+      "delta_percentage_points": 0.07487654320987658
+    },
+    "7p5": {
+      "baseline_time_s": 8327.0,
+      "primary_time_s": 6687.0,
+      "baseline_time_pct": 0.25700617283950616,
+      "primary_time_pct": 0.2063888888888889,
+      "delta_percentage_points": -0.050617283950617264
+    },
+    "10": {
+      "baseline_time_s": 3555.0,
+      "primary_time_s": 3543.0,
+      "baseline_time_pct": 0.10972222222222222,
+      "primary_time_pct": 0.10935185185185185,
+      "delta_percentage_points": -0.00037037037037036813
+    }
+  },
+  "source_summaries": [
+    "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_1_paired/task_1/casebook_summary.csv",
+    "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_1_paired/task_2/casebook_summary.csv",
+    "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_1_paired/task_3/casebook_summary.csv",
+    "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_1_paired/task_4/casebook_summary.csv",
+    "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_1_paired/task_5/casebook_summary.csv",
+    "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_2_paired/task_1/casebook_summary.csv",
+    "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_2_paired/task_2/casebook_summary.csv",
+    "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_2_paired/task_3/casebook_summary.csv",
+    "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_2_paired/task_4/casebook_summary.csv",
+    "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_2_paired/task_5/casebook_summary.csv",
+    "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_3_paired/task_1/casebook_summary.csv",
+    "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_3_paired/task_2/casebook_summary.csv",
+    "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_3_paired/task_3/casebook_summary.csv",
+    "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_3_paired/task_4/casebook_summary.csv",
+    "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_3_paired/task_5/casebook_summary.csv"
+  ],
+  "source_protocols": [
+    "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_1_paired/task_1/run_protocol.json",
+    "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_1_paired/task_2/run_protocol.json",
+    "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_1_paired/task_3/run_protocol.json",
+    "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_1_paired/task_4/run_protocol.json",
+    "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_1_paired/task_5/run_protocol.json",
+    "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_2_paired/task_1/run_protocol.json",
+    "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_2_paired/task_2/run_protocol.json",
+    "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_2_paired/task_3/run_protocol.json",
+    "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_2_paired/task_4/run_protocol.json",
+    "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_2_paired/task_5/run_protocol.json",
+    "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_3_paired/task_1/run_protocol.json",
+    "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_3_paired/task_2/run_protocol.json",
+    "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_3_paired/task_3/run_protocol.json",
+    "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_3_paired/task_4/run_protocol.json",
+    "outputs/wind_prediction/frozen_h_holdout150_20260710/batch_3_paired/task_5/run_protocol.json"
+  ]
+}

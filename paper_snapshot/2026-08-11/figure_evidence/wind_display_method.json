@@ -1,0 +1,6 @@
+{
+  "samples": "audited measured values at 10 min intervals",
+  "markers": "open circles show every original sample",
+  "connecting_curve": "shape-preserving PCHIP interpolation for display only",
+  "integrity": "the curve passes through every sample, introduces no overshoot, and is not used in any calculation"
+}

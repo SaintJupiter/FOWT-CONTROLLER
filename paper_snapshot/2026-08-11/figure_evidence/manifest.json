@@ -1,0 +1,229 @@
+{
+  "source_docx": "/Users/saintyoung/Desktop/小论文/7.20基于短时风况预测的浮式风机主动压载调节算法.docx",
+  "output_docx": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/word/7.20基于短时风况预测的浮式风机主动压载调节算法_图例更新.docx",
+  "scope": "current manuscript figures only",
+  "legend_change": "姿态反馈算法 -> 传统姿态反馈算法",
+  "figure_count": 20,
+  "figures": [
+    {
+      "word_media": "image1.png",
+      "delivery_stem": "fig1_algorithm_framework",
+      "source_stem": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260711_chapter3_redraw/algorithm_framework_compact_v33/figures/fig1_algorithm_framework_compact_v33",
+      "width_px": 3461,
+      "height_px": 2220,
+      "png_sha256": "e12ed5433ea578c3b5df17a502e3849c600291a306f5e6e05e73a941ca2c4728",
+      "png": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig1_algorithm_framework.png",
+      "pdf": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig1_algorithm_framework.pdf",
+      "svg": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig1_algorithm_framework.svg"
+    },
+    {
+      "word_media": "image3.png",
+      "delivery_stem": "fig2_prediction_performance",
+      "source_stem": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_ocean_engineering_boxed_legends/figures/fig2_prediction_performance_boxed_legend",
+      "width_px": 3897,
+      "height_px": 1370,
+      "png_sha256": "210b830d68cdc1f563c6ba27545f7cc35a3d9a0159c5ec63e566f3141766a0b4",
+      "png": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig2_prediction_performance.png",
+      "pdf": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig2_prediction_performance.pdf",
+      "svg": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig2_prediction_performance.svg"
+    },
+    {
+      "word_media": "image4.png",
+      "delivery_stem": "fig3a_cumulative_pump_density",
+      "source_stem": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260712_ocean_engineering_chapter3/density6_ocean_engineering_grid72_20260713/figures/panel_a_cumulative_pump_volume",
+      "width_px": 1700,
+      "height_px": 1322,
+      "png_sha256": "5e1e140e7aa8af2bcd6506899ab47b89628b936294f4453d746a7aa98e782bfc",
+      "png": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig3a_cumulative_pump_density.png",
+      "pdf": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig3a_cumulative_pump_density.pdf",
+      "svg": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig3a_cumulative_pump_density.svg"
+    },
+    {
+      "word_media": "image5.png",
+      "delivery_stem": "fig3b_pump_runtime_density",
+      "source_stem": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260712_ocean_engineering_chapter3/density6_ocean_engineering_grid72_20260713/figures/panel_b_pump_runtime_ratio",
+      "width_px": 1700,
+      "height_px": 1322,
+      "png_sha256": "4a0f90d2acc846021014fa30223f511520d12708e2ed16d2a636eefbbcb18607",
+      "png": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig3b_pump_runtime_density.png",
+      "pdf": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig3b_pump_runtime_density.pdf",
+      "svg": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig3b_pump_runtime_density.svg"
+    },
+    {
+      "word_media": "image6.png",
+      "delivery_stem": "fig3c_attitude_over_2deg_density",
+      "source_stem": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260712_ocean_engineering_chapter3/density6_ocean_engineering_grid72_20260713/figures/panel_c_attitude_over_2deg_ratio",
+      "width_px": 1700,
+      "height_px": 1322,
+      "png_sha256": "380afde52580a0a0e41b124e2821ecf58235b3242aca28face92f5fe6f383ad8",
+      "png": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig3c_attitude_over_2deg_density.png",
+      "pdf": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig3c_attitude_over_2deg_density.pdf",
+      "svg": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig3c_attitude_over_2deg_density.svg"
+    },
+    {
+      "word_media": "image7.png",
+      "delivery_stem": "fig3d_attitude_over_3deg_density",
+      "source_stem": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260712_ocean_engineering_chapter3/density6_ocean_engineering_grid72_20260713/figures/panel_d_attitude_over_3deg_ratio",
+      "width_px": 1700,
+      "height_px": 1322,
+      "png_sha256": "7b2a996316854d82ca6efc889fb997c12615d222e01c993e98a2241b28763636",
+      "png": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig3d_attitude_over_3deg_density.png",
+      "pdf": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig3d_attitude_over_3deg_density.pdf",
+      "svg": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig3d_attitude_over_3deg_density.svg"
+    },
+    {
+      "word_media": "image8.png",
+      "delivery_stem": "fig3e_attitude_over_4deg_density",
+      "source_stem": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260712_ocean_engineering_chapter3/density6_ocean_engineering_grid72_20260713/figures/panel_e_attitude_over_4deg_ratio",
+      "width_px": 1700,
+      "height_px": 1322,
+      "png_sha256": "bc8f5947ef628d7c384cec1875bdf0209b16bfeba623bab0676eb5a3a2f1a364",
+      "png": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig3e_attitude_over_4deg_density.png",
+      "pdf": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig3e_attitude_over_4deg_density.pdf",
+      "svg": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig3e_attitude_over_4deg_density.svg"
+    },
+    {
+      "word_media": "image9.png",
+      "delivery_stem": "fig3f_attitude_over_5deg_density",
+      "source_stem": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260712_ocean_engineering_chapter3/density6_ocean_engineering_grid72_20260713/figures/panel_f_attitude_over_5deg_ratio",
+      "width_px": 1700,
+      "height_px": 1322,
+      "png_sha256": "823bfa2c95c9802858267414c4c5a47de5a3edf00425daeb2010ed4a98b6015a",
+      "png": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig3f_attitude_over_5deg_density.png",
+      "pdf": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig3f_attitude_over_5deg_density.pdf",
+      "svg": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig3f_attitude_over_5deg_density.svg"
+    },
+    {
+      "word_media": "image10.png",
+      "delivery_stem": "fig4a_casewise_cumulative_pump",
+      "source_stem": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260711_chapter3_redraw/population_pump_panels_v38_equal_frames_compact/figures/fig3a_casewise_cumulative_pump_named",
+      "width_px": 1700,
+      "height_px": 1452,
+      "png_sha256": "330f415601f98723e58653b288b02e6110af4da6051b5a6464c746d4fb3f7501",
+      "png": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig4a_casewise_cumulative_pump.png",
+      "pdf": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig4a_casewise_cumulative_pump.pdf",
+      "svg": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig4a_casewise_cumulative_pump.svg"
+    },
+    {
+      "word_media": "image11.png",
+      "delivery_stem": "fig4b_total_cumulative_pump",
+      "source_stem": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_ocean_engineering_boxed_legends/figures/fig3b_total_cumulative_pump_boxed_legend",
+      "width_px": 1889,
+      "height_px": 1440,
+      "png_sha256": "2f5b4f1af64f5ed4c9452738ba9ac80ff397b715cc4406b7c62adb03a9b46bca",
+      "png": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig4b_total_cumulative_pump.png",
+      "pdf": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig4b_total_cumulative_pump.pdf",
+      "svg": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig4b_total_cumulative_pump.svg"
+    },
+    {
+      "word_media": "image12.png",
+      "delivery_stem": "fig5a_ablation_casewise_pump_ecdf",
+      "source_stem": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_ocean_engineering_boxed_legends/figures/fig4a_ablation_casewise_pump_ecdf_boxed_legend",
+      "width_px": 1889,
+      "height_px": 1440,
+      "png_sha256": "2d5ab1572927504ed4f05212a1fa47acde6769ee0434ad22368df2d38b902309",
+      "png": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig5a_ablation_casewise_pump_ecdf.png",
+      "pdf": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig5a_ablation_casewise_pump_ecdf.pdf",
+      "svg": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig5a_ablation_casewise_pump_ecdf.svg"
+    },
+    {
+      "word_media": "image13.png",
+      "delivery_stem": "fig5b_ablation_paired_pump_scatter",
+      "source_stem": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_ocean_engineering_boxed_legends/figures/fig4b_ablation_paired_pump_scatter_boxed_legend",
+      "width_px": 1889,
+      "height_px": 1440,
+      "png_sha256": "5fa38fd2fefa85c2d22c142c401b3456bb6937fab765f8256f89e52877c005a6",
+      "png": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig5b_ablation_paired_pump_scatter.png",
+      "pdf": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig5b_ablation_paired_pump_scatter.pdf",
+      "svg": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig5b_ablation_paired_pump_scatter.svg"
+    },
+    {
+      "word_media": "image14.png",
+      "delivery_stem": "fig6a_rolling_strategy_target",
+      "source_stem": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_chapter3_3_38_rolling_process_final/standalone_figures/06_sel6h_38_panel_a_strategy_target",
+      "width_px": 1932,
+      "height_px": 1367,
+      "png_sha256": "f65e22af22fe8f2a4285d9f41eeffde14c9ce4c1112985604dda82c585d870ed",
+      "png": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig6a_rolling_strategy_target.png",
+      "pdf": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig6a_rolling_strategy_target.pdf",
+      "svg": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig6a_rolling_strategy_target.svg"
+    },
+    {
+      "word_media": "image15.png",
+      "delivery_stem": "fig6b_measured_wind",
+      "source_stem": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_chapter3_3_38_rolling_process_final/standalone_figures/06_sel6h_38_panel_b_measured_wind",
+      "width_px": 1932,
+      "height_px": 1367,
+      "png_sha256": "62e6b26d7fa2187c350d8372b8095c44e9be51142c9e3bb8475650f3bb35821a",
+      "png": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig6b_measured_wind.png",
+      "pdf": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig6b_measured_wind.pdf",
+      "svg": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig6b_measured_wind.svg"
+    },
+    {
+      "word_media": "image16.png",
+      "delivery_stem": "fig6c_cumulative_pump",
+      "source_stem": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_chapter3_3_38_rolling_process_final/standalone_figures/06_sel6h_38_panel_c_cumulative_pump",
+      "width_px": 1932,
+      "height_px": 1367,
+      "png_sha256": "c3fa6c8d7c62d9c0c79f9eb05c67b552871b4bd74a5f3c52c755c66728b284a0",
+      "png": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig6c_cumulative_pump.png",
+      "pdf": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig6c_cumulative_pump.pdf",
+      "svg": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig6c_cumulative_pump.svg"
+    },
+    {
+      "word_media": "image17.png",
+      "delivery_stem": "fig6d_attitude_response",
+      "source_stem": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_chapter3_3_38_rolling_process_final/standalone_figures/06_sel6h_38_panel_d_attitude",
+      "width_px": 1932,
+      "height_px": 1367,
+      "png_sha256": "f81050b26d0c5f3e48b411e6ee71e07f4dc5fdcd256ebe8bd009f37cb4617d42",
+      "png": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig6d_attitude_response.png",
+      "pdf": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig6d_attitude_response.pdf",
+      "svg": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig6d_attitude_response.svg"
+    },
+    {
+      "word_media": "image18.png",
+      "delivery_stem": "fig7a_rolling_strategy_target",
+      "source_stem": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_07_posadd6h_099_rolling_process_final/standalone_figures/07_posadd6h_099_panel_a_strategy_target",
+      "width_px": 1932,
+      "height_px": 1367,
+      "png_sha256": "c53ae024e7d43140792117085255b64c7a16db8cec3cf656b3f8f739ade5860f",
+      "png": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig7a_rolling_strategy_target.png",
+      "pdf": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig7a_rolling_strategy_target.pdf",
+      "svg": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig7a_rolling_strategy_target.svg"
+    },
+    {
+      "word_media": "image19.png",
+      "delivery_stem": "fig7b_measured_wind",
+      "source_stem": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_07_posadd6h_099_rolling_process_final/standalone_figures/07_posadd6h_099_panel_b_measured_wind",
+      "width_px": 1932,
+      "height_px": 1367,
+      "png_sha256": "c38f50f438b9eafccaf9e33e73f4921e9ff044ccf4db51fd3a01b19046e67fee",
+      "png": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig7b_measured_wind.png",
+      "pdf": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig7b_measured_wind.pdf",
+      "svg": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig7b_measured_wind.svg"
+    },
+    {
+      "word_media": "image20.png",
+      "delivery_stem": "fig7c_cumulative_pump",
+      "source_stem": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_07_posadd6h_099_rolling_process_final/standalone_figures/07_posadd6h_099_panel_c_cumulative_pump",
+      "width_px": 1932,
+      "height_px": 1367,
+      "png_sha256": "9dacfda34ed15415270d0f915336be6b1f4b51585347e66e367de9bc62226029",
+      "png": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig7c_cumulative_pump.png",
+      "pdf": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig7c_cumulative_pump.pdf",
+      "svg": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig7c_cumulative_pump.svg"
+    },
+    {
+      "word_media": "image21.png",
+      "delivery_stem": "fig7d_attitude_response",
+      "source_stem": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_07_posadd6h_099_rolling_process_final/standalone_figures/07_posadd6h_099_panel_d_attitude",
+      "width_px": 1932,
+      "height_px": 1367,
+      "png_sha256": "1c603c07e45eb0e14f7149a627d6b18eca994677f41e56ef9fc402f60c396636",
+      "png": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig7d_attitude_response.png",
+      "pdf": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig7d_attitude_response.pdf",
+      "svg": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/outputs/paper_figures/20260720_all_legends_traditional_posture/figures/fig7d_attitude_response.svg"
+    }
+  ]
+}

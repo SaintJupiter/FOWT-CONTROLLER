@@ -860,9 +860,18 @@ def summarize(df: pd.DataFrame) -> dict:
             np.mean(
                 np.column_stack(
                     [
-                        df.get("preview_event_risk_raw_prob_0_20m", zeros).to_numpy(dtype=float),
-                        df.get("preview_event_risk_raw_prob_20_40m", zeros).to_numpy(dtype=float),
-                        df.get("preview_event_risk_raw_prob_40_60m", zeros).to_numpy(dtype=float),
+                        df.get(
+                            "preview_event_risk_raw_prob_0_20m",
+                            df.get("preview_event_risk_prob_0_20m", zeros),
+                        ).to_numpy(dtype=float),
+                        df.get(
+                            "preview_event_risk_raw_prob_20_40m",
+                            df.get("preview_event_risk_prob_20_40m", zeros),
+                        ).to_numpy(dtype=float),
+                        df.get(
+                            "preview_event_risk_raw_prob_40_60m",
+                            df.get("preview_event_risk_prob_40_60m", zeros),
+                        ).to_numpy(dtype=float),
                     ]
                 )
             )
@@ -871,9 +880,18 @@ def summarize(df: pd.DataFrame) -> dict:
             np.mean(
                 np.column_stack(
                     [
-                        df.get("preview_event_risk_effective_prob_0_20m", zeros).to_numpy(dtype=float),
-                        df.get("preview_event_risk_effective_prob_20_40m", zeros).to_numpy(dtype=float),
-                        df.get("preview_event_risk_effective_prob_40_60m", zeros).to_numpy(dtype=float),
+                        df.get(
+                            "preview_event_risk_effective_prob_0_20m",
+                            df.get("preview_event_risk_prob_0_20m", zeros),
+                        ).to_numpy(dtype=float),
+                        df.get(
+                            "preview_event_risk_effective_prob_20_40m",
+                            df.get("preview_event_risk_prob_20_40m", zeros),
+                        ).to_numpy(dtype=float),
+                        df.get(
+                            "preview_event_risk_effective_prob_40_60m",
+                            df.get("preview_event_risk_prob_40_60m", zeros),
+                        ).to_numpy(dtype=float),
                     ]
                 )
             )
@@ -3422,6 +3440,14 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--active-posture-refresh-include-hold",
+        action="store_true",
+        help=(
+            "Allow the bounded posture refresh to update a retained hold "
+            "candidate instead of releasing the complete planner to PI."
+        ),
+    )
+    parser.add_argument(
         "--fallback-risk-active-release",
         action="store_true",
         help=(
@@ -3793,6 +3819,11 @@ def main() -> None:
         "rawenv_holdpause_barrier_v1",
         "rawenv_holdpause_barrier_reliefcap030_v1",
         "rawenv_holdpause_barrier_reliefcap_adaptive_v1",
+        "rawenv_holdcurrent_barrier_reliefcap_adaptive_v1",
+        "rawenv_forecastsafe_deadband_candidate_v1",
+        "rawenv_forecastveto_deadband_candidate_v1",
+        "rawenv_forecastveto_deadband_fullsync_legacy_v1",
+        "rawenv_forecastgated_command_deadband_v1",
         "rawenv_pirelease_barrier_reliefcap_adaptive_v1",
         "rawenv_holdpause_barrier_reliefcap_state_v1",
         "rawenv_forecastpause_barrier_reliefcap_adaptive_v1",
@@ -3824,13 +3855,255 @@ def main() -> None:
         args.planner_envelope_barrier = True
         args.planner_envelope_barrier_const = 50.0
         args.primary_hold_target_mode = "pause"
-    if primary_control_profile == "rawenv_holdpause_barrier_reliefcap_adaptive_v1":
+    if primary_control_profile in {
+        "rawenv_holdpause_barrier_reliefcap_adaptive_v1",
+        "rawenv_forecastgated_command_deadband_v1",
+    }:
         args.planner_posture_state_residual = True
         args.planner_posture_state_gain = float(os.environ.get("FOWT_TUNE_GAIN", 0.40))
         args.planner_posture_state_clip_norm = float(os.environ.get("FOWT_TUNE_CLIP", 6.0))
         args.planner_attitude_residual_weight = float(os.environ.get("FOWT_TUNE_WATT", 1.0))
         args.planner_terminal_residual_weight = float(os.environ.get("FOWT_TUNE_WTERM", 1.0))
         args.planner_posture_hold_forecast_credit = 0.0
+    if primary_control_profile in {
+        "rawenv_holdcurrent_barrier_reliefcap_adaptive_v1",
+        "rawenv_forecastsafe_deadband_candidate_v1",
+        "rawenv_forecastveto_deadband_candidate_v1",
+        "rawenv_forecastveto_deadband_fullsync_legacy_v1",
+    }:
+        # Candidate-level deadband experiment: retain the production planner and
+        # make its existing hold action release the primary target to current
+        # tank masses instead of continuing to chase a paused target.
+        args.primary_hold_target_mode = (
+            "current"
+            if primary_control_profile == "rawenv_holdcurrent_barrier_reliefcap_adaptive_v1"
+            else "pause"
+        )
+        args.planner_posture_state_residual = True
+        args.planner_posture_state_gain = float(
+            os.environ.get(
+                "FOWT_TUNE_GAIN",
+                0.40
+                if primary_control_profile in {
+                    "rawenv_forecastsafe_deadband_candidate_v1",
+                    "rawenv_forecastveto_deadband_candidate_v1",
+                    "rawenv_forecastveto_deadband_fullsync_legacy_v1",
+                }
+                else 0.45,
+            )
+        )
+        args.planner_posture_state_clip_norm = float(os.environ.get("FOWT_TUNE_CLIP", 6.0))
+        args.planner_attitude_residual_weight = float(os.environ.get("FOWT_TUNE_WATT", 1.0))
+        args.planner_terminal_residual_weight = float(os.environ.get("FOWT_TUNE_WTERM", 1.0))
+        args.planner_posture_hold_forecast_credit = 0.0
+        if primary_control_profile in {
+            "rawenv_forecastsafe_deadband_candidate_v1",
+            "rawenv_forecastveto_deadband_candidate_v1",
+            "rawenv_forecastveto_deadband_fullsync_legacy_v1",
+        }:
+            legacy_fullsync_mode = (
+                primary_control_profile
+                == "rawenv_forecastveto_deadband_fullsync_legacy_v1"
+            )
+            forecast_veto_mode = (
+                primary_control_profile
+                in {
+                    "rawenv_forecastveto_deadband_candidate_v1",
+                    "rawenv_forecastveto_deadband_fullsync_legacy_v1",
+                }
+            )
+            if legacy_fullsync_mode:
+                args.primary_hold_target_mode = "current"
+            primary_target_shape_cfg["forecast_safe_deadband_enabled"] = True
+            primary_target_shape_cfg["forecast_safe_deadband_gate_mode"] = (
+                "forecast_veto" if forecast_veto_mode else "conservative"
+            )
+            primary_target_shape_cfg[
+                "forecast_safe_deadband_sync_provider_target"
+            ] = bool(forecast_veto_mode)
+            primary_target_shape_cfg[
+                "forecast_safe_deadband_min_target_error_kg"
+            ] = float(os.environ.get("FOWT_FC_SAFE_DEADBAND_MIN_TARGET_ERROR_KG", 1.0))
+            primary_target_shape_cfg[
+                "forecast_safe_deadband_sync_require_recovering"
+            ] = bool(forecast_veto_mode and not legacy_fullsync_mode)
+            primary_target_shape_cfg[
+                "forecast_safe_deadband_sync_require_pump_demand"
+            ] = bool(forecast_veto_mode and not legacy_fullsync_mode)
+            primary_target_shape_cfg[
+                "forecast_safe_deadband_sync_refresh_current"
+            ] = bool(legacy_fullsync_mode)
+            primary_target_shape_cfg[
+                "forecast_safe_deadband_sync_startup_delay_s"
+            ] = float(os.environ.get("FOWT_FC_SAFE_DEADBAND_SYNC_STARTUP_DELAY_S", 0.0))
+            primary_target_shape_cfg[
+                "forecast_safe_deadband_sync_reentry_cooldown_s"
+            ] = float(os.environ.get("FOWT_FC_SAFE_DEADBAND_SYNC_REENTRY_COOLDOWN_S", 0.0))
+            primary_target_shape_cfg[
+                "forecast_safe_deadband_sync_min_blend"
+            ] = float(os.environ.get("FOWT_FC_SAFE_DEADBAND_SYNC_MIN_BLEND", 1.0))
+            primary_target_shape_cfg[
+                "forecast_safe_deadband_sync_full_pressure_norm"
+            ] = float(os.environ.get("FOWT_FC_SAFE_DEADBAND_SYNC_FULL_PRESSURE_NORM", 1.0))
+            primary_target_shape_cfg[
+                "forecast_safe_deadband_sync_min_pressure_norm"
+            ] = float(os.environ.get("FOWT_FC_SAFE_DEADBAND_SYNC_MIN_PRESSURE_NORM", 1.5))
+            primary_target_shape_cfg[
+                "forecast_safe_deadband_sync_future_rise_max"
+            ] = float(
+                os.environ.get(
+                    "FOWT_FC_SAFE_DEADBAND_SYNC_FUTURE_RISE_MAX",
+                    1.0e9 if legacy_fullsync_mode else 0.10,
+                )
+            )
+            primary_target_shape_cfg[
+                "forecast_safe_deadband_sync_near_zero_deg"
+            ] = float(os.environ.get("FOWT_FC_SAFE_DEADBAND_SYNC_NEAR_ZERO_DEG", 0.15))
+            primary_target_shape_cfg[
+                "forecast_safe_deadband_sync_rate_eps_deg_s"
+            ] = float(os.environ.get("FOWT_FC_SAFE_DEADBAND_SYNC_RATE_EPS_DEG_S", 0.002))
+            primary_target_shape_cfg["forecast_safe_deadband_pitch_enter_deg"] = float(
+                os.environ.get("FOWT_FC_SAFE_DEADBAND_PITCH_ENTER_DEG", 1.5)
+            )
+            primary_target_shape_cfg["forecast_safe_deadband_roll_enter_deg"] = float(
+                os.environ.get("FOWT_FC_SAFE_DEADBAND_ROLL_ENTER_DEG", 1.5)
+            )
+            primary_target_shape_cfg["forecast_safe_deadband_pitch_exit_deg"] = float(
+                os.environ.get("FOWT_FC_SAFE_DEADBAND_PITCH_EXIT_DEG", 1.2)
+            )
+            primary_target_shape_cfg["forecast_safe_deadband_roll_exit_deg"] = float(
+                os.environ.get("FOWT_FC_SAFE_DEADBAND_ROLL_EXIT_DEG", 1.2)
+            )
+            primary_target_shape_cfg[
+                "forecast_safe_deadband_event_probability_max"
+            ] = float(
+                os.environ.get(
+                    "FOWT_FC_SAFE_DEADBAND_EVENT_MAX",
+                    0.99 if forecast_veto_mode else 0.75,
+                )
+            )
+            primary_target_shape_cfg["forecast_safe_deadband_future_rise_max"] = float(
+                os.environ.get("FOWT_FC_SAFE_DEADBAND_FUTURE_RISE_MAX", 0.05)
+            )
+            primary_target_shape_cfg[
+                "forecast_safe_deadband_minimum_direction_dot"
+            ] = float(os.environ.get("FOWT_FC_SAFE_DEADBAND_DIRECTION_DOT_MIN", 0.0))
+            primary_target_shape_cfg["forecast_safe_deadband_posture_gate_deg"] = float(
+                os.environ.get(
+                    "FOWT_FC_SAFE_DEADBAND_POSTURE_GATE_DEG",
+                    1.5 if forecast_veto_mode else 1.2,
+                )
+            )
+            primary_target_shape_cfg["forecast_safe_deadband_allowed_actions"] = (
+                (
+                    "hold",
+                    "pump_saving",
+                    "active_small",
+                    "active_medium",
+                    "active_reverse_small",
+                )
+                if forecast_veto_mode
+                else ("hold", "active_small")
+            )
+            primary_target_shape_cfg["forecast_safe_deadband_reject_unsafe_hold"] = False
+    if primary_control_profile == "rawenv_forecastgated_command_deadband_v1":
+        # Keep the planner target lifecycle unchanged. The learned forecast only
+        # admits a command-layer release after the current posture has entered
+        # the widened deadband and is no longer moving away from zero.
+        args.primary_hold_target_mode = "pause"
+        primary_target_shape_cfg["forecast_safe_deadband_enabled"] = True
+        primary_target_shape_cfg["forecast_safe_deadband_gate_mode"] = "forecast_veto"
+        primary_target_shape_cfg["forecast_safe_deadband_sync_provider_target"] = False
+        primary_target_shape_cfg["forecast_safe_deadband_apply_pid_deadband"] = False
+        primary_target_shape_cfg["forecast_safe_deadband_release_primary_target"] = False
+        primary_target_shape_cfg["forecast_safe_deadband_pitch_enter_deg"] = float(
+            os.environ.get("FOWT_FC_SAFE_DEADBAND_PITCH_ENTER_DEG", 1.5)
+        )
+        primary_target_shape_cfg["forecast_safe_deadband_roll_enter_deg"] = float(
+            os.environ.get("FOWT_FC_SAFE_DEADBAND_ROLL_ENTER_DEG", 1.5)
+        )
+        primary_target_shape_cfg["forecast_safe_deadband_pitch_exit_deg"] = float(
+            os.environ.get("FOWT_FC_SAFE_DEADBAND_PITCH_EXIT_DEG", 1.2)
+        )
+        primary_target_shape_cfg["forecast_safe_deadband_roll_exit_deg"] = float(
+            os.environ.get("FOWT_FC_SAFE_DEADBAND_ROLL_EXIT_DEG", 1.2)
+        )
+        primary_target_shape_cfg["forecast_safe_deadband_posture_gate_deg"] = float(
+            os.environ.get("FOWT_FC_SAFE_DEADBAND_POSTURE_GATE_DEG", 1.5)
+        )
+        primary_target_shape_cfg["forecast_safe_deadband_event_probability_max"] = float(
+            os.environ.get("FOWT_FC_SAFE_DEADBAND_EVENT_MAX", 0.99)
+        )
+        primary_target_shape_cfg[
+            "forecast_safe_deadband_require_event_probability"
+        ] = True
+        primary_target_shape_cfg["forecast_safe_deadband_allowed_actions"] = (
+            "hold",
+            "pump_saving",
+            "active_small",
+            "active_medium",
+            "active_reverse_small",
+        )
+        primary_target_shape_cfg["forecast_safe_deadband_reject_unsafe_hold"] = False
+        primary_target_shape_cfg["deadband_target_release_enabled"] = True
+        primary_target_shape_cfg["deadband_target_release_require_forecast_safe"] = True
+        primary_target_shape_cfg["deadband_target_release_pitch_deg"] = float(
+            os.environ.get("FOWT_FC_COMMAND_RELEASE_PITCH_DEG", 1.0)
+        )
+        primary_target_shape_cfg["deadband_target_release_roll_deg"] = float(
+            os.environ.get("FOWT_FC_COMMAND_RELEASE_ROLL_DEG", 1.0)
+        )
+        primary_target_shape_cfg["deadband_target_release_exit_pitch_deg"] = float(
+            os.environ.get("FOWT_FC_COMMAND_RELEASE_EXIT_PITCH_DEG", 1.3)
+        )
+        primary_target_shape_cfg["deadband_target_release_exit_roll_deg"] = float(
+            os.environ.get("FOWT_FC_COMMAND_RELEASE_EXIT_ROLL_DEG", 1.3)
+        )
+        primary_target_shape_cfg["deadband_target_release_near_zero_deg"] = float(
+            os.environ.get("FOWT_FC_COMMAND_RELEASE_NEAR_ZERO_DEG", 0.15)
+        )
+        primary_target_shape_cfg["deadband_target_release_rate_eps_deg_s"] = float(
+            os.environ.get("FOWT_FC_COMMAND_RELEASE_RATE_EPS_DEG_S", 0.002)
+        )
+        primary_target_shape_cfg["deadband_target_release_blend"] = 1.0
+        primary_target_shape_cfg["deadband_target_release_require_both_axes"] = True
+        primary_target_shape_cfg["deadband_target_release_use_pid_deadband"] = False
+        primary_target_shape_cfg["deadband_target_release_reset_limiter"] = True
+        # Preserve the planner's candidate set, but refresh an aged active target
+        # in the current posture-recovery direction when moderate posture debt
+        # develops. This prevents a same-name active_small action from retaining
+        # one absolute tank target for the remainder of a six-hour case.
+        args.active_posture_refresh = True
+        args.active_posture_refresh_enter_deg = float(
+            os.environ.get("FOWT_FC_ACTIVE_REFRESH_ENTER_DEG", 1.5)
+        )
+        args.active_posture_refresh_exit_deg = float(
+            os.environ.get("FOWT_FC_ACTIVE_REFRESH_EXIT_DEG", 1.2)
+        )
+        args.active_posture_refresh_update_interval_s = float(
+            os.environ.get("FOWT_FC_ACTIVE_REFRESH_INTERVAL_S", 300.0)
+        )
+        args.active_posture_refresh_action_name = str(
+            os.environ.get("FOWT_FC_ACTIVE_REFRESH_ACTION", "active_small")
+        )
+        args.active_posture_refresh_min_target_age_s = float(
+            os.environ.get("FOWT_FC_ACTIVE_REFRESH_MIN_AGE_S", 300.0)
+        )
+        args.active_posture_refresh_axis_mode = str(
+            os.environ.get("FOWT_FC_ACTIVE_REFRESH_AXIS_MODE", "axis_debt")
+        )
+        args.active_posture_refresh_worsening_eps_deg_s = float(
+            os.environ.get("FOWT_FC_ACTIVE_REFRESH_WORSENING_EPS", 0.0001)
+        )
+        args.active_posture_refresh_debt_deg = float(
+            os.environ.get("FOWT_FC_ACTIVE_REFRESH_DEBT_DEG", 1.5)
+        )
+        args.active_posture_refresh_include_hold = (
+            str(os.environ.get("FOWT_FC_ACTIVE_REFRESH_INCLUDE_HOLD", "1"))
+            .strip()
+            .lower()
+            in ("1", "true", "yes", "on")
+        )
     if primary_control_profile == "regime_auto_pump_saving_v1":
         # Runtime selector for multiple pump-saving regimes.  It is still
         # default-off and keeps v1.6 hard floor / recovery / fallback behavior.
@@ -5473,6 +5746,11 @@ def main() -> None:
         args.relief_medium_cap_event_threshold = 0.70
     if primary_control_profile in {
         "rawenv_holdpause_barrier_reliefcap_adaptive_v1",
+        "rawenv_holdcurrent_barrier_reliefcap_adaptive_v1",
+        "rawenv_forecastsafe_deadband_candidate_v1",
+        "rawenv_forecastveto_deadband_candidate_v1",
+        "rawenv_forecastveto_deadband_fullsync_legacy_v1",
+        "rawenv_forecastgated_command_deadband_v1",
         "rawenv_pirelease_barrier_reliefcap_adaptive_v1",
         "rawenv_holdpause_barrier_reliefcap_state_v1",
         "rawenv_forecastpause_barrier_reliefcap_adaptive_v1",
@@ -5658,6 +5936,55 @@ def main() -> None:
             "trusted_event_dynamic_min_heads": int(args.trusted_event_dynamic_min_heads),
             "reactive_primary_only": int(bool(args.reactive_primary_only)),
             "primary_hold_target_mode": str(args.primary_hold_target_mode),
+            "forecast_safe_deadband_enabled": int(
+                bool(primary_target_shape_cfg.get("forecast_safe_deadband_enabled", False))
+            ),
+            "forecast_safe_deadband_gate_mode": str(
+                primary_target_shape_cfg.get("forecast_safe_deadband_gate_mode", "off")
+            ),
+            "forecast_safe_deadband_pitch_enter_deg": float(
+                primary_target_shape_cfg.get("forecast_safe_deadband_pitch_enter_deg", 0.0)
+            ),
+            "forecast_safe_deadband_roll_enter_deg": float(
+                primary_target_shape_cfg.get("forecast_safe_deadband_roll_enter_deg", 0.0)
+            ),
+            "forecast_safe_deadband_pitch_exit_deg": float(
+                primary_target_shape_cfg.get("forecast_safe_deadband_pitch_exit_deg", 0.0)
+            ),
+            "forecast_safe_deadband_roll_exit_deg": float(
+                primary_target_shape_cfg.get("forecast_safe_deadband_roll_exit_deg", 0.0)
+            ),
+            "forecast_safe_deadband_event_probability_max": float(
+                primary_target_shape_cfg.get(
+                    "forecast_safe_deadband_event_probability_max", 0.0
+                )
+            ),
+            "forecast_safe_deadband_require_event_probability": int(
+                bool(
+                    primary_target_shape_cfg.get(
+                        "forecast_safe_deadband_require_event_probability", False
+                    )
+                )
+            ),
+            "deadband_target_release_enabled": int(
+                bool(primary_target_shape_cfg.get("deadband_target_release_enabled", False))
+            ),
+            "deadband_target_release_pitch_deg": float(
+                primary_target_shape_cfg.get("deadband_target_release_pitch_deg", 0.0)
+            ),
+            "deadband_target_release_roll_deg": float(
+                primary_target_shape_cfg.get("deadband_target_release_roll_deg", 0.0)
+            ),
+            "deadband_target_release_exit_pitch_deg": float(
+                primary_target_shape_cfg.get(
+                    "deadband_target_release_exit_pitch_deg", 0.0
+                )
+            ),
+            "deadband_target_release_exit_roll_deg": float(
+                primary_target_shape_cfg.get(
+                    "deadband_target_release_exit_roll_deg", 0.0
+                )
+            ),
             "planner_envelope_use_discount": int(bool(cfg.envelope_use_discount)),
             "planner_envelope_barrier_active": int(bool(cfg.envelope_barrier_active)),
             "planner_posture_state_residual_active": int(
@@ -5703,6 +6030,9 @@ def main() -> None:
             ),
             "active_posture_refresh_debt_deg": float(
                 args.active_posture_refresh_debt_deg
+            ),
+            "active_posture_refresh_include_hold": int(
+                bool(args.active_posture_refresh_include_hold)
             ),
             "fallback_risk_active_release_enabled": int(
                 bool(args.fallback_risk_active_release)
@@ -6433,6 +6763,9 @@ def main() -> None:
                         ),
                         active_posture_refresh_debt_deg=float(
                             args.active_posture_refresh_debt_deg
+                        ),
+                        active_posture_refresh_include_hold=bool(
+                            args.active_posture_refresh_include_hold
                         ),
                         fallback_risk_active_release_enabled=bool(
                             args.fallback_risk_active_release
@@ -7623,6 +7956,9 @@ def main() -> None:
             ),
             "active_posture_refresh_debt_deg": float(
                 args.active_posture_refresh_debt_deg
+            ),
+            "active_posture_refresh_include_hold": int(
+                bool(args.active_posture_refresh_include_hold)
             ),
             "economy_pump_budget_hold_refresh_fraction": float(
                 args.economy_pump_budget_hold_refresh_fraction

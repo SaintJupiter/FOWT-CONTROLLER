@@ -1,0 +1,2 @@
+dataset,history_steps,history_minutes,future_steps,future_minutes,train,validation,test
+history_120m_future_60m_decision,12,120,6,60,657747,138657,142915

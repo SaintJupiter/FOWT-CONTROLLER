@@ -1,0 +1,776 @@
+{
+  "schema_version": "frozen_h_run_integrity_audit.v1",
+  "overall_status": "pass_with_caveats",
+  "failure_count": 0,
+  "warning_count": 3,
+  "checks": [
+    {
+      "name": "holdout_is_exact_source_minus_development",
+      "status": "pass",
+      "severity": "critical",
+      "details": {
+        "source": 170,
+        "development": 20,
+        "holdout": 150,
+        "expected_holdout": 150,
+        "development_holdout_overlap": 0
+      }
+    },
+    {
+      "name": "case_start_timestamps_unique",
+      "status": "pass",
+      "severity": "critical",
+      "details": {
+        "source_duplicate_starts": 0,
+        "development_duplicate_starts": 0,
+        "holdout_duplicate_starts": 0
+      }
+    },
+    {
+      "name": "holdout_case_ids_unique",
+      "status": "pass",
+      "severity": "critical",
+      "details": {
+        "duplicate_case_ids": []
+      }
+    },
+    {
+      "name": "holdout_label_split_declarations_do_not_conflict",
+      "status": "pass",
+      "severity": "critical",
+      "details": {
+        "declared": {
+          "test": 53
+        },
+        "undeclared_count": 97
+      }
+    },
+    {
+      "name": "case_manifest_hashes_match",
+      "status": "pass",
+      "severity": "critical",
+      "details": {
+        "file_count": 19,
+        "mismatches": []
+      }
+    },
+    {
+      "name": "frozen_core_hashes_match",
+      "status": "pass",
+      "severity": "critical",
+      "details": {
+        "observed": {
+          "src/wind_prediction/ballast_planner_provider.py": "f6fe5d74c567cbfa39d1ea97c402d602fb4cf42a2d0acf4daa5cc4b3e3aaa594",
+          "scripts/analysis/run_prediction_primary_casebook.py": "5455b38f469c7c96e55dad5dd417c330fde1c13b109d0bc8e6867d95bd5a584c",
+          "archive/legacy_fowt_control/controllers_extras.py": "3bf06f111aff63319c0b489123b0ce8e28b7ea152bfaae563420e5928821da14",
+          "archive/legacy_fowt_control/run_validation.py": "155b4bf99259318eda96e64cffab7dff1a748909f6bc65af2e40afc7bf1cd9a8"
+        },
+        "mismatches": []
+      }
+    },
+    {
+      "name": "holdout_intervals_partially_overlap",
+      "status": "warning",
+      "severity": "caveat",
+      "details": {
+        "nominal_h": 900.0,
+        "nonoverlapping_union_h": 875.0,
+        "duplicated_exposure_h": 25.0,
+        "overlap_pair_count": 8,
+        "overlaps": [
+          {
+            "case_a": "posadd6h_041",
+            "case_b": "sel6h_41",
+            "start_a": "2021-10-04 14:20:00",
+            "start_b": "2021-10-04 15:10:00",
+            "overlap_h": 5.166666666666667
+          },
+          {
+            "case_a": "posadd6h_089",
+            "case_b": "sel6h_14",
+            "start_a": "2022-03-10 19:30:00",
+            "start_b": "2022-03-11 00:50:00",
+            "overlap_h": 0.6666666666666666
+          },
+          {
+            "case_a": "posadd6h_093",
+            "case_b": "sel6h_08",
+            "start_a": "2022-11-06 18:10:00",
+            "start_b": "2022-11-06 20:10:00",
+            "overlap_h": 4.0
+          },
+          {
+            "case_a": "posadd6h_094",
+            "case_b": "sel6h_10",
+            "start_a": "2022-11-25 00:40:00",
+            "start_b": "2022-11-25 03:20:00",
+            "overlap_h": 3.3333333333333335
+          },
+          {
+            "case_a": "posadd6h_103",
+            "case_b": "sel6h_36",
+            "start_a": "2023-10-06 20:00:00",
+            "start_b": "2023-10-06 23:20:00",
+            "overlap_h": 2.6666666666666665
+          },
+          {
+            "case_a": "sel6h_38",
+            "case_b": "sel6h_37",
+            "start_a": "2024-11-17 20:00:00",
+            "start_b": "2024-11-17 21:00:00",
+            "overlap_h": 5.0
+          },
+          {
+            "case_a": "sel6h_38",
+            "case_b": "sel6h_30",
+            "start_a": "2024-11-17 20:00:00",
+            "start_b": "2024-11-17 22:50:00",
+            "overlap_h": 3.1666666666666665
+          },
+          {
+            "case_a": "sel6h_37",
+            "case_b": "sel6h_30",
+            "start_a": "2024-11-17 21:00:00",
+            "start_b": "2024-11-17 22:50:00",
+            "overlap_h": 4.166666666666667
+          }
+        ]
+      }
+    },
+    {
+      "name": "some_holdout_buckets_have_no_lstm_sample_and_must_fail_closed",
+      "status": "warning",
+      "severity": "caveat",
+      "details": {
+        "required_bucket_count": 5400,
+        "missing_count": 67,
+        "examples": [
+          {
+            "case_id": "posadd6h_045",
+            "bucket": 0,
+            "timestamp": "2022-01-09 01:00:00"
+          },
+          {
+            "case_id": "posadd6h_045",
+            "bucket": 1,
+            "timestamp": "2022-01-09 01:10:00"
+          },
+          {
+            "case_id": "posadd6h_045",
+            "bucket": 2,
+            "timestamp": "2022-01-09 01:20:00"
+          },
+          {
+            "case_id": "posadd6h_045",
+            "bucket": 3,
+            "timestamp": "2022-01-09 01:30:00"
+          },
+          {
+            "case_id": "posadd6h_045",
+            "bucket": 4,
+            "timestamp": "2022-01-09 01:40:00"
+          },
+          {
+            "case_id": "posadd6h_045",
+            "bucket": 5,
+            "timestamp": "2022-01-09 01:50:00"
+          },
+          {
+            "case_id": "posadd6h_045",
+            "bucket": 6,
+            "timestamp": "2022-01-09 02:00:00"
+          },
+          {
+            "case_id": "posadd6h_045",
+            "bucket": 7,
+            "timestamp": "2022-01-09 02:10:00"
+          },
+          {
+            "case_id": "posadd6h_045",
+            "bucket": 8,
+            "timestamp": "2022-01-09 02:20:00"
+          },
+          {
+            "case_id": "posadd6h_045",
+            "bucket": 9,
+            "timestamp": "2022-01-09 02:30:00"
+          }
+        ]
+      }
+    },
+    {
+      "name": "task_summary_protocol_counts_match",
+      "status": "pass",
+      "severity": "critical",
+      "details": {
+        "summaries": 15,
+        "protocols": 15
+      }
+    },
+    {
+      "name": "paired_protocols_are_frozen_and_complete",
+      "status": "pass",
+      "severity": "critical",
+      "details": {
+        "task_count": 15,
+        "issues": []
+      }
+    },
+    {
+      "name": "task_outputs_match_declared_input_cases",
+      "status": "pass",
+      "severity": "critical",
+      "details": {
+        "issues": []
+      }
+    },
+    {
+      "name": "paired_case_count_matches_request",
+      "status": "pass",
+      "severity": "critical",
+      "details": {
+        "observed": 150,
+        "expected": 150,
+        "duplicate_case_ids": []
+      }
+    },
+    {
+      "name": "expected_raw_artifact_counts",
+      "status": "pass",
+      "severity": "critical",
+      "details": {
+        "timeseries": 300,
+        "expected_timeseries": 300,
+        "planner_logs": 150,
+        "expected_planner_logs": 150
+      }
+    },
+    {
+      "name": "paired_external_inputs_are_rowwise_identical",
+      "status": "pass",
+      "severity": "critical",
+      "details": {
+        "pair_count": 150,
+        "issues": []
+      }
+    },
+    {
+      "name": "paired_initial_states_are_identical",
+      "status": "pass",
+      "severity": "critical",
+      "details": {
+        "pair_count": 150,
+        "issues": []
+      }
+    },
+    {
+      "name": "summary_metrics_recompute_from_raw_timeseries",
+      "status": "pass",
+      "severity": "critical",
+      "details": {
+        "issue_count": 0,
+        "issues": []
+      }
+    },
+    {
+      "name": "baseline_prediction_path_is_disabled",
+      "status": "pass",
+      "severity": "critical",
+      "details": {
+        "forecast_safe_deadband_enabled": 0,
+        "forecast_safe_deadband_active": 0,
+        "forecast_safe_deadband_event_probability_available": 0,
+        "preview_primary_enabled": 0,
+        "preview_primary_active": 0,
+        "preview_primary_applied": 0,
+        "preview_primary_candidate_applied": 0,
+        "deadband_target_release_active": 0
+      }
+    },
+    {
+      "name": "prediction_event_telemetry_is_available_finite_and_time_varying",
+      "status": "pass",
+      "severity": "critical",
+      "details": {
+        "telemetry": {
+          "forecast_safe_deadband_enabled": {
+            "count": 3240000,
+            "finite_count": 3240000,
+            "min": 1.0,
+            "max": 1.0,
+            "mean": 1.0,
+            "std": 0.0
+          },
+          "forecast_safe_deadband_active": {
+            "count": 3240000,
+            "finite_count": 3240000,
+            "min": 0.0,
+            "max": 1.0,
+            "mean": 0.8012219135802469,
+            "std": 0.39908064194978715
+          },
+          "forecast_safe_deadband_has_future": {
+            "count": 3240000,
+            "finite_count": 3240000,
+            "min": 0.0,
+            "max": 1.0,
+            "mean": 0.9875925925925926,
+            "std": 0.11069536417047472
+          },
+          "forecast_safe_deadband_trust_ok": {
+            "count": 3240000,
+            "finite_count": 3240000,
+            "min": 1.0,
+            "max": 1.0,
+            "mean": 1.0,
+            "std": 0.0
+          },
+          "forecast_safe_deadband_event_probability": {
+            "count": 3240000,
+            "finite_count": 3240000,
+            "min": 0.0,
+            "max": 0.9999938011169434,
+            "mean": 0.4755471396315153,
+            "std": 0.3340107011819258
+          },
+          "forecast_safe_deadband_event_probability_available": {
+            "count": 3240000,
+            "finite_count": 3240000,
+            "min": 0.0,
+            "max": 1.0,
+            "mean": 0.9875925925925926,
+            "std": 0.11069536417047472
+          },
+          "preview_event_risk_prob_0_20m": {
+            "count": 3240000,
+            "finite_count": 3240000,
+            "min": 0.0,
+            "max": 0.9999938011169434,
+            "mean": 0.36836543275677186,
+            "std": 0.3675971696852338
+          },
+          "preview_event_risk_prob_20_40m": {
+            "count": 3240000,
+            "finite_count": 3240000,
+            "min": 0.0,
+            "max": 0.9999865293502808,
+            "mean": 0.42995403321649606,
+            "std": 0.35018860417885445
+          },
+          "preview_event_risk_prob_40_60m": {
+            "count": 3240000,
+            "finite_count": 3240000,
+            "min": 0.0,
+            "max": 0.9999737739562988,
+            "mean": 0.47034260955466717,
+            "std": 0.32820031290123525
+          },
+          "deadband_target_release_active": {
+            "count": 3240000,
+            "finite_count": 3240000,
+            "min": 0.0,
+            "max": 1.0,
+            "mean": 0.6099719135802469,
+            "std": 0.4877562692815938
+          },
+          "forecast_safe_deadband_provider_target_synced": {
+            "count": 3240000,
+            "finite_count": 3240000,
+            "min": 0.0,
+            "max": 0.0,
+            "mean": 0.0,
+            "std": 0.0
+          },
+          "forecast_safe_deadband_provider_replan_requested": {
+            "count": 3240000,
+            "finite_count": 3240000,
+            "min": 0.0,
+            "max": 0.0,
+            "mean": 0.0,
+            "std": 0.0
+          },
+          "preview_primary_enabled": {
+            "count": 3240000,
+            "finite_count": 3240000,
+            "min": 1.0,
+            "max": 1.0,
+            "mean": 1.0,
+            "std": 0.0
+          },
+          "preview_primary_active": {
+            "count": 3240000,
+            "finite_count": 3240000,
+            "min": 0.0,
+            "max": 1.0,
+            "mean": 0.6437308641975309,
+            "std": 0.47889606249898414
+          },
+          "preview_primary_applied": {
+            "count": 3240000,
+            "finite_count": 3240000,
+            "min": 0.0,
+            "max": 1.0,
+            "mean": 0.995329938271605,
+            "std": 0.06817809216931815
+          },
+          "preview_primary_candidate_applied": {
+            "count": 3240000,
+            "finite_count": 3240000,
+            "min": 1.0,
+            "max": 1.0,
+            "mean": 1.0,
+            "std": 0.0
+          }
+        },
+        "unavailable_row_count": 40200,
+        "unavailable_rows_fail_closed_for_deadband_release": true
+      }
+    },
+    {
+      "name": "provider_target_sync_path_not_used_by_frozen_h_profile",
+      "status": "warning",
+      "severity": "caveat",
+      "details": {
+        "provider_target_synced_rows": 0,
+        "provider_replan_requested_rows": 0,
+        "active_release_field": "deadband_target_release_active",
+        "interpretation": "The frozen profile intentionally releases the command-layer target without synchronizing the planner's retained absolute target."
+      }
+    },
+    {
+      "name": "planner_logs_confirm_lstm_and_candidate_sequences",
+      "status": "pass",
+      "severity": "critical",
+      "details": {
+        "forecast_sources": {
+          "lstm_dual_head_preview": 5333
+        },
+        "forecast_has_future": {
+          "1": 5333
+        },
+        "first_actions": {
+          "active_medium": 2158,
+          "active_small": 1129,
+          "hold": 2004,
+          "pump_saving": 42
+        },
+        "unique_sequence_count": 28,
+        "top_sequences": [
+          [
+            "hold>hold>hold",
+            1694
+          ],
+          [
+            "active_medium>active_medium>hold",
+            1365
+          ],
+          [
+            "active_medium>hold>hold",
+            466
+          ],
+          [
+            "active_small>active_medium>active_medium",
+            436
+          ],
+          [
+            "hold>hold>active_small",
+            307
+          ],
+          [
+            "active_small>hold>hold",
+            203
+          ],
+          [
+            "active_medium>active_medium>active_medium",
+            186
+          ],
+          [
+            "active_small>active_small>active_medium",
+            157
+          ],
+          [
+            "active_small>active_small>active_small",
+            113
+          ],
+          [
+            "active_small>active_medium>hold",
+            78
+          ]
+        ]
+      }
+    },
+    {
+      "name": "planner_event_probabilities_are_finite_and_time_varying",
+      "status": "pass",
+      "severity": "critical",
+      "details": {
+        "rows": 5333,
+        "min_by_head": [
+          0.0020680665038526,
+          0.0094752088189125,
+          0.0221303962171077
+        ],
+        "max_by_head": [
+          0.9999938011169434,
+          0.9999865293502808,
+          0.9999737739562988
+        ],
+        "mean_by_head": [
+          0.3729933127482783,
+          0.4353556683609748,
+          0.47625165790271945
+        ],
+        "std_by_head": [
+          0.36755837419924114,
+          0.3490287775304185,
+          0.3259670400171089
+        ]
+      }
+    },
+    {
+      "name": "duplicate_primary_run_is_byte_deterministic",
+      "status": "pass",
+      "severity": "critical",
+      "details": {
+        "original_count": 50,
+        "matching_paired_count": 50,
+        "byte_identical_count": 50,
+        "mismatches": []
+      }
+    }
+  ],
+  "evidence": {
+    "holdout_intervals": {
+      "nominal_h": 900.0,
+      "nonoverlapping_union_h": 875.0,
+      "duplicated_exposure_h": 25.0,
+      "overlap_pair_count": 8,
+      "overlaps": [
+        {
+          "case_a": "posadd6h_041",
+          "case_b": "sel6h_41",
+          "start_a": "2021-10-04 14:20:00",
+          "start_b": "2021-10-04 15:10:00",
+          "overlap_h": 5.166666666666667
+        },
+        {
+          "case_a": "posadd6h_089",
+          "case_b": "sel6h_14",
+          "start_a": "2022-03-10 19:30:00",
+          "start_b": "2022-03-11 00:50:00",
+          "overlap_h": 0.6666666666666666
+        },
+        {
+          "case_a": "posadd6h_093",
+          "case_b": "sel6h_08",
+          "start_a": "2022-11-06 18:10:00",
+          "start_b": "2022-11-06 20:10:00",
+          "overlap_h": 4.0
+        },
+        {
+          "case_a": "posadd6h_094",
+          "case_b": "sel6h_10",
+          "start_a": "2022-11-25 00:40:00",
+          "start_b": "2022-11-25 03:20:00",
+          "overlap_h": 3.3333333333333335
+        },
+        {
+          "case_a": "posadd6h_103",
+          "case_b": "sel6h_36",
+          "start_a": "2023-10-06 20:00:00",
+          "start_b": "2023-10-06 23:20:00",
+          "overlap_h": 2.6666666666666665
+        },
+        {
+          "case_a": "sel6h_38",
+          "case_b": "sel6h_37",
+          "start_a": "2024-11-17 20:00:00",
+          "start_b": "2024-11-17 21:00:00",
+          "overlap_h": 5.0
+        },
+        {
+          "case_a": "sel6h_38",
+          "case_b": "sel6h_30",
+          "start_a": "2024-11-17 20:00:00",
+          "start_b": "2024-11-17 22:50:00",
+          "overlap_h": 3.1666666666666665
+        },
+        {
+          "case_a": "sel6h_37",
+          "case_b": "sel6h_30",
+          "start_a": "2024-11-17 21:00:00",
+          "start_b": "2024-11-17 22:50:00",
+          "overlap_h": 4.166666666666667
+        }
+      ]
+    },
+    "duplicate_primary_reproduction": {
+      "original_count": 50,
+      "matching_paired_count": 50,
+      "byte_identical_count": 50,
+      "mismatches": []
+    },
+    "model_artifact_hashes": {
+      "lstm_best.pt": "a049e1d851d4fffc5190862b667f3e4eb1aa7c5476e1840d18f061eceeb8bccd",
+      "lstm_config.json": "ec4ceb07b74b8b6d8c606ef6533e5c4f4ca2a1c0d277d80cd471d662ba4613d3",
+      "lstm_event_metrics.csv": "4f1b80f63fde716c61b9fed4e181efeb75bd01049595fab00169ce953f0e923e",
+      "lstm_event_thresholds.json": "ced3b5b8817c43a573da54b9de88205bc60fb3ca829a69a45211eb6600a1afd9",
+      "lstm_regression_metrics.csv": "a414dbcf98d7ec0fad06c97077efd0f1ca468abe54048321fdcaaa1d36f4cf98",
+      "lstm_run_summary.json": "cdc8cba71e5bb4eedd1f090b1c8f8bb4a2140eddd49c7907868f96558067c57d",
+      "lstm_training_history.csv": "481ee69435dccbb9e09c8c08c81d847675f58bd6263d206b6c84b627af762164"
+    },
+    "core_hashes": {
+      "src/wind_prediction/ballast_planner_provider.py": "f6fe5d74c567cbfa39d1ea97c402d602fb4cf42a2d0acf4daa5cc4b3e3aaa594",
+      "scripts/analysis/run_prediction_primary_casebook.py": "5455b38f469c7c96e55dad5dd417c330fde1c13b109d0bc8e6867d95bd5a584c",
+      "archive/legacy_fowt_control/controllers_extras.py": "3bf06f111aff63319c0b489123b0ce8e28b7ea152bfaae563420e5928821da14",
+      "archive/legacy_fowt_control/run_validation.py": "155b4bf99259318eda96e64cffab7dff1a748909f6bc65af2e40afc7bf1cd9a8"
+    },
+    "telemetry_stats": {
+      "forecast_safe_deadband_enabled": {
+        "count": 3240000,
+        "finite_count": 3240000,
+        "min": 1.0,
+        "max": 1.0,
+        "mean": 1.0,
+        "std": 0.0
+      },
+      "forecast_safe_deadband_active": {
+        "count": 3240000,
+        "finite_count": 3240000,
+        "min": 0.0,
+        "max": 1.0,
+        "mean": 0.8012219135802469,
+        "std": 0.39908064194978715
+      },
+      "forecast_safe_deadband_has_future": {
+        "count": 3240000,
+        "finite_count": 3240000,
+        "min": 0.0,
+        "max": 1.0,
+        "mean": 0.9875925925925926,
+        "std": 0.11069536417047472
+      },
+      "forecast_safe_deadband_trust_ok": {
+        "count": 3240000,
+        "finite_count": 3240000,
+        "min": 1.0,
+        "max": 1.0,
+        "mean": 1.0,
+        "std": 0.0
+      },
+      "forecast_safe_deadband_event_probability": {
+        "count": 3240000,
+        "finite_count": 3240000,
+        "min": 0.0,
+        "max": 0.9999938011169434,
+        "mean": 0.4755471396315153,
+        "std": 0.3340107011819258
+      },
+      "forecast_safe_deadband_event_probability_available": {
+        "count": 3240000,
+        "finite_count": 3240000,
+        "min": 0.0,
+        "max": 1.0,
+        "mean": 0.9875925925925926,
+        "std": 0.11069536417047472
+      },
+      "preview_event_risk_prob_0_20m": {
+        "count": 3240000,
+        "finite_count": 3240000,
+        "min": 0.0,
+        "max": 0.9999938011169434,
+        "mean": 0.36836543275677186,
+        "std": 0.3675971696852338
+      },
+      "preview_event_risk_prob_20_40m": {
+        "count": 3240000,
+        "finite_count": 3240000,
+        "min": 0.0,
+        "max": 0.9999865293502808,
+        "mean": 0.42995403321649606,
+        "std": 0.35018860417885445
+      },
+      "preview_event_risk_prob_40_60m": {
+        "count": 3240000,
+        "finite_count": 3240000,
+        "min": 0.0,
+        "max": 0.9999737739562988,
+        "mean": 0.47034260955466717,
+        "std": 0.32820031290123525
+      },
+      "deadband_target_release_active": {
+        "count": 3240000,
+        "finite_count": 3240000,
+        "min": 0.0,
+        "max": 1.0,
+        "mean": 0.6099719135802469,
+        "std": 0.4877562692815938
+      },
+      "forecast_safe_deadband_provider_target_synced": {
+        "count": 3240000,
+        "finite_count": 3240000,
+        "min": 0.0,
+        "max": 0.0,
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "forecast_safe_deadband_provider_replan_requested": {
+        "count": 3240000,
+        "finite_count": 3240000,
+        "min": 0.0,
+        "max": 0.0,
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "preview_primary_enabled": {
+        "count": 3240000,
+        "finite_count": 3240000,
+        "min": 1.0,
+        "max": 1.0,
+        "mean": 1.0,
+        "std": 0.0
+      },
+      "preview_primary_active": {
+        "count": 3240000,
+        "finite_count": 3240000,
+        "min": 0.0,
+        "max": 1.0,
+        "mean": 0.6437308641975309,
+        "std": 0.47889606249898414
+      },
+      "preview_primary_applied": {
+        "count": 3240000,
+        "finite_count": 3240000,
+        "min": 0.0,
+        "max": 1.0,
+        "mean": 0.995329938271605,
+        "std": 0.06817809216931815
+      },
+      "preview_primary_candidate_applied": {
+        "count": 3240000,
+        "finite_count": 3240000,
+        "min": 1.0,
+        "max": 1.0,
+        "mean": 1.0,
+        "std": 0.0
+      }
+    },
+    "planner": {
+      "forecast_sources": {
+        "lstm_dual_head_preview": 5333
+      },
+      "forecast_has_future": {
+        "1": 5333
+      },
+      "first_actions": {
+        "active_medium": 2158,
+        "active_small": 1129,
+        "hold": 2004,
+        "pump_saving": 42
+      },
+      "unique_sequence_count": 28
+    },
+    "audited_case_count": 150,
+    "audited_duration_h": 900.0
+  }
+}

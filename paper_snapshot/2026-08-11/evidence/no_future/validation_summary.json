@@ -1,0 +1,336 @@
+{
+  "schema_version": "frozen_h_three_way_ablation.v1",
+  "created_date": "2026-07-15",
+  "case_count": 150,
+  "duration_s_per_case": 21600.0,
+  "nominal_total_duration_h": 900.0,
+  "run_count": 15,
+  "protocol_issue_count": 0,
+  "code_hashes": {
+    "src/wind_prediction/ballast_planner_provider.py": "f6fe5d74c567cbfa39d1ea97c402d602fb4cf42a2d0acf4daa5cc4b3e3aaa594",
+    "scripts/analysis/run_prediction_primary_casebook.py": "5455b38f469c7c96e55dad5dd417c330fde1c13b109d0bc8e6867d95bd5a584c",
+    "archive/legacy_fowt_control/controllers_extras.py": "3bf06f111aff63319c0b489123b0ce8e28b7ea152bfaae563420e5928821da14",
+    "archive/legacy_fowt_control/run_validation.py": "155b4bf99259318eda96e64cffab7dff1a748909f6bc65af2e40afc7bf1cd9a8"
+  },
+  "forecast_sources": {
+    "full_prediction": "lstm_dual_head_preview",
+    "no_future": "current_only_repeat_last_10min"
+  },
+  "comparisons": {
+    "full_prediction_vs_baseline": {
+      "reference_total_m3": 145871.93753174087,
+      "comparison_total_m3": 116911.86566099661,
+      "aggregate_reduction_pct": 19.853079598975448,
+      "case_bootstrap_95pct_ci": [
+        15.959133023832884,
+        23.62422751434941
+      ],
+      "overlap_cluster_bootstrap_95pct_ci": [
+        15.783495867889881,
+        23.758097091852182
+      ],
+      "improved_case_count": 127,
+      "improved_case_fraction": 0.8466666666666667
+    },
+    "no_future_vs_baseline": {
+      "reference_total_m3": 145871.93753174087,
+      "comparison_total_m3": 144561.7618776557,
+      "aggregate_reduction_pct": 0.898168404598103,
+      "case_bootstrap_95pct_ci": [
+        -4.288051681823503,
+        5.808067610794077
+      ],
+      "overlap_cluster_bootstrap_95pct_ci": [
+        -4.602784755711094,
+        5.927146378984404
+      ],
+      "improved_case_count": 63,
+      "improved_case_fraction": 0.42
+    },
+    "full_prediction_vs_no_future": {
+      "reference_total_m3": 144561.7618776557,
+      "comparison_total_m3": 116911.86566099661,
+      "aggregate_reduction_pct": 19.126701181229038,
+      "case_bootstrap_95pct_ci": [
+        15.908980324096946,
+        22.562982188247585
+      ],
+      "overlap_cluster_bootstrap_95pct_ci": [
+        15.77642672176462,
+        22.63530438802887
+      ],
+      "improved_case_count": 130,
+      "improved_case_fraction": 0.8666666666666667
+    }
+  },
+  "switches": {
+    "baseline_total": 98456,
+    "full_prediction_total": 11912,
+    "no_future_total": 10886,
+    "full_prediction_vs_baseline_reduction_pct": 87.90119444218737,
+    "no_future_vs_baseline_reduction_pct": 88.94328430974242,
+    "full_prediction_vs_no_future_reduction_pct": -9.424949476391696
+  },
+  "posture": {
+    "1p5": {
+      "baseline_time_s": 223777.0,
+      "full_prediction_time_s": 458552.0,
+      "no_future_time_s": 514691.0,
+      "baseline_time_pct": 6.906697530864197,
+      "full_prediction_time_pct": 14.152839506172839,
+      "no_future_time_pct": 15.885524691358025,
+      "full_minus_no_future_percentage_points": -1.7326851851851852
+    },
+    "2": {
+      "baseline_time_s": 153197.0,
+      "full_prediction_time_s": 298058.0,
+      "no_future_time_s": 304601.0,
+      "baseline_time_pct": 4.728302469135802,
+      "full_prediction_time_pct": 9.199320987654321,
+      "no_future_time_pct": 9.401265432098766,
+      "full_minus_no_future_percentage_points": -0.20194444444444445
+    },
+    "3": {
+      "baseline_time_s": 91406.0,
+      "full_prediction_time_s": 142003.0,
+      "no_future_time_s": 143219.0,
+      "baseline_time_pct": 2.821172839506173,
+      "full_prediction_time_pct": 4.382808641975308,
+      "no_future_time_pct": 4.42033950617284,
+      "full_minus_no_future_percentage_points": -0.037530864197530864
+    },
+    "4": {
+      "baseline_time_s": 58180.0,
+      "full_prediction_time_s": 70654.0,
+      "no_future_time_s": 70303.0,
+      "baseline_time_pct": 1.795679012345679,
+      "full_prediction_time_pct": 2.180679012345679,
+      "no_future_time_pct": 2.1698456790123455,
+      "full_minus_no_future_percentage_points": 0.010833333333333334
+    },
+    "5": {
+      "baseline_time_s": 32845.0,
+      "full_prediction_time_s": 35271.0,
+      "no_future_time_s": 35378.0,
+      "baseline_time_pct": 1.0137345679012346,
+      "full_prediction_time_pct": 1.0886111111111112,
+      "no_future_time_pct": 1.0919135802469135,
+      "full_minus_no_future_percentage_points": -0.0033024691358024692
+    },
+    "7p5": {
+      "baseline_time_s": 8327.0,
+      "full_prediction_time_s": 6687.0,
+      "no_future_time_s": 6675.0,
+      "baseline_time_pct": 0.25700617283950616,
+      "full_prediction_time_pct": 0.2063888888888889,
+      "no_future_time_pct": 0.20601851851851852,
+      "full_minus_no_future_percentage_points": 0.00037037037037037035
+    },
+    "10": {
+      "baseline_time_s": 3555.0,
+      "full_prediction_time_s": 3543.0,
+      "no_future_time_s": 3539.0,
+      "baseline_time_pct": 0.10972222222222222,
+      "full_prediction_time_pct": 0.10935185185185185,
+      "no_future_time_pct": 0.10922839506172839,
+      "full_minus_no_future_percentage_points": 0.0001234567901234568
+    }
+  },
+  "by_stratum": {
+    "c3_gusty_oscillatory": {
+      "case_count": 53,
+      "baseline_pump_m3": 56410.680540031004,
+      "full_prediction_pump_m3": 43073.536073120464,
+      "no_future_pump_m3": 54866.85582248412,
+      "full_prediction_vs_baseline_reduction_pct": 23.64294197345489,
+      "no_future_vs_baseline_reduction_pct": 2.7367596043294204,
+      "full_prediction_vs_no_future_reduction_pct": 21.494433337896538
+    },
+    "p2_neutral_headroom": {
+      "case_count": 53,
+      "baseline_pump_m3": 36272.86563758461,
+      "full_prediction_pump_m3": 28334.195958106066,
+      "no_future_pump_m3": 37010.392644813335,
+      "full_prediction_vs_baseline_reduction_pct": 21.885973274890052,
+      "no_future_vs_baseline_reduction_pct": -2.0332747200004113,
+      "full_prediction_vs_no_future_reduction_pct": 23.44259562434866
+    },
+    "w1_stable_direction_event": {
+      "case_count": 44,
+      "baseline_pump_m3": 53188.391354125226,
+      "full_prediction_pump_m3": 45504.133629770055,
+      "no_future_pump_m3": 52684.513410358246,
+      "full_prediction_vs_baseline_reduction_pct": 14.447245966124129,
+      "no_future_vs_baseline_reduction_pct": 0.9473457101046541,
+      "full_prediction_vs_no_future_reduction_pct": 13.629014136773758
+    }
+  },
+  "telemetry": {
+    "full_prediction_event_probability_mean": 0.4228873585093116,
+    "no_future_event_probability_mean": 0.0,
+    "full_prediction_effective_event_probability_mean": 0.4228873585093116,
+    "no_future_effective_event_probability_mean": 0.0,
+    "full_prediction_candidate_ratio_mean": 1.0,
+    "no_future_candidate_ratio_mean": 1.0,
+    "full_prediction_applied_ratio_mean": 0.9953299382716049,
+    "no_future_applied_ratio_mean": 0.995278086419753
+  },
+  "overlap_cluster_count": 143,
+  "source_protocols": [
+    {
+      "run": "outputs/wind_prediction/frozen_h_no_future150_20260715_high/agent_1/run_1",
+      "case_count": 10,
+      "forecast_source_requested": "current_only",
+      "forecast_source_effective": "current_only_repeat_last_10min",
+      "primary_only": true,
+      "duration_s": 21600.0,
+      "completed_cases": 10,
+      "issue_count": 0
+    },
+    {
+      "run": "outputs/wind_prediction/frozen_h_no_future150_20260715_high/agent_1/run_2",
+      "case_count": 10,
+      "forecast_source_requested": "current_only",
+      "forecast_source_effective": "current_only_repeat_last_10min",
+      "primary_only": true,
+      "duration_s": 21600.0,
+      "completed_cases": 10,
+      "issue_count": 0
+    },
+    {
+      "run": "outputs/wind_prediction/frozen_h_no_future150_20260715_high/agent_1/run_3",
+      "case_count": 10,
+      "forecast_source_requested": "current_only",
+      "forecast_source_effective": "current_only_repeat_last_10min",
+      "primary_only": true,
+      "duration_s": 21600.0,
+      "completed_cases": 10,
+      "issue_count": 0
+    },
+    {
+      "run": "outputs/wind_prediction/frozen_h_no_future150_20260715_high/agent_2/run_1",
+      "case_count": 10,
+      "forecast_source_requested": "current_only",
+      "forecast_source_effective": "current_only_repeat_last_10min",
+      "primary_only": true,
+      "duration_s": 21600.0,
+      "completed_cases": 10,
+      "issue_count": 0
+    },
+    {
+      "run": "outputs/wind_prediction/frozen_h_no_future150_20260715_high/agent_2/run_2",
+      "case_count": 10,
+      "forecast_source_requested": "current_only",
+      "forecast_source_effective": "current_only_repeat_last_10min",
+      "primary_only": true,
+      "duration_s": 21600.0,
+      "completed_cases": 10,
+      "issue_count": 0
+    },
+    {
+      "run": "outputs/wind_prediction/frozen_h_no_future150_20260715_high/agent_2/run_3",
+      "case_count": 10,
+      "forecast_source_requested": "current_only",
+      "forecast_source_effective": "current_only_repeat_last_10min",
+      "primary_only": true,
+      "duration_s": 21600.0,
+      "completed_cases": 10,
+      "issue_count": 0
+    },
+    {
+      "run": "outputs/wind_prediction/frozen_h_no_future150_20260715_high/agent_3/run_1",
+      "case_count": 10,
+      "forecast_source_requested": "current_only",
+      "forecast_source_effective": "current_only_repeat_last_10min",
+      "primary_only": true,
+      "duration_s": 21600.0,
+      "completed_cases": 10,
+      "issue_count": 0
+    },
+    {
+      "run": "outputs/wind_prediction/frozen_h_no_future150_20260715_high/agent_3/run_2",
+      "case_count": 10,
+      "forecast_source_requested": "current_only",
+      "forecast_source_effective": "current_only_repeat_last_10min",
+      "primary_only": true,
+      "duration_s": 21600.0,
+      "completed_cases": 10,
+      "issue_count": 0
+    },
+    {
+      "run": "outputs/wind_prediction/frozen_h_no_future150_20260715_high/agent_3/run_3",
+      "case_count": 10,
+      "forecast_source_requested": "current_only",
+      "forecast_source_effective": "current_only_repeat_last_10min",
+      "primary_only": true,
+      "duration_s": 21600.0,
+      "completed_cases": 10,
+      "issue_count": 0
+    },
+    {
+      "run": "outputs/wind_prediction/frozen_h_no_future150_20260715_high/agent_4/run_1",
+      "case_count": 10,
+      "forecast_source_requested": "current_only",
+      "forecast_source_effective": "current_only_repeat_last_10min",
+      "primary_only": true,
+      "duration_s": 21600.0,
+      "completed_cases": 10,
+      "issue_count": 0
+    },
+    {
+      "run": "outputs/wind_prediction/frozen_h_no_future150_20260715_high/agent_4/run_2",
+      "case_count": 10,
+      "forecast_source_requested": "current_only",
+      "forecast_source_effective": "current_only_repeat_last_10min",
+      "primary_only": true,
+      "duration_s": 21600.0,
+      "completed_cases": 10,
+      "issue_count": 0
+    },
+    {
+      "run": "outputs/wind_prediction/frozen_h_no_future150_20260715_high/agent_4/run_3",
+      "case_count": 10,
+      "forecast_source_requested": "current_only",
+      "forecast_source_effective": "current_only_repeat_last_10min",
+      "primary_only": true,
+      "duration_s": 21600.0,
+      "completed_cases": 10,
+      "issue_count": 0
+    },
+    {
+      "run": "outputs/wind_prediction/frozen_h_no_future150_20260715_high/agent_5/run_1",
+      "case_count": 10,
+      "forecast_source_requested": "current_only",
+      "forecast_source_effective": "current_only_repeat_last_10min",
+      "primary_only": true,
+      "duration_s": 21600.0,
+      "completed_cases": 10,
+      "issue_count": 0
+    },
+    {
+      "run": "outputs/wind_prediction/frozen_h_no_future150_20260715_high/agent_5/run_2",
+      "case_count": 10,
+      "forecast_source_requested": "current_only",
+      "forecast_source_effective": "current_only_repeat_last_10min",
+      "primary_only": true,
+      "duration_s": 21600.0,
+      "completed_cases": 10,
+      "issue_count": 0
+    },
+    {
+      "run": "outputs/wind_prediction/frozen_h_no_future150_20260715_high/agent_5/run_3",
+      "case_count": 10,
+      "forecast_source_requested": "current_only",
+      "forecast_source_effective": "current_only_repeat_last_10min",
+      "primary_only": true,
+      "duration_s": 21600.0,
+      "completed_cases": 10,
+      "issue_count": 0
+    }
+  ],
+  "interpretation_boundary": {
+    "pump": "The additional pump reduction of full prediction relative to the same-structure no-future ablation is attributable to access to future prediction under the frozen controller structure.",
+    "switches": "Switch reductions versus posture feedback are shared by both structured controllers and cannot be attributed to LSTM prediction.",
+    "posture": "Full prediction and no-future ablation have similar posture-threshold occupancy; most posture tradeoff is shared by their common controller structure."
+  }
+}
