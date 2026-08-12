@@ -1,148 +1,156 @@
 # FOWT Predictive Ballast Control
 
-This repository contains the program framework for a floating offshore wind
-turbine (FOWT) predictive ballast-control study. The current main branch is a
-clean code-oriented workspace: it keeps the reusable controller, forecasting,
-replay, validation, and experiment scripts, while excluding raw data, generated
-outputs, trained model weights, and paper artifacts.
+Research code for predictive active-ballast control of a three-column floating
+offshore wind turbine. The project uses short-horizon wind forecasts together
+with measured platform posture and ballast-pump state to generate the next
+three-tank target-water command.
 
-The project focus is not a single fixed parameter setting. It is a control
-chain for using short-horizon wind prediction and replay evidence to support
-ballast decisions under safety constraints.
+## Current Status
 
-## What This Code Does
+The repository is being reorganized around a compact V2 controller. Its aim is
+to make every control decision traceable before the platform simulator is
+recalibrated and broader operating-condition studies begin.
 
-The program is organized around five responsibilities:
+- **V2 controller**: the active development path. It has a compact public
+  interface, explicit forecast evidence, execution-aware candidate evaluation,
+  one final target commit, and a versioned configuration file.
+- **V1 compatibility code**: retained only to reproduce the submitted-paper
+  workflow and historical records. It is not the entry point for new control
+  development.
+- **Physical validation**: still pending. Current simulated pitch and roll are
+  connectivity signals for controller integration, not engineering-grade
+  evidence for tuning or performance claims.
 
-1. Forecast interface
-   - Converts wind-prediction sources into a common control-facing contract.
-   - Supports learned forecasts, persistence/current-only baselines, and
-     replay-compatible adapters.
+The submitted-paper 150-case result is historical evidence for that frozen
+workflow. It is not a V2 regression target or a claim that the current V2
+controller has completed wide-condition validation.
 
-2. Control decision layer
-   - Builds prediction-aware ballast target updates.
-   - Separates forecast signals, target lifecycle management, safety guards,
-     and pump-action planning.
+## V2 Control Path
 
-3. Safety and telemetry
-   - Tracks attitude, target age, pump activity, control state, and guard
-     decisions.
-   - Keeps validation metadata close to each run through protocol records.
+```text
+measured pitch/roll, wind, tank masses and pump state
+  -> validated forecast evidence
+  -> feedback demand + forecast demand
+  -> candidate action sequences
+  -> exact three-tank target water masses
+  -> pump-execution preview
+  -> one evaluated action and target commit
+  -> actuator state for the next control cycle
+```
 
-4. Replay and casebook validation
-   - Replays selected wind windows through comparable control policies.
-   - Supports controlled comparisons between learned, current-only,
-     persistence, oracle, and ablation-style policies.
-
-5. Experiment support
-   - Provides scripts for data preparation, model training, offline audits,
-     selector diagnostics, plotting, and paper-facing validation checks.
+The six-degree-of-freedom platform dynamics sit outside this controller path.
+That separation allows a recalibrated simulator to provide measured state and
+consume target-water commands without changing the controller decision logic.
 
 ## Repository Layout
 
 ```text
 .
-├── src/wind_prediction/        # Reusable control and forecast framework
-├── scripts/
-│   ├── analysis/               # Replay, validation, diagnostics, summaries
-│   ├── data_preparation/       # Dataset construction utilities
-│   ├── experiments/            # Higher-level experiment entry points
-│   ├── modeling/               # Forecast and decision-model training scripts
-│   └── paper_figures/          # Figure generation helpers
-├── configs/                    # Controller profiles, gates, and registries
-├── docs/                       # Method notes, validation protocol, paper plan
-├── requirements.txt            # Python dependencies
-└── README.md
+├── src/wind_prediction/
+│   ├── controller.py                 # Public V2 import surface
+│   ├── controller_core.py            # Demand, candidates and final decision
+│   ├── controller_runtime.py         # One-cycle state progression
+│   ├── controller_plant_adapter.py   # Existing plant-interface adapter
+│   ├── controller_replay_adapter.py  # Explicit replay forecast evidence
+│   ├── ballast_allocation.py          # Two-axis to three-tank allocation
+│   ├── execution_rollout.py           # Pump execution preview
+│   └── ballast_planner_provider.py    # V1 compatibility entry only
+├── configs/controller_core_v2.json   # Versioned V2 configuration
+├── scripts/validation/
+│   └── run_controller_core_smoke.py   # Deterministic V2 smoke path
+├── tests/                             # Unit, architecture and adapter checks
+├── docs/controller_v2_framework.md    # Detailed V2 design note
+└── archive/                           # Historical implementation material
 ```
 
-## Core Modules
+## Controller Semantics
 
-`src/wind_prediction/forecast_contract.py` and
-`src/wind_prediction/forecast_adapter.py` define how forecast signals enter the
-controller.
+The V2 controller evaluates target updates rather than selecting fixed pump
+speed gears. Its action families are:
 
-`src/wind_prediction/ballast_planner.py` and
-`src/wind_prediction/ballast_planner_provider.py` contain the main ballast
-planning logic and runtime integration points.
+- `strengthen`, `normal`, and `reduced`: create a new target with different
+  update magnitudes;
+- `continue_target`: retain the active target;
+- `release_target`: return the target to the currently measured tank masses;
+- `reverse`: create a target in the opposite compensation direction.
 
-`src/wind_prediction/target_lifecycle.py` manages target creation, refresh,
-holding, release, and stale-target behavior.
+Pump flow is then computed from target error, available tank capacity and pump
+state. Forecast-specific high-impact actions require explicit forecast
+evidence; the replay path never substitutes measured future wind when a model
+forecast is unavailable.
 
-`src/wind_prediction/safety_supervisor.py` provides safety supervision around
-attitude and control-state boundaries.
+## Quick Start
 
-`src/wind_prediction/replay_dataset.py` and
-`src/wind_prediction/run_protocol.py` support replayable validation and
-traceable run records.
-
-`src/wind_prediction/attitude_metrics.py`,
-`src/wind_prediction/control_contracts.py`, and
-`src/wind_prediction/control_telemetry_defaults.py` define shared metrics,
-contracts, and telemetry defaults.
-
-## Main Script Families
-
-`scripts/analysis/run_prediction_primary_casebook.py` is the main replay and
-casebook runner for prediction-aware control experiments.
-
-`scripts/analysis/run_positive_tilt_conservative_20260611.py` is a controlled
-entry point for conservative attitude-sensitive follow-up runs.
-
-`scripts/analysis/check_*` scripts are lightweight validation checks for
-contracts, manifests, and smoke gates.
-
-`scripts/modeling/` contains model-training and calibration utilities for wind
-forecasting and decision-signal experiments.
-
-`scripts/data_preparation/` contains dataset construction utilities. The data
-itself is intentionally not stored in this repository.
-
-## Data And Generated Artifacts
-
-The clean main branch does not include:
-
-- raw wind data;
-- processed training arrays;
-- generated replay outputs;
-- trained model weights;
-- large figures, PDFs, Office documents, or archived experiment packages.
-
-Those files should be kept in external storage or regenerated locally. This
-keeps the repository focused on the program framework and avoids mixing code
-with transient experiment products.
-
-## Environment
-
-The active local environment for this project is Python 3.12. In the current
-workspace this is represented by `.venv312`.
-
-Typical local checks:
+The local development environment uses Python 3.12 and `.venv312`.
 
 ```bash
-PYTHONPATH=src .venv312/bin/python -m py_compile $(find src scripts -name '*.py')
-PYTHONPATH=src .venv312/bin/python -c "import wind_prediction"
-PYTHONPATH=src .venv312/bin/python scripts/analysis/run_prediction_primary_casebook.py --help
+PYTHONPATH=src .venv312/bin/python3.12 \
+  scripts/validation/run_controller_core_smoke.py
 ```
 
-## Validation Discipline
+The smoke output records the controller configuration digest, forecast source,
+model label, three consecutive control cycles, selected actions, target masses
+and pump-preview state. It checks integration only; it is not a performance
+experiment.
 
-The repository includes protocol notes under `docs/` to keep experiment claims
-separate from exploratory runs. A result should not be treated as paper-facing
-evidence unless the corresponding run directory, summary table, and protocol
-record all exist.
+Run the compact-controller checks with:
 
-Recommended workflow:
+```bash
+PYTHONPATH=src .venv312/bin/python3.12 -m unittest \
+  tests.test_action_plan \
+  tests.test_ballast_allocation \
+  tests.test_execution_rollout \
+  tests.test_execution_rollout_target_release \
+  tests.test_forecast_evidence \
+  tests.test_forecast_action_policy \
+  tests.test_forecast_action_policy_enforcement \
+  tests.test_controller_core \
+  tests.test_controller_runtime \
+  tests.test_controller_configuration \
+  tests.test_controller_architecture \
+  tests.test_controller_plant_adapter \
+  tests.test_controller_replay_adapter \
+  tests.test_controller_smoke_script
+```
 
-1. inspect representative good and bad cases;
-2. test decision logic in shadow mode where possible;
-3. run small canary batches before full replay;
-4. compare learned policies against current-only, persistence, shuffled, or
-   other negative-control baselines;
-5. only then promote stable runs into paper-facing summaries.
+For the full repository test suite:
 
-## Current Branch Purpose
+```bash
+PYTHONPATH=src .venv312/bin/python3.12 -m unittest discover -s tests -p 'test_*.py'
+```
 
-`main` is now intended to be a clean program branch. It is suitable for reading
-the controller architecture, running validation scripts, and extending the
-forecast-aware ballast-control framework without carrying historical data or
-large generated artifacts.
+## Configuration and Traceability
+
+`configs/controller_core_v2.json` is the recommended V2 configuration entry.
+The loader rejects unknown keys, verifies key cross-constraints and generates a
+normalized SHA-256 digest. This lets a run identify the effective control
+configuration instead of relying on scattered script parameters.
+
+Each V2 decision trace includes the selected action, target operation,
+candidate score, forecast-use status, pump-preview result and remaining target
+error. This is the basis for later decision analysis and formal experiment
+manifests.
+
+## What Is Deliberately Deferred
+
+The following work is outside the current controller-framework milestone:
+
+1. recalibration and cross-checking of the six-degree-of-freedom platform
+   simulator;
+2. treatment of total mass, centre of gravity, inertia and restoring moments
+   for three independently sea-connected ballast tanks;
+3. migration of the historical casebook runner from the V1 Provider stack;
+4. staged 10-, 20- and 30-case six-hour experiments under a frozen run
+   protocol;
+5. parameter tuning and claims about pump-volume reduction.
+
+See [the V2 framework note](docs/controller_v2_framework.md) for the module
+interfaces, current structural checks and the deferred validation boundary.
+
+## Data and Generated Artifacts
+
+Raw wind records, processed datasets, trained model weights, generated figures
+and paper artifacts are intentionally kept outside the versioned program
+framework. Reproducible experiments should record their input manifests and
+configuration digests, rather than committing transient output directories to
+the source repository.
