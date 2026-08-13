@@ -7,6 +7,7 @@ from fowt_platform import (
     IncrementalPlatformModel,
     IncrementalState,
     PlatformMatrices,
+    simulate_linear_free_response,
     solve_incremental_static_offset,
 )
 
@@ -62,6 +63,99 @@ class IncrementalPlatformModelTests(unittest.TestCase):
             derivative.velocity_rate,
             np.linalg.solve(self.matrices.mass, loads.total),
         )
+
+    def test_frozen_step_matches_constant_acceleration_without_restoring(self):
+        mass = np.diag([2.0, 3.0, 4.0, 5.0, 6.0, 7.0])
+        model = IncrementalPlatformModel(
+            PlatformMatrices(
+                mass=mass,
+                damping=np.zeros((6, 6)),
+                hydrostatic_stiffness=np.zeros((6, 6)),
+                mooring_stiffness=np.zeros((6, 6)),
+            )
+        )
+        loads = IncrementalLoads(
+            wind=[4.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            wave=np.zeros(6),
+            ballast=np.zeros(6),
+            other=np.zeros(6),
+        )
+
+        advanced = model.advance_frozen_step(
+            IncrementalState.zeros(),
+            loads,
+            duration_s=3.0,
+        )
+
+        self.assertAlmostEqual(advanced.position[0], 9.0)
+        self.assertAlmostEqual(advanced.velocity[0], 6.0)
+
+    def test_zero_duration_preserves_state_and_negative_duration_is_rejected(self):
+        state = IncrementalState(
+            position=np.arange(6, dtype=float),
+            velocity=np.arange(6, dtype=float) / 10.0,
+        )
+        advanced = self.model.advance_frozen_step(
+            state,
+            IncrementalLoads.zeros(),
+            duration_s=0.0,
+        )
+
+        np.testing.assert_array_equal(advanced.position, state.position)
+        np.testing.assert_array_equal(advanced.velocity, state.velocity)
+        with self.assertRaisesRegex(ValueError, "duration_s"):
+            self.model.advance_frozen_step(
+                state,
+                IncrementalLoads.zeros(),
+                duration_s=-1.0,
+            )
+
+    def test_zero_load_frozen_step_matches_exact_free_response(self):
+        state = IncrementalState(
+            position=np.array([0.2, 0.0, -0.1, 0.03, -0.02, 0.0]),
+            velocity=np.array([0.0, 0.1, 0.0, -0.01, 0.0, 0.02]),
+        )
+        duration_s = 2.5
+
+        advanced = self.model.advance_frozen_step(
+            state,
+            IncrementalLoads.zeros(),
+            duration_s=duration_s,
+        )
+        free_response = simulate_linear_free_response(
+            matrices=self.matrices,
+            initial_state=state,
+            time_s=[0.0, duration_s],
+        )
+
+        np.testing.assert_allclose(advanced.position, free_response.position[-1])
+        np.testing.assert_allclose(advanced.velocity, free_response.velocity[-1])
+
+    def test_static_offset_remains_fixed_under_its_balancing_load(self):
+        static_load = np.array([8.0, -10.0, 15.0, 4.2, -5.3, 6.0])
+        offset = solve_incremental_static_offset(
+            matrices=self.matrices,
+            incremental_static_load=static_load,
+        )
+        loads = IncrementalLoads(
+            wind=static_load,
+            wave=np.zeros(6),
+            ballast=np.zeros(6),
+            other=np.zeros(6),
+        )
+        initial = IncrementalState(
+            position=offset.position,
+            velocity=np.zeros(6),
+        )
+
+        advanced = self.model.advance_frozen_step(
+            initial,
+            loads,
+            duration_s=5.0,
+        )
+
+        np.testing.assert_allclose(advanced.position, initial.position, atol=1e-12)
+        np.testing.assert_allclose(advanced.velocity, np.zeros(6), atol=1e-12)
 
     def test_state_rejects_wrong_dof_shape(self):
         with self.assertRaisesRegex(ValueError, "position must have shape \\(6,\\)"):

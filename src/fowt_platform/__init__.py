@@ -22,6 +22,9 @@ from .incremental import (
     IncrementalState,
     IncrementalStateDerivative,
     PlatformMatrices,
+    generalized_load_from_openfast_hub_wrench,
+    generalized_load_from_point_force,
+    openfast_hub_to_reference_rotation,
     solve_incremental_static_offset,
 )
 from .reference import (
@@ -50,9 +53,12 @@ __all__ = [
     "IncrementalStaticOffset",
     "IncrementalState",
     "IncrementalStateDerivative",
+    "generalized_load_from_openfast_hub_wrench",
+    "generalized_load_from_point_force",
     "LinearFreeResponse",
     "meteorological_wind_to_enu",
     "meteorological_wind_to_platform",
+    "openfast_hub_to_reference_rotation",
     "PlatformMatrices",
     "rigid_body_mass_matrix_about_reference",
     "ReferenceVerticalBalanceEvidence",
