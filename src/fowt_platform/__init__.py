@@ -33,6 +33,12 @@ from .reference import (
     load_volturnus_reference_components,
 )
 from .modal import UndampedModes, analyze_undamped_modes
+from .rotor_performance import (
+    RotorPerformanceTable,
+    load_rosco_rotor_performance_table,
+    load_rosco_rotor_performance_table_from_zip,
+    parse_rosco_rotor_performance_table,
+)
 from .free_response import LinearFreeResponse, simulate_linear_free_response
 from .ballast_snapshot import (
     assemble_ballast_model_snapshot,
@@ -62,7 +68,11 @@ __all__ = [
     "PlatformMatrices",
     "rigid_body_mass_matrix_about_reference",
     "ReferenceVerticalBalanceEvidence",
+    "RotorPerformanceTable",
     "load_volturnus_reference_components",
+    "load_rosco_rotor_performance_table",
+    "load_rosco_rotor_performance_table_from_zip",
+    "parse_rosco_rotor_performance_table",
     "solve_incremental_static_offset",
     "simulate_linear_free_response",
     "tank_mass_deltas_from_actual_masses",
