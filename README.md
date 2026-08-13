@@ -1,156 +1,203 @@
-# FOWT Predictive Ballast Control
+# 基于短时风况预测的浮式风机主动压载调节
 
-Research code for predictive active-ballast control of a three-column floating
-offshore wind turbine. The project uses short-horizon wind forecasts together
-with measured platform posture and ballast-pump state to generate the next
-three-tank target-water command.
+本仓库用于研究三舱半潜式浮式风机的预测辅助主动压载调节。系统利用历史风况预测未来短时风矢量和风况变化信息，并结合平台纵摇、横摇状态、压载舱实际水量及水泵状态，生成当前控制周期的三舱目标水量。
 
-## Current Status
+当前工作重点不是继续追求某个固定的节泵比例，而是建立一条结构清楚、状态一致且能够追踪决策依据的研究链路。仓库已经形成V2控制器框架和独立的低阶平台模型模块，但平台参数标定、三舱运行时连接及高保真交叉验证仍在推进。因此，现阶段的整链路结果主要用于检查信息传递和程序结构，不应直接作为新的工程性能结论。
 
-The repository is being reorganized around a compact V2 controller. Its aim is
-to make every control decision traceable before the platform simulator is
-recalibrated and broader operating-condition studies begin.
+## 整体架构
 
-- **V2 controller**: the active development path. It has a compact public
-  interface, explicit forecast evidence, execution-aware candidate evaluation,
-  one final target commit, and a versioned configuration file.
-- **V1 compatibility code**: retained only to reproduce the submitted-paper
-  workflow and historical records. It is not the entry point for new control
-  development.
-- **Physical validation**: still pending. Current simulated pitch and roll are
-  connectivity signals for controller integration, not engineering-grade
-  evidence for tuning or performance claims.
+```mermaid
+flowchart TB
+    subgraph OFFLINE["离线数据与风况预测"]
+        A["实测风况序列"] --> B["数据清洗与样本构造"]
+        B --> C["短时风况预测模型"]
+        C --> D["未来风矢量、事件概率与可靠度"]
+    end
 
-The submitted-paper 150-case result is historical evidence for that frozen
-workflow. It is not a V2 regression target or a claim that the current V2
-controller has completed wide-condition validation.
+    subgraph CONTROL["V2在线控制器"]
+        E["当前姿态、风况、三舱水量与水泵状态"] --> F["姿态反馈需求"]
+        D --> G["预测信息校验与准入"]
+        G --> H["预测等效调节需求"]
+        F --> I["综合调节需求"]
+        H --> I
+        I --> J["候选动作序列生成与评价"]
+        J --> K["三舱目标水量"]
+        K --> L["水泵执行预演与约束检查"]
+        L --> M["当前周期动作与目标提交"]
+    end
 
-## V2 Control Path
+    subgraph PLANT["执行与状态更新"]
+        M --> N["三台压载泵执行"]
+        N --> O["实际舱内水量更新"]
+        O --> P["平台状态推进"]
+        P --> E
+    end
 
-```text
-measured pitch/roll, wind, tank masses and pump state
-  -> validated forecast evidence
-  -> feedback demand + forecast demand
-  -> candidate action sequences
-  -> exact three-tank target water masses
-  -> pump-execution preview
-  -> one evaluated action and target commit
-  -> actuator state for the next control cycle
+    subgraph FOUNDATION["独立平台模型基础"]
+        Q["公开参考平台组件"] --> R["质量、重心、惯量与恢复矩阵"]
+        S["三舱实际质量增量"] --> R
+        R --> T["fowt_platform低阶六自由度模型"]
+    end
+
+    T -. "完成外部核对后接入" .-> P
 ```
 
-The six-degree-of-freedom platform dynamics sit outside this controller path.
-That separation allows a recalibrated simulator to provide measured state and
-consume target-water commands without changing the controller decision logic.
+架构分为四部分：
 
-## Repository Layout
+1. **离线预测**：完成风况数据整理、预测样本构造、模型训练和预测证据输出。
+2. **在线决策**：将姿态反馈与通过校验的预测信息放在同一调节尺度下，评价候选动作并提交唯一的目标水量。
+3. **执行与反馈**：根据目标误差、泵流量和舱容边界推进三舱实际水量，再把更新后的状态交给下一控制周期。
+4. **平台模型基础**：独立维护六自由度数学口径、参考平台矩阵及三舱质量属性。该模块已通过内部一致性检查，尚未替换当前整链路中的历史平台实现。
+
+## 当前代码边界
+
+### V2控制器
+
+新控制开发统一从`wind_prediction.controller`导入，公共入口为：
+
+```python
+from wind_prediction.controller import ForecastAssistedBallastController
+```
+
+一次控制周期接收当前姿态及角速度、当前风况、未来预测证据、三舱实际质量、水泵状态和上一周期保留目标，返回：
+
+- 当前选择的动作及目标操作；
+- 已经过候选评价的三舱目标水量；
+- 当前决策时段的水泵执行预演；
+- 下一周期控制器状态；
+- 预测使用情况、候选得分、目标误差和约束状态等决策记录。
+
+控制器只有一个候选评价入口和一个最终目标提交点。任何在评价后发生变化的动作或目标，都必须重新评价后才能进入执行层。
+
+### 低阶平台模型
+
+`src/fowt_platform/`采用静平衡附近的小角度增量六自由度口径，当前已实现：
+
+- 质量、阻尼、静水恢复和局部线性系泊矩阵的独立保存与检查；
+- 气象风向、地理坐标和平台坐标之间的转换；
+- VolturnUS-S公开参考组件读取；
+- 三舱质量变化引起的总质量、重心、惯量和重力矩更新；
+- 静态增量偏移、模态和固定参数自由响应检查。
+
+该模块目前属于平台模型数学基础。绝对静平衡、阻尼标定、正式风浪载荷、三舱与水泵的运行时连接，以及OpenFAST或RAFT外部核对尚未全部完成。
+
+### 历史兼容路径
+
+`ballast_planner_provider.py`、`provider_*.py`、`ballast_planner.py`和`provider_factory.py`保留用于复现已投稿小论文流程和历史证据。它们不属于V2公共控制接口，后续不再向其中增加新的控制分支。
+
+## 目录结构
 
 ```text
 .
-├── src/wind_prediction/
-│   ├── controller.py                 # Public V2 import surface
-│   ├── controller_core.py            # Demand, candidates and final decision
-│   ├── controller_runtime.py         # One-cycle state progression
-│   ├── controller_plant_adapter.py   # Existing plant-interface adapter
-│   ├── controller_replay_adapter.py  # Explicit replay forecast evidence
-│   ├── ballast_allocation.py          # Two-axis to three-tank allocation
-│   ├── execution_rollout.py           # Pump execution preview
-│   └── ballast_planner_provider.py    # V1 compatibility entry only
-├── configs/controller_core_v2.json   # Versioned V2 configuration
-├── scripts/validation/
-│   └── run_controller_core_smoke.py   # Deterministic V2 smoke path
-├── tests/                             # Unit, architecture and adapter checks
-├── docs/controller_v2_framework.md    # Detailed V2 design note
-└── archive/                           # Historical implementation material
+├── src/
+│   ├── wind_prediction/
+│   │   ├── controller.py                 # V2公共接口
+│   │   ├── controller_core.py            # 需求形成、候选评价与最终决策
+│   │   ├── controller_runtime.py         # 单周期推进及跨周期状态
+│   │   ├── forecast_evidence.py          # 预测证据校验
+│   │   ├── forecast_action_policy.py     # 预测动作准入规则
+│   │   ├── ballast_allocation.py         # 纵横摇需求到三舱目标的分配
+│   │   ├── execution_rollout.py          # 三泵执行预演
+│   │   ├── controller_plant_adapter.py   # 控制器与现有执行链适配
+│   │   └── provider_*.py                 # 小论文历史兼容路径
+│   └── fowt_platform/
+│       ├── incremental.py                # 增量六自由度模型
+│       ├── reference.py                  # 公开参考平台组件
+│       ├── ballast.py                    # 三舱质量属性与广义载荷
+│       ├── ballast_snapshot.py           # 实际水量到平台快照的单一装配入口
+│       ├── coordinates.py                # 风向与坐标转换
+│       ├── modal.py                      # 模态分析
+│       └── free_response.py              # 固定参数自由响应
+├── configs/                              # 控制、平台和验证配置
+├── scripts/
+│   ├── data_preparation/                 # 风况数据与预测样本构造
+│   ├── modeling/                         # 预测模型训练和基线评价
+│   ├── validation/                       # 控制链、平台和协议检查
+│   ├── analysis/                         # 结果分析与审计脚本
+│   └── paper_figures/                    # 论文图表脚本
+├── tests/                                # 单元、接口、结构和回归测试
+├── docs/                                 # 架构、物理口径与验证说明
+├── archive/                              # 旧版平台与历史实现
+└── outputs/                              # 本地运行结果，不作为源码提交
 ```
 
-## Controller Semantics
+## 候选动作含义
 
-The V2 controller evaluates target updates rather than selecting fixed pump
-speed gears. Its action families are:
+V2控制器评价的是目标水量更新方式，不是固定的水泵流量档位：
 
-- `strengthen`, `normal`, and `reduced`: create a new target with different
-  update magnitudes;
-- `continue_target`: retain the active target;
-- `release_target`: return the target to the currently measured tank masses;
-- `reverse`: create a target in the opposite compensation direction.
+- `strengthen`：增大当前方向的目标调整幅度；
+- `normal`：按常规幅度更新目标；
+- `reduced`：减小目标调整幅度；
+- `continue_target`：保持尚未完成的既有目标；
+- `release_target`：将目标释放至当前实测舱内水量；
+- `reverse`：沿相反补偿方向生成新目标。
 
-Pump flow is then computed from target error, available tank capacity and pump
-state. Forecast-specific high-impact actions require explicit forecast
-evidence; the replay path never substitutes measured future wind when a model
-forecast is unavailable.
+水泵实际流量由目标误差、最大流量、舱容和泵状态另行确定。预测相关的高影响动作只有在预测证据满足准入条件时才能参与评价。
 
-## Quick Start
+## 快速开始
 
-The local development environment uses Python 3.12 and `.venv312`.
+推荐使用Python 3.12。已有本地环境时，可直接使用`.venv312`：
+
+```bash
+python3.12 -m venv .venv312
+source .venv312/bin/activate
+pip install -r requirements.txt
+```
+
+运行V2控制器确定性冒烟检查：
 
 ```bash
 PYTHONPATH=src .venv312/bin/python3.12 \
   scripts/validation/run_controller_core_smoke.py
 ```
 
-The smoke output records the controller configuration digest, forecast source,
-model label, three consecutive control cycles, selected actions, target masses
-and pump-preview state. It checks integration only; it is not a performance
-experiment.
+该检查输出三个连续控制周期的预测来源、候选排序、所选动作、目标水量和水泵预演状态，只用于验证控制器接口和状态推进。
 
-Run the compact-controller checks with:
+运行完整测试：
 
 ```bash
-PYTHONPATH=src .venv312/bin/python3.12 -m unittest \
-  tests.test_action_plan \
-  tests.test_ballast_allocation \
-  tests.test_execution_rollout \
-  tests.test_execution_rollout_target_release \
-  tests.test_forecast_evidence \
-  tests.test_forecast_action_policy \
-  tests.test_forecast_action_policy_enforcement \
-  tests.test_controller_core \
-  tests.test_controller_runtime \
-  tests.test_controller_configuration \
-  tests.test_controller_architecture \
-  tests.test_controller_plant_adapter \
-  tests.test_controller_replay_adapter \
-  tests.test_controller_smoke_script
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src \
+  .venv312/bin/python3.12 -m unittest discover -s tests -p 'test_*.py'
 ```
 
-For the full repository test suite:
+截至2026年8月13日，仓库共464项测试通过。其中旧链路兼容性测试会主动构造系泊文件缺失情形，因此会出现4条线性替代警告；新平台模块不采用这种静默回退。
 
-```bash
-PYTHONPATH=src .venv312/bin/python3.12 -m unittest discover -s tests -p 'test_*.py'
-```
+## 配置与可追踪性
 
-## Configuration and Traceability
+V2控制器推荐配置入口为`configs/controller_core_v2.json`。配置读取器会拒绝未知字段、检查参数之间的约束，并为归一化后的有效配置生成SHA-256摘要。
 
-`configs/controller_core_v2.json` is the recommended V2 configuration entry.
-The loader rejects unknown keys, verifies key cross-constraints and generates a
-normalized SHA-256 digest. This lets a run identify the effective control
-configuration instead of relying on scattered script parameters.
+每次正式运行还应记录：
 
-Each V2 decision trace includes the selected action, target operation,
-candidate score, forecast-use status, pump-preview result and remaining target
-error. This is the basis for later decision analysis and formal experiment
-manifests.
+- 输入数据和工况清单；
+- 预测模型名称、版本及预测来源；
+- 控制器和平台配置摘要；
+- 每周期预测准入、候选排序、最终动作和目标水量；
+- 水泵实际执行量、未完成目标误差及约束触发情况；
+- 源码提交号和结果文件摘要。
 
-## What Is Deliberately Deferred
+这些记录用于区分预测信息、候选动作结构和执行器限制各自对结果的影响。
 
-The following work is outside the current controller-framework milestone:
+## 当前验证边界
 
-1. recalibration and cross-checking of the six-degree-of-freedom platform
-   simulator;
-2. treatment of total mass, centre of gravity, inertia and restoring moments
-   for three independently sea-connected ballast tanks;
-3. migration of the historical casebook runner from the V1 Provider stack;
-4. staged 10-, 20- and 30-case six-hour experiments under a frozen run
-   protocol;
-5. parameter tuning and claims about pump-volume reduction.
+现阶段已经确认：V2控制接口能够运行，预测内容能够进入候选评价，评价后的目标能够原样传递至执行链，三舱状态和跨周期目标能够连续更新。上述结果属于框架与机制检查。
 
-See [the V2 framework note](docs/controller_v2_framework.md) for the module
-interfaces, current structural checks and the deferred validation boundary.
+以下内容尚不能视为已经完成：
 
-## Data and Generated Artifacts
+1. 新低阶平台模型对当前历史平台实现的正式替换；
+2. 绝对静平衡、阻尼、波浪载荷和三线系泊模型标定；
+3. 三舱独立进排水引起的总压载量、吃水、动量通量和自由液面效应评估；
+4. 与OpenFAST或RAFT的代表性响应交叉核对；
+5. 在更广泛连续风况下形成新的控制性能结论。
 
-Raw wind records, processed datasets, trained model weights, generated figures
-and paper artifacts are intentionally kept outside the versioned program
-framework. Reproducible experiments should record their input manifests and
-configuration digests, rather than committing transient output directories to
-the source repository.
+小论文阶段的150组结果属于已冻结历史流程的证据，不是V2控制器的回归目标，也不用于证明当前平台模型已经具备工程精度。
+
+## 数据和生成结果
+
+原始风况、处理后数据集、模型权重、论文图片和批量仿真结果不作为源码主体提交。可复现实验应通过配置文件、输入清单、模型身份、Git提交号和摘要文件定位数据，而不是依赖某个未说明来源的输出目录。
+
+进一步说明见：
+
+- [V2控制器框架](docs/controller_v2_framework.md)
+- [P1平台模型数学与物理口径](docs/p1_math_contract_reference_platform_decision.md)
+- [P2低阶平台模型实施状态](docs/p2_platform_model_status.md)
+- [验证协议V2](docs/validation_protocol_v2.md)
