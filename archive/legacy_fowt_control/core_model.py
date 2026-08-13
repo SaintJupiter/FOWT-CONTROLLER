@@ -1,6 +1,8 @@
 ﻿import numpy as np
 import pandas as pd
 import os
+import sys
+from pathlib import Path
 
 try:
     from scipy.interpolate import interp1d
@@ -29,13 +31,35 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency fallback
 
 from defaults import DEFAULT_PLATFORM_PROFILE, clone_cfg, resolve_platform_profile
 
+try:
+    from wind_prediction.ballast_mass_properties import (
+        compute_ballast_mass_properties,
+        compute_incremental_ballast_mass_properties,
+    )
+except ModuleNotFoundError:  # Compatibility for direct imports from the legacy folder.
+    _SRC_DIR = Path(__file__).resolve().parents[2] / "src"
+    if str(_SRC_DIR) not in sys.path:
+        sys.path.insert(0, str(_SRC_DIR))
+    from wind_prediction.ballast_mass_properties import (
+        compute_ballast_mass_properties,
+        compute_incremental_ballast_mass_properties,
+    )
+
 # ==============================================================================
 #  核心物理引擎 (Plant)
 #  对应架构中的: core_model.py (Part 1)
 # ==============================================================================
 
 class FloatingPlatform:
-    def __init__(self, stiffness_xlsx_path, pump_cfg=None, platform_profile=None, platform_cfg=None):
+    def __init__(
+        self,
+        stiffness_xlsx_path,
+        pump_cfg=None,
+        platform_profile=None,
+        platform_cfg=None,
+        allow_linear_mooring_fallback=False,
+        platform_profile_purpose="control",
+    ):
         """
         初始化浮式平台物理模型。
         :param stiffness_xlsx_path: 系泊刚度 Excel 文件路径（必须提供）
@@ -147,7 +171,6 @@ class FloatingPlatform:
         self._pump_near_target_s = np.array([0.0, 0.0, 0.0], dtype=float)
         self._pump_rate_smoothed_m3_min = np.array([0.0, 0.0, 0.0], dtype=float)
         self._pump_rate_released_m3_min = np.array([0.0, 0.0, 0.0], dtype=float)
-        self._pump_prev_target_ballast_mass = self.target_ballast_mass.copy()
         self._pump_global_quiet_s = 0.0
         self._pump_quiet_stop_blocked_prev = np.array([False, False, False], dtype=bool)
         self._pump_quiet_stop_block_count = 0
@@ -174,10 +197,91 @@ class FloatingPlatform:
         self.zetas = np.array([0.05, 0.05, 0.20, 0.08, 0.08, 0.05]) 
         self.C_lin = np.zeros((6,6))
         self.rao_params = {'surge_peak': 2.0e5, 'heave_peak': 5.0e5, 'pitch_peak': 1.0e7, 'cutoff_low': 0.5, 'cutoff_high': 0.8}
+        self.K_mooring_lin = np.array([2.0e5, 2.0e5, 0, 0, 0, 0])
         self.platform_profile_name = DEFAULT_PLATFORM_PROFILE
         self.platform_profile_cfg = {}
         self.platform_profile_cfg_effective = {}
+        self.platform_profile_status = "runtime"
+        self.platform_profile_purpose = str(platform_profile_purpose).strip().lower()
+        if self.platform_profile_purpose not in {
+            "control",
+            "framework_smoke",
+            "audit",
+        }:
+            raise ValueError(
+                "platform_profile_purpose must be 'control', "
+                "'framework_smoke' or 'audit'"
+            )
+        self.load_reference_mode = "legacy_mixed"
+        self.mass_property_mode = "legacy_diagonal"
+        self.mooring_reference_mode = "legacy_raw"
+        self.reference_property_mode = "assembled_dry_plus_baseline"
+        self.configured_reference_total_mass_kg = None
+        self.configured_reference_center_of_mass_m = None
+        self.configured_reference_inertia_about_reference_kg_m2 = None
         self._apply_platform_profile(platform_profile=platform_profile, platform_cfg=platform_cfg)
+        if (
+            self.platform_profile_status == "audit_only_not_for_control_validation"
+            and self.platform_profile_purpose != "audit"
+        ):
+            raise ValueError(
+                f"platform profile {self.platform_profile_name!r} is audit-only and "
+                "cannot be used for control validation"
+            )
+        self._pump_prev_target_ballast_mass = self.target_ballast_mass.copy()
+
+        # The research profile treats the initial working ballast as the zero-load
+        # reference. The submitted-paper default retains its historical behavior.
+        self.reference_ballast_mass = self.default_ballast.copy()
+        if self.reference_property_mode == "complete_reference":
+            self.reference_mass_properties = (
+                compute_incremental_ballast_mass_properties(
+                    reference_mass_kg=self.configured_reference_total_mass_kg,
+                    reference_center_of_mass_m=(
+                        self.configured_reference_center_of_mass_m
+                    ),
+                    reference_inertia_about_reference_kg_m2=(
+                        self.configured_reference_inertia_about_reference_kg_m2
+                    ),
+                    tank_mass_deltas_kg=np.zeros(3, dtype=float),
+                    tank_coordinates_m=self.tank_pos,
+                )
+            )
+        else:
+            dry_offset = np.asarray(self.cog_dry, dtype=float)
+            dry_inertia_reference = np.diag(
+                np.asarray(self.I_body, dtype=float)
+            ) + self.mass_dry * (
+                float(np.dot(dry_offset, dry_offset)) * np.eye(3)
+                - np.outer(dry_offset, dry_offset)
+            )
+            self.reference_mass_properties = compute_ballast_mass_properties(
+                dry_mass_kg=self.mass_dry,
+                dry_center_of_mass_m=self.cog_dry,
+                dry_inertia_about_reference_kg_m2=dry_inertia_reference,
+                tank_masses_kg=self.reference_ballast_mass,
+                tank_coordinates_m=self.tank_pos,
+            )
+        self.reference_total_mass = float(
+            self.reference_mass_properties.total_mass_kg
+        )
+        reference_inertia_diagonal = np.diag(
+            self.reference_mass_properties.inertia_about_reference_kg_m2
+        )
+        self.reference_added_mass_matrix = np.diag(
+            [
+                0.6 * self.reference_total_mass,
+                0.6 * self.reference_total_mass,
+                1.0 * self.reference_total_mass,
+                max(0.0, self.rot_inertia_multiplier_roll_pitch - 1.0)
+                * reference_inertia_diagonal[0],
+                max(0.0, self.rot_inertia_multiplier_roll_pitch - 1.0)
+                * reference_inertia_diagonal[1],
+                max(0.0, self.rot_inertia_multiplier_yaw - 1.0)
+                * reference_inertia_diagonal[2],
+            ]
+        )
+        self.mass_properties = None
         
         # 更新质量和阻尼矩阵
         self._update_mass_matrix()
@@ -185,14 +289,23 @@ class FloatingPlatform:
         # --- 6. 系泊系统 ---
         self.mooring_bounds = {'x': [-100, 100]}
         self.use_nonlinear_mooring = False
-        self.K_mooring_lin = np.array([2.0e5, 2.0e5, 0, 0, 0, 0])
         self.mooring_mode = "LINEAR"
         self.mooring_sign = 1.0
+        self.mooring_reference_force_raw = 0.0
+        self.mooring_source_path = None
+        self.allow_linear_mooring_fallback = bool(allow_linear_mooring_fallback)
         
         if stiffness_xlsx_path and os.path.exists(stiffness_xlsx_path):
             self._load_mooring_data(stiffness_xlsx_path)
+        elif self.allow_linear_mooring_fallback:
+            print(
+                f"!!! [Plant Warning] Mooring file not found at "
+                f"{stiffness_xlsx_path}. Using Linear Fallback."
+            )
         else:
-            print(f"!!! [Plant Warning] Mooring file not found at {stiffness_xlsx_path}. Using Linear Fallback.")
+            raise FileNotFoundError(
+                f"Mooring stiffness file not found: {stiffness_xlsx_path}"
+            )
 
         self._update_linear_damping()
 
@@ -204,15 +317,77 @@ class FloatingPlatform:
         # +roll=starboard-down, +pitch=bow-down, +yaw=turn-to-port.
 
     def _apply_platform_profile(self, platform_profile=None, platform_cfg=None):
+        override_cfg = dict(platform_cfg or {})
+        behavioral_identity_fields = {
+            "load_reference_mode",
+            "mass_property_mode",
+            "mooring_reference_mode",
+            "reference_property_mode",
+        }
+        requested_profile_name = (
+            DEFAULT_PLATFORM_PROFILE
+            if platform_profile is None
+            else str(platform_profile).strip() or DEFAULT_PLATFORM_PROFILE
+        )
+        identity_overrides = sorted(set(override_cfg) & behavioral_identity_fields)
+        if "profile_status" in override_cfg:
+            raise ValueError("platform_cfg cannot override profile_status")
+        if identity_overrides and requested_profile_name != DEFAULT_PLATFORM_PROFILE:
+            raise ValueError(
+                "named platform profiles cannot override identity fields: "
+                + ", ".join(identity_overrides)
+            )
+        required_behavior_modes = {
+            "load_reference_mode",
+            "mass_property_mode",
+            "mooring_reference_mode",
+        }
+        if identity_overrides and not required_behavior_modes.issubset(override_cfg):
+            raise ValueError(
+                "a custom platform identity must define load, mass-property and "
+                "mooring-reference modes together"
+            )
         profile_name, cfg = resolve_platform_profile(
             platform_profile=platform_profile,
             platform_cfg=platform_cfg,
         )
-        self.platform_profile_name = profile_name
+        self.platform_profile_base_name = profile_name
+        if identity_overrides:
+            self.platform_profile_name = "custom"
+        else:
+            self.platform_profile_name = (
+                profile_name if not override_cfg else f"{profile_name}+custom"
+            )
         self.platform_profile_cfg = clone_cfg(cfg)
         if not cfg:
             self.platform_profile_cfg_effective = {}
             return
+
+        supported_fields = {
+            "mass_dry",
+            "cog_dry",
+            "I_body",
+            "default_ballast",
+            "hydro_params",
+            "rot_inertia_multiplier_roll_pitch",
+            "rot_inertia_multiplier_yaw",
+            "zetas",
+            "K_mooring_lin",
+            "load_reference_mode",
+            "mass_property_mode",
+            "mooring_reference_mode",
+            "reference_property_mode",
+            "reference_total_mass_kg",
+            "reference_center_of_mass_m",
+            "reference_inertia_about_reference_kg_m2",
+            "profile_status",
+        }
+        unknown_fields = sorted(set(cfg) - supported_fields)
+        if unknown_fields:
+            raise ValueError(
+                "unsupported platform configuration fields: "
+                + ", ".join(unknown_fields)
+            )
 
         if "mass_dry" in cfg:
             self.mass_dry = float(cfg["mass_dry"])
@@ -235,6 +410,97 @@ class FloatingPlatform:
             self.zetas = np.asarray(cfg["zetas"], dtype=float)
         if "K_mooring_lin" in cfg:
             self.K_mooring_lin = np.asarray(cfg["K_mooring_lin"], dtype=float)
+        if "load_reference_mode" in cfg:
+            self.load_reference_mode = str(cfg["load_reference_mode"])
+        if "mass_property_mode" in cfg:
+            self.mass_property_mode = str(cfg["mass_property_mode"])
+        if "mooring_reference_mode" in cfg:
+            self.mooring_reference_mode = str(cfg["mooring_reference_mode"])
+        if "reference_property_mode" in cfg:
+            self.reference_property_mode = str(cfg["reference_property_mode"])
+        if "reference_total_mass_kg" in cfg:
+            self.configured_reference_total_mass_kg = float(
+                cfg["reference_total_mass_kg"]
+            )
+        if "reference_center_of_mass_m" in cfg:
+            self.configured_reference_center_of_mass_m = np.asarray(
+                cfg["reference_center_of_mass_m"], dtype=float
+            )
+        if "reference_inertia_about_reference_kg_m2" in cfg:
+            self.configured_reference_inertia_about_reference_kg_m2 = np.asarray(
+                cfg["reference_inertia_about_reference_kg_m2"], dtype=float
+            )
+        if "profile_status" in cfg:
+            self.platform_profile_status = str(cfg["profile_status"])
+
+        if self.load_reference_mode not in {"legacy_mixed", "reference_incremental"}:
+            raise ValueError(
+                f"unsupported load_reference_mode: {self.load_reference_mode}"
+            )
+        if self.mass_property_mode not in {
+            "legacy_diagonal",
+            "point_mass_diagonal",
+            "reference_delta_point_mass",
+        }:
+            raise ValueError(
+                f"unsupported mass_property_mode: {self.mass_property_mode}"
+            )
+        if self.mooring_reference_mode not in {"legacy_raw", "zero_at_reference"}:
+            raise ValueError(
+                f"unsupported mooring_reference_mode: {self.mooring_reference_mode}"
+            )
+        if self.reference_property_mode not in {
+            "assembled_dry_plus_baseline",
+            "complete_reference",
+        }:
+            raise ValueError(
+                f"unsupported reference_property_mode: {self.reference_property_mode}"
+            )
+        allowed_mode_sets = {
+            (
+                "legacy_mixed",
+                "legacy_diagonal",
+                "legacy_raw",
+            ),
+            (
+                "reference_incremental",
+                "reference_delta_point_mass",
+                "zero_at_reference",
+            ),
+        }
+        selected_modes = (
+            self.load_reference_mode,
+            self.mass_property_mode,
+            self.mooring_reference_mode,
+        )
+        if selected_modes not in allowed_mode_sets:
+            raise ValueError(
+                "incompatible platform profile modes: " + repr(selected_modes)
+            )
+        if self.reference_property_mode == "complete_reference":
+            missing_reference_fields = [
+                name
+                for name, value in (
+                    (
+                        "reference_total_mass_kg",
+                        self.configured_reference_total_mass_kg,
+                    ),
+                    (
+                        "reference_center_of_mass_m",
+                        self.configured_reference_center_of_mass_m,
+                    ),
+                    (
+                        "reference_inertia_about_reference_kg_m2",
+                        self.configured_reference_inertia_about_reference_kg_m2,
+                    ),
+                )
+                if value is None
+            ]
+            if missing_reference_fields:
+                raise ValueError(
+                    "complete_reference requires: "
+                    + ", ".join(missing_reference_fields)
+                )
 
         self.K_hydro[2] = self.rho * self.g * (3 * np.pi * self.hydro_params['r_col']**2)
         self.platform_profile_cfg_effective = {
@@ -246,11 +512,178 @@ class FloatingPlatform:
             "rot_inertia_multiplier_roll_pitch": float(self.rot_inertia_multiplier_roll_pitch),
             "rot_inertia_multiplier_yaw": float(self.rot_inertia_multiplier_yaw),
             "zetas": np.asarray(self.zetas, dtype=float).tolist(),
+            "load_reference_mode": self.load_reference_mode,
+            "mass_property_mode": self.mass_property_mode,
+            "mooring_reference_mode": self.mooring_reference_mode,
+            "reference_property_mode": self.reference_property_mode,
+            "profile_status": self.platform_profile_status,
         }
 
     # ==========================================================================
     #  对外接口 (API)
     # ==========================================================================
+
+    def resolved_platform_identity(self):
+        """Return the complete, JSON-compatible plant configuration in use.
+
+        The profile name alone is not a sufficient run identity because custom
+        overrides and actuator settings can change the realised plant.  This
+        snapshot is intentionally derived from resolved runtime values rather
+        than the originally requested configuration.
+        """
+        reference_properties = self.reference_mass_properties
+
+        def _finite_number_or_label(value):
+            number = float(value)
+            if np.isposinf(number):
+                return "positive_infinity"
+            if np.isneginf(number):
+                return "negative_infinity"
+            if np.isnan(number):
+                raise ValueError("resolved platform identity contains NaN")
+            return number
+        return {
+            "schema_version": "floating_platform_identity.v1",
+            "profile": {
+                "requested_name": self.platform_profile_name,
+                "base_name": self.platform_profile_base_name,
+                "status": self.platform_profile_status,
+                "purpose": self.platform_profile_purpose,
+            },
+            "model_modes": {
+                "load_reference": self.load_reference_mode,
+                "mass_properties": self.mass_property_mode,
+                "mooring_reference": self.mooring_reference_mode,
+                "reference_properties": self.reference_property_mode,
+            },
+            "constants": {
+                "seawater_density_kg_m3": float(self.rho),
+                "gravity_m_s2": float(self.g),
+            },
+            "structure": {
+                "dry_mass_kg": float(self.mass_dry),
+                "dry_center_of_mass_m": np.asarray(
+                    self.cog_dry, dtype=float
+                ).tolist(),
+                "dry_inertia_about_center_of_mass_kg_m2": np.asarray(
+                    self.I_body, dtype=float
+                ).tolist(),
+                "aerodynamic_load_arm_m": float(self.arm_aero),
+                "fairlead_position_m": np.asarray(
+                    self.r_fairlead, dtype=float
+                ).tolist(),
+            },
+            "ballast_system": {
+                "tank_positions_m": np.asarray(
+                    self.tank_pos, dtype=float
+                ).tolist(),
+                "reference_tank_masses_kg": np.asarray(
+                    self.reference_ballast_mass, dtype=float
+                ).tolist(),
+                "tank_capacity_kg": float(self.tank_capacity),
+                "pump_rate_schedule_m3_min": [
+                    [float(error), float(rate)]
+                    for error, rate in self.pump_rate_schedule_m3_min
+                ],
+                "pump_stop_error_kg": float(self.pump_stop_err_kg),
+                "pump_restart_error_kg": float(self.pump_restart_err_kg),
+                "pump_minimum_on_s": float(self.pump_min_on_s),
+                "pump_minimum_off_s": float(self.pump_min_off_s),
+                "pump_hold_before_stop_s": float(
+                    self.pump_hold_before_stop_s
+                ),
+                "pump_global_quiet_backlog_kg": _finite_number_or_label(
+                    self.pump_global_quiet_backlog_kg
+                ),
+                "pump_target_quiet_rate_kg_s": _finite_number_or_label(
+                    self.pump_target_quiet_rate_kg_s
+                ),
+                "pump_global_quiet_hold_s": float(
+                    self.pump_global_quiet_hold_s
+                ),
+                "pump_ramp_up_m3_min_per_s": _finite_number_or_label(
+                    self.pump_ramp_up_m3_min_per_s
+                ),
+                "pump_ramp_down_m3_min_per_s": _finite_number_or_label(
+                    self.pump_ramp_down_m3_min_per_s
+                ),
+                "pump_stage_hysteresis_kg": float(
+                    self.pump_stage_hysteresis_kg
+                ),
+                "pump_stage_minimum_dwell_s": float(
+                    self.pump_stage_min_dwell_s
+                ),
+                "pump_rate_release_time_constant_s": float(
+                    self.pump_rate_release_tau_s
+                ),
+                "pump_low_end_stage_hysteresis_kg": float(
+                    self.pump_low_end_stage_hysteresis_kg
+                ),
+                "pump_low_end_stage_minimum_dwell_s": float(
+                    self.pump_low_end_stage_min_dwell_s
+                ),
+                "pump_low_end_stage_maximum_index": int(
+                    self.pump_low_end_stage_max_idx
+                ),
+                "pump_allow_zero_rate_while_latched": bool(
+                    self.pump_stage_allow_zero_rate_latched
+                ),
+            },
+            "hydrodynamics": {
+                "parameters": {
+                    str(key): float(value)
+                    for key, value in sorted(self.hydro_params.items())
+                },
+                "hydrostatic_stiffness": np.asarray(
+                    self.K_hydro, dtype=float
+                ).tolist(),
+                "linear_damping_matrix": np.asarray(
+                    self.C_lin, dtype=float
+                ).tolist(),
+                "damping_ratios": np.asarray(
+                    self.zetas, dtype=float
+                ).tolist(),
+                "rotational_inertia_multiplier_roll_pitch": float(
+                    self.rot_inertia_multiplier_roll_pitch
+                ),
+                "rotational_inertia_multiplier_yaw": float(
+                    self.rot_inertia_multiplier_yaw
+                ),
+                "yaw_stiffness": float(self.K_yaw_stiffness),
+            },
+            "mooring": {
+                "mode": self.mooring_mode,
+                "uses_nonlinear_curve": bool(self.use_nonlinear_mooring),
+                "reference_sign": float(self.mooring_sign),
+                "reference_force_raw_n": float(self.mooring_reference_force_raw),
+                "linear_stiffness": np.asarray(
+                    self.K_mooring_lin, dtype=float
+                ).tolist(),
+                "bounds_m": {
+                    str(key): [float(item) for item in value]
+                    for key, value in sorted(self.mooring_bounds.items())
+                },
+                "linear_fallback_allowed": bool(
+                    self.allow_linear_mooring_fallback
+                ),
+            },
+            "reference_mass_properties": {
+                "total_mass_kg": float(reference_properties.total_mass_kg),
+                "center_of_mass_m": np.asarray(
+                    reference_properties.center_of_mass_m, dtype=float
+                ).tolist(),
+                "inertia_about_reference_kg_m2": np.asarray(
+                    reference_properties.inertia_about_reference_kg_m2,
+                    dtype=float,
+                ).tolist(),
+                "fixed_added_mass_matrix": np.asarray(
+                    self.reference_added_mass_matrix, dtype=float
+                ).tolist(),
+                "effective_mass_matrix": np.asarray(
+                    self.M_total, dtype=float
+                ).tolist(),
+            },
+        }
     
     def set_ballast_target(self, m1, m2, m3):
         """[Control Input] 设定目标压载量。"""
@@ -623,6 +1056,14 @@ class FloatingPlatform:
             self._update_mass_matrix()
             self._update_linear_damping()
         self._pump_prev_target_ballast_mass = self.target_ballast_mass.copy()
+        pump_mass_delta_kg = self.current_ballast_mass - previous_mass
+        if dt > 1e-12:
+            pump_net_rate_m3_min = pump_mass_delta_kg * 60.0 / (self.rho * dt)
+        else:
+            pump_net_rate_m3_min = np.zeros(3, dtype=float)
+        pump_inflow_m3_min = np.maximum(pump_net_rate_m3_min, 0.0)
+        pump_outflow_m3_min = np.maximum(-pump_net_rate_m3_min, 0.0)
+        ballast_total_delta_kg = float(np.sum(pump_mass_delta_kg))
 
         # 2. 刚体动力学 (RK4)
         y = self.state
@@ -655,8 +1096,12 @@ class FloatingPlatform:
             "pump_quiet_stop_block_count": int(self._pump_quiet_stop_block_count),
             "pump_latch_switch_step": np.array(pump_latch_switch_step, dtype=bool),
             "pump_latch_switch_count": int(self._pump_latch_switch_count),
-            "pump_delta": self.current_ballast_mass - previous_mass,
+            "pump_delta": pump_mass_delta_kg.copy(),
+            "tank_mass_delta_kg": pump_mass_delta_kg.copy(),
             "pump_rate_cmd_m3_min": np.array(pump_rate_cmd_m3_min),
+            "pump_net_rate_m3_min": pump_net_rate_m3_min.copy(),
+            "pump_inflow_m3_min": pump_inflow_m3_min.copy(),
+            "pump_outflow_m3_min": pump_outflow_m3_min.copy(),
             "pump_rate_target_m3_min": np.array(pump_rate_target_m3_min, dtype=float),
             "pump_rate_released_m3_min": np.array(pump_rate_released_m3_min, dtype=float),
             "pump_rate_smoothed_m3_min": self._pump_rate_smoothed_m3_min.copy(),
@@ -668,6 +1113,33 @@ class FloatingPlatform:
             "pump_off_elapsed_s": self._pump_off_elapsed_s.copy(),
             "pump_near_target_s": self._pump_near_target_s.copy(),
             "ballast_total": np.sum(self.current_ballast_mass),
+            "ballast_total_kg": float(np.sum(self.current_ballast_mass)),
+            "ballast_total_delta_kg": ballast_total_delta_kg,
+            "ballast_increment_kg": (
+                self.current_ballast_mass - self.reference_ballast_mass
+            ).copy(),
+            "load_reference_mode": self.load_reference_mode,
+            "mass_property_mode": self.mass_property_mode,
+            "mooring_reference_mode": self.mooring_reference_mode,
+            "platform_total_mass_kg": float(self.mass_properties.total_mass_kg),
+            "platform_center_of_mass_m": np.array(
+                self.mass_properties.center_of_mass_m,
+                dtype=float,
+                copy=True,
+            ),
+            "platform_inertia_diagonal_kg_m2": np.diag(
+                self.mass_properties.inertia_about_reference_kg_m2
+            ).copy(),
+            "platform_inertia_about_reference_kg_m2": np.array(
+                self.mass_properties.inertia_about_reference_kg_m2,
+                dtype=float,
+                copy=True,
+            ),
+            "platform_effective_mass_matrix": np.array(
+                self.M_total,
+                dtype=float,
+                copy=True,
+            ),
             "pitch_deg": np.degrees(self.state[4]),
             "roll_deg":  np.degrees(self.state[3]),
             "wind_thrust": thrust_N
@@ -682,20 +1154,93 @@ class FloatingPlatform:
     # ==========================================================================
     #  内部物理计算 (Internal Physics)
     # ==========================================================================
+
+    @staticmethod
+    def _skew(vector):
+        x, y, z = np.asarray(vector, dtype=float)
+        return np.array(
+            [[0.0, -z, y], [z, 0.0, -x], [-y, x, 0.0]],
+            dtype=float,
+        )
+
+    @classmethod
+    def _rigid_body_mass_matrix(cls, mass_properties):
+        mass = float(mass_properties.total_mass_kg)
+        center = np.asarray(mass_properties.center_of_mass_m, dtype=float)
+        inertia = np.asarray(
+            mass_properties.inertia_about_reference_kg_m2,
+            dtype=float,
+        )
+        center_skew = cls._skew(center)
+        matrix = np.zeros((6, 6), dtype=float)
+        matrix[:3, :3] = mass * np.eye(3)
+        matrix[:3, 3:] = -mass * center_skew
+        matrix[3:, :3] = mass * center_skew
+        matrix[3:, 3:] = inertia
+        return matrix
     
     def _update_mass_matrix(self):
-        m_ballast = np.sum(self.current_ballast_mass)
-        total_m = self.mass_dry + m_ballast
-        # 惯量矩阵修正
-        self.M_total = np.diag([
-            total_m * 1.6, total_m * 1.6, total_m * 2.0,
-            self.I_body[0] * self.rot_inertia_multiplier_roll_pitch,
-            self.I_body[1] * self.rot_inertia_multiplier_roll_pitch,
-            self.I_body[2] * self.rot_inertia_multiplier_yaw,
-        ])
+        if self.mass_property_mode == "reference_delta_point_mass":
+            self.mass_properties = compute_incremental_ballast_mass_properties(
+                reference_mass_kg=self.reference_mass_properties.total_mass_kg,
+                reference_center_of_mass_m=(
+                    self.reference_mass_properties.center_of_mass_m
+                ),
+                reference_inertia_about_reference_kg_m2=(
+                    self.reference_mass_properties.inertia_about_reference_kg_m2
+                ),
+                tank_mass_deltas_kg=(
+                    self.current_ballast_mass - self.reference_ballast_mass
+                ),
+                tank_coordinates_m=self.tank_pos,
+            )
+        else:
+            dry_inertia_cog = np.diag(np.asarray(self.I_body, dtype=float))
+            dry_offset = np.asarray(self.cog_dry, dtype=float)
+            dry_inertia_reference = dry_inertia_cog + self.mass_dry * (
+                float(np.dot(dry_offset, dry_offset)) * np.eye(3)
+                - np.outer(dry_offset, dry_offset)
+            )
+            self.mass_properties = compute_ballast_mass_properties(
+                dry_mass_kg=self.mass_dry,
+                dry_center_of_mass_m=self.cog_dry,
+                dry_inertia_about_reference_kg_m2=dry_inertia_reference,
+                tank_masses_kg=self.current_ballast_mass,
+                tank_coordinates_m=self.tank_pos,
+            )
+        total_m = float(self.mass_properties.total_mass_kg)
+        if self.mass_property_mode == "reference_delta_point_mass":
+            self.M_total = (
+                self._rigid_body_mass_matrix(self.mass_properties)
+                + self.reference_added_mass_matrix
+            )
+            if not np.allclose(self.M_total, self.M_total.T, atol=1e-8):
+                raise ValueError("effective mass matrix must remain symmetric")
+            if np.min(np.linalg.eigvalsh(self.M_total)) <= 0.0:
+                raise ValueError("effective mass matrix must remain positive definite")
+            rotational_inertia = np.diag(
+                self.mass_properties.inertia_about_reference_kg_m2
+            )
+        elif self.mass_property_mode == "point_mass_diagonal":
+            rotational_inertia = np.diag(
+                self.mass_properties.inertia_about_reference_kg_m2
+            )
+        else:
+            rotational_inertia = np.asarray(self.I_body, dtype=float)
+
+        if self.mass_property_mode != "reference_delta_point_mass":
+            self.M_total = np.diag([
+                total_m * 1.6, total_m * 1.6, total_m * 2.0,
+                rotational_inertia[0] * self.rot_inertia_multiplier_roll_pitch,
+                rotational_inertia[1] * self.rot_inertia_multiplier_roll_pitch,
+                rotational_inertia[2] * self.rot_inertia_multiplier_yaw,
+            ])
         self.M_inv = np.linalg.inv(self.M_total)
-        # 恢复力刚度修正
-        vol_disp = total_m / self.rho
+        if self.load_reference_mode == "reference_incremental":
+            restoring_mass = self.reference_total_mass
+        else:
+            restoring_mass = total_m
+        vol_disp = restoring_mass / self.rho
         self.K_hydro[3] = self.rho * self.g * vol_disp * self.hydro_params['GM_T']
         self.K_hydro[4] = self.rho * self.g * vol_disp * self.hydro_params['GM_L']
 
@@ -715,59 +1260,132 @@ class FloatingPlatform:
             if k_est[i] > 0:
                 self.C_lin[i,i] = 2 * self.zetas[i] * np.sqrt(self.M_total[i,i] * k_est[i])
 
+    def _generalized_load_components(self, t, state, thrust, wind_dir):
+        state_arr = np.asarray(state, dtype=float)
+        if state_arr.shape != (12,) or not np.all(np.isfinite(state_arr)):
+            raise ValueError("state must contain 12 finite values")
+        scalar_inputs = np.asarray([t, thrust, wind_dir], dtype=float)
+        if not np.all(np.isfinite(scalar_inputs)):
+            raise ValueError("time, thrust and wind direction must be finite")
+
+        pos = state_arr[0:6]
+        vel = state_arr[6:12]
+        wind_rad = np.radians(float(wind_dir))
+        wind = np.array(
+            [
+                thrust * np.cos(wind_rad),
+                thrust * np.sin(wind_rad),
+                0.0,
+                -thrust * np.sin(wind_rad) * self.arm_aero,
+                thrust * np.cos(wind_rad) * self.arm_aero,
+                0.0,
+            ],
+            dtype=float,
+        )
+        wave = np.asarray(self._get_wave_forces(float(t)), dtype=float)
+
+        quadratic_drag = np.zeros(6, dtype=float)
+        horizontal_speed = float(np.hypot(vel[0], vel[1]))
+        if horizontal_speed > 1e-5:
+            drag_scale = (
+                0.5
+                * self.rho
+                * self.hydro_params["Cd"]
+                * self.hydro_params["A_proj_surge"]
+                * horizontal_speed
+            )
+            quadratic_drag[0] = -drag_scale * vel[0]
+            quadratic_drag[1] = -drag_scale * vel[1]
+        quadratic_drag[2] = (
+            -0.5
+            * self.rho
+            * self.hydro_params["Cd"]
+            * self.hydro_params["A_proj_heave"]
+            * abs(vel[2])
+            * vel[2]
+        )
+
+        mooring = np.zeros(6, dtype=float)
+        force_x = self._get_mooring_force(pos[0], 0)
+        force_y = self._get_mooring_force(pos[1], 1)
+        mooring[0] = force_x
+        mooring[1] = force_y
+        mooring_moment = np.cross(self.r_fairlead, [force_x, force_y, 0.0])
+        mooring[3] = mooring_moment[0]
+        mooring[4] = mooring_moment[1]
+
+        hydrostatic = np.zeros(6, dtype=float)
+        hydrostatic[2] = -self.K_hydro[2] * pos[2]
+        hydrostatic[3] = -self.K_hydro[3] * pos[3]
+        hydrostatic[4] = -self.K_hydro[4] * pos[4]
+
+        yaw_restoring = np.zeros(6, dtype=float)
+        yaw_restoring[5] = -self.K_yaw_stiffness * pos[5]
+
+        dry_gravity = np.zeros(6, dtype=float)
+        if self.load_reference_mode == "legacy_mixed":
+            dry_gravity_force = np.array([0.0, 0.0, -self.mass_dry * self.g])
+            dry_gravity_moment = np.cross(self.cog_dry, dry_gravity_force)
+            dry_gravity[3] = dry_gravity_moment[0]
+            dry_gravity[4] = dry_gravity_moment[1]
+
+        ballast_gravity = np.zeros(6, dtype=float)
+        if self.load_reference_mode == "reference_incremental":
+            ballast_load_mass = (
+                self.current_ballast_mass - self.reference_ballast_mass
+            )
+        else:
+            ballast_load_mass = self.current_ballast_mass
+        ballast_gravity[2] = -float(np.sum(ballast_load_mass)) * self.g
+        for tank_mass, tank_position in zip(
+            ballast_load_mass,
+            self.tank_pos,
+        ):
+            if abs(float(tank_mass)) <= 1e-12:
+                continue
+            tank_moment = np.cross(
+                tank_position,
+                [0.0, 0.0, -float(tank_mass) * self.g],
+            )
+            ballast_gravity[3] += tank_moment[0]
+            ballast_gravity[4] += tank_moment[1]
+
+        linear_damping = -self.C_lin @ vel
+        components = {
+            "wind": wind,
+            "wave": wave,
+            "quadratic_drag": quadratic_drag,
+            "mooring": mooring,
+            "hydrostatic": hydrostatic,
+            "yaw_restoring": yaw_restoring,
+            "dry_gravity": dry_gravity,
+            "ballast_gravity": ballast_gravity,
+            "linear_damping": linear_damping,
+        }
+        total = np.zeros(6, dtype=float)
+        for values in components.values():
+            total += values
+        components["total"] = total
+        return components
+
+    def generalized_load_components(self, t, state, thrust, wind_dir):
+        """Return the generalized-load terms used by the 6-DOF equations.
+
+        The returned vectors follow ``[X, Y, Z, K, M, N]`` in the platform
+        frame. This method is free of state mutation, and returned arrays are
+        detached from the integrator's internal calculation.
+        """
+
+        components = self._generalized_load_components(t, state, thrust, wind_dir)
+        return {
+            name: np.array(values, dtype=float, copy=True)
+            for name, values in components.items()
+        }
+
     def _dynamics(self, t, state, thrust, wind_dir):
-        pos = state[0:6]; vel = state[6:12]
-        
-        # 1. Forces
-        w_rad = np.radians(wind_dir)
-        F_wind = np.array([thrust*np.cos(w_rad), thrust*np.sin(w_rad), 0, 
-                           -thrust*np.sin(w_rad)*self.arm_aero, thrust*np.cos(w_rad)*self.arm_aero, 0])
-        
-        F_wave = self._get_wave_forces(t)
-        
-        # 2. Coupled Quadratic Drag
-        v_h = np.sqrt(vel[0]**2 + vel[1]**2)
-        F_drag = np.zeros(6)
-        if v_h > 1e-5:
-            # 水平方向耦合阻力
-            fd = 0.5 * self.rho * self.hydro_params['Cd'] * self.hydro_params['A_proj_surge'] * v_h
-            F_drag[0] = -fd * vel[0]; F_drag[1] = -fd * vel[1]
-        F_drag[2] = -0.5 * self.rho * self.hydro_params['Cd'] * self.hydro_params['A_proj_heave'] * abs(vel[2]) * vel[2]
-        
-        # 3. Restore (Mooring + Hydro + Gravity)
-        F_restore = np.zeros(6)
-        
-        # Mooring [Fix C]
-        f_x = self._get_mooring_force(pos[0], 0)
-        f_y = self._get_mooring_force(pos[1], 1) 
-        F_restore[0] += f_x; F_restore[1] += f_y
-        m_moor = np.cross(self.r_fairlead, [f_x, f_y, 0])
-        F_restore[3] += m_moor[0]; F_restore[4] += m_moor[1]
-        
-        # Hydrostatic
-        F_restore[2] -= self.K_hydro[2] * pos[2]
-        F_restore[3] -= self.K_hydro[3] * pos[3]
-        F_restore[4] -= self.K_hydro[4] * pos[4]
-        F_restore[5] -= self.K_yaw_stiffness * pos[5]
-        
-        # [NEW] Dry Mass Gravity Moment (Offset COG)
-        # 干重重心偏移产生的恢复力矩（用于平衡压载不平衡）。
-        F_g_dry = np.array([0.0, 0.0, -self.mass_dry * self.g])
-        M_g_dry = np.cross(self.cog_dry, F_g_dry) 
-        F_restore[3] += M_g_dry[0]
-        F_restore[4] += M_g_dry[1]
-        
-        # Ballast Gravity (Moment)
-        total_w = np.sum(self.current_ballast_mass) * self.g
-        F_restore[2] -= total_w
-        for i in range(3):
-            m = self.current_ballast_mass[i]
-            if m > 0:
-                M_b = np.cross(self.tank_pos[i], [0, 0, -m*self.g])
-                F_restore[3] += M_b[0]; F_restore[4] += M_b[1]
-                
-        acc = self.M_inv @ (F_wind + F_wave + F_restore + F_drag - self.C_lin @ vel)
-        return np.concatenate((vel, acc))
+        loads = self._generalized_load_components(t, state, thrust, wind_dir)
+        acc = self.M_inv @ loads["total"]
+        return np.concatenate((np.asarray(state, dtype=float)[6:12], acc))
 
     def _get_mooring_force(self, disp, dof_idx):
         """[Fix C] 系泊力计算，增加 dof_idx 参数。"""
@@ -776,7 +1394,9 @@ class FloatingPlatform:
         
         d_clamp = np.clip(disp, self.mooring_bounds['x'][0], self.mooring_bounds['x'][1])
         val = float(self.f_surge_raw(d_clamp))
-        if self.mooring_mode == "TABLE_ABS": 
+        if self.mooring_reference_mode == "zero_at_reference":
+            val -= self.mooring_reference_force_raw
+        if self.mooring_mode == "TABLE_ABS":
             return (-1 if disp >=0 else 1) * abs(val)
         return self.mooring_sign * val
 
@@ -788,24 +1408,33 @@ class FloatingPlatform:
             cx = next((c for c in cols if any(k in c for k in ['offsetx','x-axis','x_disp'])), None)
             cf = next((c for c in cols if any(k in c for k in ['force','tension'])), None)
             
-            if cx and cf:
-                d = df[[cx, cf]].dropna().astype(float).sort_values(by=cx).drop_duplicates(subset=cx)
-                self.f_surge_raw = interp1d(d[cx], d[cf], bounds_error=False, fill_value=(d[cf].iloc[0], d[cf].iloc[-1]))
-                self.mooring_bounds['x'] = [d[cx].min(), d[cx].max()]
-                self.use_nonlinear_mooring = True
-                
-                v_pos = float(self.f_surge_raw(10.0))
-                v_neg = float(self.f_surge_raw(-10.0))
-                if v_pos * v_neg < 0:
-                    self.mooring_mode = "TABLE_SIGNED"
-                    self.mooring_sign = -1.0 if v_pos > 0 else 1.0
-                else:
-                    self.mooring_mode = "TABLE_ABS"
-                    self.mooring_sign = -1.0
+            if not cx or not cf:
+                raise ValueError(
+                    "mooring workbook must contain displacement and force columns; "
+                    f"available columns: {cols}"
+                )
+            d = df[[cx, cf]].dropna().astype(float).sort_values(by=cx).drop_duplicates(subset=cx)
+            if len(d) < 2:
+                raise ValueError("mooring workbook must contain at least two valid rows")
+            self.f_surge_raw = interp1d(d[cx], d[cf], bounds_error=False, fill_value=(d[cf].iloc[0], d[cf].iloc[-1]))
+            self.mooring_reference_force_raw = float(self.f_surge_raw(0.0))
+            self.mooring_bounds['x'] = [d[cx].min(), d[cx].max()]
+            self.use_nonlinear_mooring = True
+            self.mooring_source_path = str(os.path.realpath(path))
+
+            v_pos = float(self.f_surge_raw(10.0))
+            v_neg = float(self.f_surge_raw(-10.0))
+            if v_pos * v_neg < 0:
+                self.mooring_mode = "TABLE_SIGNED"
+                self.mooring_sign = -1.0 if v_pos > 0 else 1.0
             else:
-                print("!!! Mooring cols missing. Using Linear.")
+                self.mooring_mode = "TABLE_ABS"
+                self.mooring_sign = -1.0
         except Exception as e:
-            print(f"!!! Mooring Load Error: {e}. Using Linear.")
+            if self.allow_linear_mooring_fallback:
+                print(f"!!! Mooring Load Error: {e}. Using Linear Fallback.")
+                return
+            raise ValueError(f"Invalid mooring stiffness workbook {path}: {e}") from e
 
     def _get_wave_forces(self, t):
         F = np.zeros(6)

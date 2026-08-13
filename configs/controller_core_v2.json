@@ -16,6 +16,7 @@
     "normal_ratio": 0.15,
     "strengthen_ratio": 0.35,
     "reverse_ratio": 0.12,
+    "minimum_action_demand_ratio": 0.20,
     "compensation_retention": 0.9,
     "w_residual": 10.0,
     "w_terminal_residual": 20.0,

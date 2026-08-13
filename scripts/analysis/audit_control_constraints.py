@@ -170,15 +170,15 @@ def build_audit() -> dict[str, Any]:
             rationale="Same as ramp-up; this should not be removed in safety-realistic mode.",
         ),
         item(
-            key="command_rate_limiter.rate_limit_m3_min",
+            key="target_slew_limiter.target_slew_rate_m3_min",
             value=10.0,
             unit="m3/min",
             subsystem="command_chain",
             classification="authority_shaping_tuning",
             safety_realistic="keep_base",
             research_minimal="remove_if_plant_rate_schedule_kept",
-            source_refs=["archive/legacy_fowt_control/defaults.py:80", "archive/legacy_fowt_control/controllers_extras.py:59-89"],
-            rationale="This is an upper-layer target limiter in addition to the plant pump schedule. For prediction-primary research it can duplicate physical rate limits.",
+            source_refs=["archive/legacy_fowt_control/defaults.py", "archive/legacy_fowt_control/target_execution.py"],
+            rationale="This shapes target-water changes; the plant remains the sole owner of pump flow and tank-mass dynamics. Sensitivity studies may disable target shaping while retaining the physical pump model.",
         ),
         item(
             key="deadband_pitch",

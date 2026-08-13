@@ -1,0 +1,191 @@
+{
+  "schema_version": 1,
+  "identity": {
+    "name": "VolturnUS-S / IEA-15-240-RWT OpenFAST reference",
+    "model_version": "IEAWindSystems IEA-15-240-RWT v1.1.16",
+    "status": "evidence_only_not_yet_a_controller_plant",
+    "reference_point": "SWL and tower-axis intersection",
+    "coordinate_system": "OpenFAST platform reference frame"
+  },
+  "manifest_scope": {
+    "role": "source_facts_only_no_runtime_assembly",
+    "runtime_assembly_status": "not_defined_pending_user_confirmation",
+    "statement": "Values are transcribed from identified public files. This manifest does not decide which object scope or matrix combination forms the research plant."
+  },
+  "sources": {
+    "model_zip": {
+      "path": "references/fowt_reference_models/3_核心必用_官方模型文件包_IEAWindSystems_v1.1.16/IEAWindSystems_IEA-15-240-RWT_v1.1.16.zip",
+      "sha256": "c96c6be345abf9440170764e2d9a2c201b5da6191192cef66537c5bc16805b80"
+    },
+    "definition_report": {
+      "path": "references/fowt_reference_models/1_核心必用_平台定义报告_VolturnUS-S/NREL_TP_76773_VolturnUS-S_reference_platform.pdf",
+      "sha256": "0d13ae4d857115f42db629cb58f7d3a620e8abe0c6a145dfd28f7d727a8d5823"
+    }
+  },
+  "archive_members": {
+    "elastodyn": "IEA-15-240-RWT-1.1.16/OpenFAST/IEA-15-240-RWT-UMaineSemi/IEA-15-240-RWT-UMaineSemi_ElastoDyn.dat",
+    "hydrodyn": "IEA-15-240-RWT-1.1.16/OpenFAST/IEA-15-240-RWT-UMaineSemi/IEA-15-240-RWT-UMaineSemi_HydroDyn.dat",
+    "wamit_hydrostatic": "IEA-15-240-RWT-1.1.16/OpenFAST/IEA-15-240-RWT-UMaineSemi/HydroData/IEA-15-240-RWT-UMaineSemi.hst",
+    "wamit_added_mass": "IEA-15-240-RWT-1.1.16/OpenFAST/IEA-15-240-RWT-UMaineSemi/HydroData/IEA-15-240-RWT-UMaineSemi.1",
+    "wamit_second_order_force_control": "IEA-15-240-RWT-1.1.16/OpenFAST/IEA-15-240-RWT-UMaineSemi/HydroData/wamit_inputs_2ndOrder/IEA-15-240-RWT_2nd.frc",
+    "moordyn": "IEA-15-240-RWT-1.1.16/OpenFAST/IEA-15-240-RWT-UMaineSemi/IEA-15-240-RWT-UMaineSemi_MoorDyn.dat"
+  },
+  "value_provenance": {
+    "platform_mass_and_inertia": {
+      "member": "elastodyn",
+      "source_lines": "64-86",
+      "fields": ["TowerHt", "TowerBsHt", "PtfmCMxt", "PtfmCMyt", "PtfmCMzt", "PtfmMass", "PtfmRIner", "PtfmPIner", "PtfmYIner"],
+      "transformation": "identity; source values are already dimensional SI quantities"
+    },
+    "displaced_volume_and_wamit_scale": {
+      "member": "hydrodyn",
+      "source_lines": "18-24",
+      "fields": ["PotFile", "WAMITULEN", "PtfmVol0"],
+      "transformation": "identity for PtfmVol0; WAMITULEN=1 m"
+    },
+    "hydrostatic_hull_stiffness_about_prp": {
+      "member": "wamit_hydrostatic",
+      "source_lines": "1-36",
+      "transformation": "OpenFAST redimensionalization with rho=1025 kg/m^3, g=9.81 m/s^2 and WAMITULEN=1 m; stored values are rounded dimensional transcriptions",
+      "relative_transcription_tolerance": 0.0005
+    },
+    "infinite_frequency_added_mass_about_prp": {
+      "member": "wamit_added_mass",
+      "source_lines": "19-36 at period marker 0",
+      "transformation": "OpenFAST redimensionalization with rho=1025 kg/m^3 and WAMITULEN=1 m; reciprocal terms may collapse to one rounded value",
+      "relative_transcription_tolerance": 0.005
+    },
+    "whole_system_mass_and_local_mooring_stiffness": {
+      "member": "wamit_second_order_force_control",
+      "source_lines": "3-25",
+      "transformation": "identity; auxiliary WAMIT force-control input already stores dimensional SI values"
+    },
+    "mooring_geometry": {
+      "member": "moordyn",
+      "source_lines": "7-22",
+      "transformation": "identity; source values are already dimensional SI quantities"
+    },
+    "report_only_geometry": {
+      "member": "definition_report",
+      "source_note": "Displaced geometry and reference ballast inventory are taken from NREL/TP-5000-76773; they are not interpreted as active-tank geometry."
+    },
+    "report_static_vertical_balance": {
+      "member": "definition_report",
+      "source_note": "NREL/TP-5000-76773 reports the assembled mass, displaced volume and total mooring vertical pretension at the installed 20 m draft. These rounded report values are retained only as equilibrium evidence and do not replace the executable OpenFAST mass matrix."
+    },
+    "report_hydrostatic_mass_separation": {
+      "member": "definition_report",
+      "source_page": "PDF page 14, report Section 2.1 immediately before Table 3",
+      "source_note": "The report states that the WAMIT roll and pitch entries contain the water-plane and center-of-buoyancy contribution, while the mass contribution is calculated separately by OpenFAST."
+    }
+  },
+  "direct_model_values": {
+    "platform_mass_kg": 17838000.0,
+    "platform_center_of_mass_m": [0.0, 0.0, -14.4],
+    "platform_inertia_about_platform_cm_kg_m2": [
+      [12507000000.0, 0.0, 0.0],
+      [0.0, 12507000000.0, 0.0],
+      [0.0, 0.0, 23667000000.0]
+    ],
+    "displaced_volume_m3": 20206.34889,
+    "hub_height_above_swl_m": 150.0,
+    "tower_base_height_above_swl_m": 15.0,
+    "outer_column_center_radius_m": 51.75,
+    "hydrostatic_hull_stiffness_about_prp": [
+      [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      [0.0, 0.0, 4454960.0, 0.0, -4032.0, 0.0],
+      [0.0, 0.0, 0.0, 2194460000.0, 0.0, -91304.0],
+      [0.0, 0.0, -4032.0, 0.0, 2194220000.0, 0.0],
+      [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    ],
+    "infinite_frequency_added_mass_about_prp": [
+      [9640000.0, 0.0, 0.0, 0.0, -101000000.0, 0.0],
+      [0.0, 9640000.0, 0.0, 101000000.0, 0.0, 0.0],
+      [0.0, 0.0, 24800000.0, 0.0, 0.0, 0.0],
+      [0.0, 101000000.0, 0.0, 11600000000.0, 0.0, 0.0],
+      [-101000000.0, 0.0, 0.0, 0.0, 11600000000.0, 0.0],
+      [0.0, 0.0, 0.0, 0.0, 0.0, 20100000000.0]
+    ]
+  },
+  "auxiliary_wamit_second_order_values": {
+    "whole_system_mass_kg_rounded": 20100000.0,
+    "whole_system_center_of_mass_m": [0.0, 0.0, -2.32],
+    "whole_system_rigid_body_mass_matrix_about_prp": [
+      [20100000.0, 0.0, 0.0, 0.0, -46600000.0, 0.0],
+      [0.0, 20100000.0, 0.0, 46600000.0, 0.0, 0.0],
+      [0.0, 0.0, 20100000.0, 0.0, 0.0, 0.0],
+      [0.0, 46600000.0, 0.0, 42600000000.0, 0.0, 0.0],
+      [-46600000.0, 0.0, 0.0, 0.0, 42600000000.0, 0.0],
+      [0.0, 0.0, 0.0, 0.0, 0.0, 23700000000.0]
+    ],
+    "linearized_mooring_stiffness_about_prp": [
+      [71920.0, 0.0, -0.3587, 0.0, 1145000.0, 0.0],
+      [0.0, 71920.0, 0.0, -1145000.0, 0.0, 21.65],
+      [-0.3587, 0.0, 60760.0, 0.0, -3.198, 0.0],
+      [0.0, -1145000.0, 0.0, 258700000.0, 0.0, 399.5],
+      [1145000.0, 0.0, -3.198, 0.0, 258700000.0, 0.0],
+      [0.0, 21.65, 0.0, -19.08, 0.0, 252400000.0]
+    ]
+  },
+  "report_static_balance_evidence": {
+    "installed_draft_m": 20.0,
+    "total_system_mass_kg": 20093000.0,
+    "displaced_volume_m3": 20206.0,
+    "seawater_density_kg_m3": 1025.0,
+    "gravity_m_s2": 9.81,
+    "total_mooring_vertical_pretension_n": 6065000.0,
+    "single_line_fairlead_pretension_n": 2437000.0,
+    "fairlead_angle_from_swl_deg": 56.4,
+    "value_status": "rounded_report_evidence_not_runtime_replacement"
+  },
+  "representation_groups": {
+    "platform_only_structural_properties": {
+      "path": "/direct_model_values/platform_mass_kg",
+      "object_scope": "ElastoDyn platform object",
+      "assembly_status": "source_fact_not_selected"
+    },
+    "whole_system_rigid_body_properties": {
+      "path": "/auxiliary_wamit_second_order_values/whole_system_rigid_body_mass_matrix_about_prp",
+      "object_scope": "auxiliary WAMIT whole-system representation",
+      "assembly_status": "source_fact_not_selected"
+    },
+    "hydrodynamic_added_mass": {
+      "path": "/direct_model_values/infinite_frequency_added_mass_about_prp",
+      "object_scope": "potential-flow body about the WAMIT/OpenFAST reference point",
+      "assembly_status": "source_fact_not_selected"
+    },
+    "selection_rule": "Platform-only and whole-system rigid-body representations are mutually exclusive candidates until a runtime assembly recipe defines object scope, reference point transformation and included fixed ballast. Added mass may only be combined after that recipe is confirmed."
+  },
+  "version_differences": [
+    "NREL/TP-5000-76773 reports platform center of mass z=-14.94 m, while the v1.1.16 ElastoDyn file uses z=-14.4 m.",
+    "The report contains platform-mass values of 17839 t and 17854 t in different locations, while v1.1.16 uses 17838 t.",
+    "Values from the report and v1.1.16 must not be averaged or silently mixed. Runtime mapping must freeze one executable identity."
+  ],
+  "raw_matrix_notes": [
+    "The WAMIT .hst and auxiliary second-order .frc matrices contain small nonsymmetric off-diagonal entries in the source files.",
+    "The hydrostatic and auxiliary .frc entries retain the rounded source asymmetry. The added-mass matrix is a rounded dimensional transcription whose reciprocal terms may collapse to one value.",
+    "A runtime model must record any further symmetrization or coordinate transformation instead of changing the evidence silently."
+  ],
+  "active_ballast_boundary": {
+    "public_reference_fluid_ballast_kg": 11300000.0,
+    "public_location_description": "primarily distributed through the three submerged pontoons",
+    "local_three_point_tank_geometry_status": "research_assumption_not_direct_mapping",
+    "local_tank_center_radius_m": 46.2,
+    "local_tank_center_z_m": -10.0,
+    "local_single_tank_capacity_m3": 1850.0,
+    "local_nominal_pump_rate_m3_min": 15.0,
+    "local_variable_pump_schedule_status": "research_assumption_not_public_reference_parameter",
+    "required_runtime_form": "complete reference properties plus signed controllable tank increments"
+  },
+  "prohibited_interpretations": [
+    "Do not call platform mass a dry mass; it already includes fixed and fluid reference ballast.",
+    "Do not infer active tank centers from the 51.75 m outer-column radius.",
+    "Do not infer active tank capacity from the 11300 t reference ballast inventory.",
+    "Do not back-solve a total GM from the WAMIT hull-only roll or pitch stiffness.",
+    "Do not use a period-fit inertia multiplier as a direct public parameter.",
+    "Do not use this evidence manifest as a controller plant until a separate runtime assembly recipe is confirmed and reference-frame and open-loop acceptance tests pass.",
+    "Do not add the platform-only and whole-system rigid-body representations together.",
+    "Do not combine any rigid-body representation with added mass merely because the resulting matrix is positive definite."
+  ]
+}

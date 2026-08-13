@@ -213,11 +213,24 @@ def _severity_for_count(count: int, warn: int, critical: int | None = None) -> s
 
 def build_findings(config: dict[str, Any]) -> list[Finding]:
     provider_path = REPO_ROOT / "src" / "wind_prediction" / "ballast_planner_provider.py"
+    provider_module_paths = [
+        provider_path,
+        *sorted(
+            (REPO_ROOT / "src" / "wind_prediction").glob("provider_*.py")
+        ),
+    ]
     planner_path = REPO_ROOT / "src" / "wind_prediction" / "ballast_planner.py"
     casebook_path = REPO_ROOT / "scripts" / "analysis" / "run_prediction_primary_casebook.py"
+    profile_resolver_path = (
+        REPO_ROOT / "src" / "wind_prediction" / "casebook_profile_resolver.py"
+    )
+    validation_entry_path = (
+        REPO_ROOT / "scripts" / "validation" / "run_control_protocol.py"
+    )
     profile_gate_path = REPO_ROOT / "src" / "wind_prediction" / "casebook_profile_gate.py"
     contracts_path = REPO_ROOT / "src" / "wind_prediction" / "control_contracts.py"
     forecast_contract_path = REPO_ROOT / "src" / "wind_prediction" / "forecast_contract.py"
+    forecast_admission_path = REPO_ROOT / "src" / "wind_prediction" / "forecast_admission.py"
     target_lifecycle_path = REPO_ROOT / "src" / "wind_prediction" / "target_lifecycle.py"
     safety_supervisor_path = REPO_ROOT / "src" / "wind_prediction" / "safety_supervisor.py"
 
@@ -229,34 +242,51 @@ def build_findings(config: dict[str, Any]) -> list[Finding]:
 
     findings: list[Finding] = []
 
-    provider_lines = _line_count(provider_path)
+    provider_module_lines = {
+        str(path.relative_to(REPO_ROOT)): _line_count(path)
+        for path in provider_module_paths
+        if path.exists()
+    }
+    provider_lines = max(provider_module_lines.values(), default=0)
+    provider_total_lines = sum(provider_module_lines.values())
     findings.append(
         Finding(
             id="provider_size",
             severity=_severity_for_count(provider_lines, provider_warn, critical=12000),
             status="confirmed",
-            summary="BallastPlannerPreviewProvider remains too large for reliable control reasoning.",
-            evidence={"file": str(provider_path.relative_to(REPO_ROOT)), "line_count": provider_lines},
-            recommendation="Extract telemetry, target lifecycle, safety supervisor, and forecast trust before adding new signal logic.",
+            summary="Provider behavior is split into bounded responsibility modules.",
+            evidence={
+                "public_entry": str(provider_path.relative_to(REPO_ROOT)),
+                "largest_module_line_count": provider_lines,
+                "total_implementation_line_count": provider_total_lines,
+                "module_line_counts": provider_module_lines,
+            },
+            recommendation="Keep each behavior group local and continue reducing the state/configuration interface before changing algorithms.",
         )
     )
 
-    init_params = _class_init_param_count(provider_path, "BallastPlannerPreviewProvider")
+    provider_state_path = REPO_ROOT / "src" / "wind_prediction" / "provider_state.py"
+    init_params = _class_init_param_count(provider_state_path, "ProviderStateMixin")
     findings.append(
         Finding(
             id="provider_init_params",
             severity=_severity_for_count(init_params, provider_param_warn, critical=250),
             status="confirmed",
             summary="Provider constructor exposes too many control and diagnostic switches.",
-            evidence={"file": str(provider_path.relative_to(REPO_ROOT)), "init_param_count": init_params},
+            evidence={"file": str(provider_state_path.relative_to(REPO_ROOT)), "init_param_count": init_params},
             recommendation="Move profile identity to config and extract grouped option objects before behavior changes.",
         )
     )
 
     forbidden = list(config.get("forbidden_in_production", []))
-    provider_text = _read_text(provider_path)
+    provider_text = "\n".join(
+        _read_text(path) for path in provider_module_paths if path.exists()
+    )
     planner_text = _read_text(planner_path)
     casebook_text = _read_text(casebook_path)
+    profile_resolver_text = (
+        _read_text(profile_resolver_path) if profile_resolver_path.exists() else ""
+    )
     profile_gate_text = _read_text(profile_gate_path) if profile_gate_path.exists() else ""
     target_lifecycle_text = (
         _read_text(target_lifecycle_path) if target_lifecycle_path.exists() else ""
@@ -264,7 +294,15 @@ def build_findings(config: dict[str, Any]) -> list[Finding]:
     safety_supervisor_text = (
         _read_text(safety_supervisor_path) if safety_supervisor_path.exists() else ""
     )
-    all_runtime_text = provider_text + "\n" + planner_text + "\n" + casebook_text
+    all_runtime_text = (
+        provider_text
+        + "\n"
+        + planner_text
+        + "\n"
+        + casebook_text
+        + "\n"
+        + profile_resolver_text
+    )
     counts = _token_counts(all_runtime_text, forbidden)
     total_redundant_refs = sum(counts.values())
     findings.append(
@@ -395,7 +433,9 @@ def build_findings(config: dict[str, Any]) -> list[Finding]:
         target_lifecycle_path.exists()
         and "def apply_primary_target_state_defaults" in target_lifecycle_text
         and "def plant_primary_masses" in target_lifecycle_text
-        and target_helper_call_count >= 2
+        # Construction delegates to reset(), so one canonical default-state
+        # call is expected. Two calls would reintroduce duplicate ownership.
+        and target_helper_call_count == 1
         and not old_default_block_residue
         and direct_target_mass_reads == 0
         and not missing_target_default_fields
@@ -407,7 +447,9 @@ def build_findings(config: dict[str, Any]) -> list[Finding]:
             status="passed" if target_lifecycle_defaults_extracted else "failed",
             summary="Primary target default state should be centralized outside the provider.",
             evidence={
-                "provider_file": str(provider_path.relative_to(REPO_ROOT)),
+                "provider_modules": [
+                    str(path.relative_to(REPO_ROOT)) for path in provider_module_paths
+                ],
                 "target_lifecycle_file": str(
                     target_lifecycle_path.relative_to(REPO_ROOT)
                 ),
@@ -417,6 +459,37 @@ def build_findings(config: dict[str, Any]) -> list[Finding]:
                 "missing_default_fields": missing_target_default_fields,
             },
             recommendation="Keep initialization and reset on the target lifecycle helper before extracting pause/resume/release behavior.",
+        )
+    )
+
+    forecast_admission_text = (
+        _read_text(forecast_admission_path) if forecast_admission_path.exists() else ""
+    )
+    trusted_event_gate_extracted = (
+        forecast_admission_path.exists()
+        and "class TrustedEventGateConfig" in forecast_admission_text
+        and "def trusted_event_gate" in forecast_admission_text
+        and "return trusted_event_gate(" in provider_text
+    )
+    findings.append(
+        Finding(
+            id="trusted_event_gate_extracted",
+            severity="ok" if trusted_event_gate_extracted else "medium",
+            status="passed" if trusted_event_gate_extracted else "failed",
+            summary="Forecast-event admission should remain a tested control-facing module.",
+            evidence={
+                "provider_file": str(provider_path.relative_to(REPO_ROOT)),
+                "forecast_admission_file": str(
+                    forecast_admission_path.relative_to(REPO_ROOT)
+                ),
+                "config_type_present": "class TrustedEventGateConfig"
+                in forecast_admission_text,
+                "gate_function_present": "def trusted_event_gate"
+                in forecast_admission_text,
+                "provider_delegates_to_gate": "return trusted_event_gate("
+                in provider_text,
+            },
+            recommendation="Keep event thresholds and fail-closed probability shaping in forecast_admission.py before extracting broader forecast trust decisions.",
         )
     )
 
@@ -475,7 +548,7 @@ def build_findings(config: dict[str, Any]) -> list[Finding]:
         and "def apply_reactive_floor_state_defaults" in safety_supervisor_text
         and "def reactive_floor_posture_metrics" in safety_supervisor_text
         and "def posture_vector_deg" in safety_supervisor_text
-        and reactive_floor_default_helper_calls >= 2
+        and reactive_floor_default_helper_calls == 1
         and reactive_floor_posture_metrics_calls >= 2
         and not provider_theta_total_method_residue
         and not missing_reactive_floor_default_fields
@@ -487,7 +560,9 @@ def build_findings(config: dict[str, Any]) -> list[Finding]:
             status="passed" if safety_supervisor_first_slice else "failed",
             summary="Reactive-floor safety state and posture metrics should be centralized before deeper supervisor extraction.",
             evidence={
-                "provider_file": str(provider_path.relative_to(REPO_ROOT)),
+                "provider_modules": [
+                    str(path.relative_to(REPO_ROOT)) for path in provider_module_paths
+                ],
                 "safety_supervisor_file": str(
                     safety_supervisor_path.relative_to(REPO_ROOT)
                 ),
@@ -608,7 +683,11 @@ def build_findings(config: dict[str, Any]) -> list[Finding]:
     known_registered = set().union(*registry_groups.values()) if registry_groups else set()
     known_allowed = {production, *diagnostics}
     choice_profiles = _primary_control_choices(casebook_path)
-    branch_profiles = _primary_control_branch_names(casebook_path)
+    branch_profiles = (
+        _primary_control_branch_names(profile_resolver_path)
+        if profile_resolver_path.exists()
+        else _primary_control_branch_names(casebook_path)
+    )
     profiles = sorted(choice_profiles | branch_profiles | known_registered)
     registry_gated_entry = (
         "--primary-control-profile" in casebook_text
@@ -630,9 +709,10 @@ def build_findings(config: dict[str, Any]) -> list[Finding]:
             id="casebook_profile_sprawl",
             severity=sprawl_severity,
             status="confirmed",
-            summary="Casebook script still contains many profile names beyond the canonical production profile.",
+            summary="Historical profile names remain numerous but are isolated from the simulation runner.",
             evidence={
                 "file": str(casebook_path.relative_to(REPO_ROOT)),
+                "profile_resolver": str(profile_resolver_path.relative_to(REPO_ROOT)),
                 "profile_count": len(profiles),
                 "choice_profile_count": len(choice_profiles),
                 "branch_profile_count": len(branch_profiles),
@@ -650,7 +730,7 @@ def build_findings(config: dict[str, Any]) -> list[Finding]:
                 "unknown_or_experimental_profile_count": len(unknown_profiles),
                 "sample_unknown_or_experimental_profiles": unknown_profiles[:20],
             },
-            recommendation="Keep the registry-gated CLI entry; move isolated runtime branches to isolated configs or delete failed branches.",
+            recommendation="Keep new studies on the protocol entry and prune isolated historical profiles only with traceability evidence.",
         )
     )
     findings.append(
@@ -671,6 +751,35 @@ def build_findings(config: dict[str, Any]) -> list[Finding]:
                 "sample_registered_without_runtime_branch": registered_without_branch[:50],
             },
             recommendation="Add any missing runtime branch profile to the registry; keep profile names out of argparse choices.",
+        )
+    )
+
+    validation_entry_text = (
+        _read_text(validation_entry_path) if validation_entry_path.exists() else ""
+    )
+    formal_validation_entry = (
+        validation_entry_path.exists()
+        and "ControlValidationProtocol.load" in validation_entry_text
+        and "protocol.runner_argv()" in validation_entry_text
+        and "protocol.checker_argv()" in validation_entry_text
+    )
+    findings.append(
+        Finding(
+            id="formal_validation_entry",
+            severity="ok" if formal_validation_entry else "high",
+            status="passed" if formal_validation_entry else "failed",
+            summary="Formal validation uses one versioned protocol entry instead of the legacy CLI surface.",
+            evidence={
+                "entry": str(validation_entry_path.relative_to(REPO_ROOT)),
+                "profile_resolver": str(profile_resolver_path.relative_to(REPO_ROOT)),
+                "legacy_casebook_line_count": _line_count(casebook_path),
+                "historical_profile_resolver_line_count": (
+                    _line_count(profile_resolver_path)
+                    if profile_resolver_path.exists()
+                    else 0
+                ),
+            },
+            recommendation="Use scripts/validation/run_control_protocol.py for maintained protocols and direct legacy CLI calls only for reproduction.",
         )
     )
 

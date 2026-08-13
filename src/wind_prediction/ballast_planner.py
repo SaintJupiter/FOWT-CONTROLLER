@@ -6,11 +6,24 @@ call run_planner_on_windows() and save the resulting DataFrames.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cmp_to_key
 from typing import Any
 
 import numpy as np
+
+from .execution_rollout import (
+    ExecutionRolloutConfig,
+    ExecutionRolloutRequest,
+    ExecutionRolloutState,
+    ExecutionRolloutStep,
+    simulate_execution_step,
+)
+from .target_replan_policy import (
+    TargetReplanConfig,
+    TargetReplanResult,
+    evaluate_target_replan,
+)
 
 BLOCKS = (
     ("block1_0_20m", 0, 2),
@@ -19,6 +32,8 @@ BLOCKS = (
 )
 
 ACTIONS = ("hold", "pump_saving", "active_small", "active_medium", "active_reverse_small")
+MAINTAIN_TARGET_ACTION = "maintain_target"
+STOP_EXECUTION_ACTION = "stop_execution"
 
 
 @dataclass(frozen=True)
@@ -29,6 +44,22 @@ class PlannerConfig:
     leak: float = 0.90
     pressure_sign_multiplier: float = -1.0
     pressure_norm_cap: float = 1.5
+    # Forecast evidence handling. Defaults preserve the submitted controller.
+    # ``mean_step_force`` evaluates wind pressure at each 10-minute lead before
+    # aggregation. ``intrastage_stepwise`` keeps that aggregate for the single
+    # action selected in each 20-minute stage, while evaluating both 10-minute
+    # leads separately in the residual and safety calculations.
+    pressure_aggregation_mode: str = "legacy_mean"
+    lead_reliability_enabled: bool = False
+    candidate_action_mode: str = "legacy_five"
+    # Actuator-aware candidate rollout. Disabled by default so the submitted
+    # controller and planner_runtime.v1 retain their exact nominal-action path.
+    execution_rollout_active: bool = False
+    execution_rollout: ExecutionRolloutConfig = field(
+        default_factory=ExecutionRolloutConfig
+    )
+    target_replan_policy_mode: str = "off"
+    target_replan_rate_noise_tolerance_deg_s: float = 0.002
     action_mass_quantum_kg: float = 180000.0
     active_small_ratio: float = 0.15
     active_medium_ratio: float = 0.35
@@ -279,6 +310,23 @@ def apply_posture_state_to_blocks(
         p = np.asarray(block.get("pressure_vec", np.zeros(2)), dtype=float)
         p_raw = np.asarray(block.get("pressure_vec_raw", p), dtype=float)
         item["pressure_vec"] = p + residual
+        # Trigger thresholds belong to the measured posture and forecast
+        # signals, not to their gain-attenuated sum. Applying the deadband only
+        # after posture_state_gain would move the physical posture trigger from
+        # db to db/gain. Keep the two sources explicit for action direction;
+        # the fused pressure below remains the residual used by the objective.
+        forecast_action_demand = axis_deadband_vec(p, cfg)
+        posture_action_demand = (
+            axis_deadband_vec(posture_unattenuated, cfg)
+            * max(float(cfg.posture_state_gain), 0.0)
+            * max(0.0, 1.0 - float(credit))
+            * decay
+        )
+        item["forecast_action_demand_vec"] = forecast_action_demand
+        item["posture_action_demand_vec"] = posture_action_demand
+        item["action_demand_vec"] = (
+            forecast_action_demand + posture_action_demand
+        )
         # Raw-envelope mode should still use the forecast-credited posture
         # residual. Otherwise the raw envelope path silently cancels the
         # forecast credit and makes learned/current-only behave the same.
@@ -286,6 +334,22 @@ def apply_posture_state_to_blocks(
         # Safety view: forecast pressure + unattenuated posture, used ONLY by
         # the safety-floor hard reject. Does NOT enter the cost function.
         item["pressure_vec_safety"] = p_raw + safety_residual
+        if cfg.pressure_aggregation_mode == "intrastage_stepwise":
+            step_eval = np.asarray(
+                block.get("pressure_step_vecs_evaluation", ()),
+                dtype=float,
+            )
+            step_raw = np.asarray(
+                block.get("pressure_step_vecs_raw", ()),
+                dtype=float,
+            )
+            if step_eval.shape != (2, 2) or step_raw.shape != (2, 2):
+                raise ValueError(
+                    "intrastage_stepwise requires two forecast points per block"
+                )
+            item["pressure_step_vecs_evaluation"] = step_eval + residual
+            item["pressure_step_vecs_raw_evaluation"] = step_raw + residual
+            item["pressure_step_vecs_safety"] = step_raw + safety_residual
         item["pressure_norm"] = norm_term(np.asarray(item["pressure_vec"], dtype=float), cfg)
         item["posture_state_residual_vec"] = residual
         item["posture_state_raw_residual_vec"] = raw_residual
@@ -376,16 +440,23 @@ def pressure_proxy_vec(uv_block: np.ndarray, cfg: PlannerConfig, wind_ref: float
     return cfg.pressure_sign_multiplier * raw
 
 
-def action_vec(name: str, pressure_vec: np.ndarray, cfg: PlannerConfig,
-               previous_vec: np.ndarray | None = None) -> np.ndarray:
+def _action_vec_from_demand(
+    name: str,
+    demand_vec: np.ndarray,
+    cfg: PlannerConfig,
+    previous_vec: np.ndarray | None = None,
+) -> np.ndarray:
     db = np.array([cfg.deadband_pitch_deg, cfg.deadband_roll_deg], dtype=float)
-    demand_vec = axis_deadband_vec(pressure_vec, cfg)
+    demand_vec = np.asarray(demand_vec, dtype=float).reshape(-1)
+    if demand_vec.size < 2:
+        demand_vec = np.pad(demand_vec, (0, 2 - demand_vec.size))
+    demand_vec = demand_vec[:2]
     active_axes = np.abs(demand_vec) > 0.0
     if float(np.linalg.norm(demand_vec / np.maximum(db, 1e-6))) <= 1e-9:
         direction = np.zeros(2, dtype=float)
     else:
         direction = demand_vec / max(float(np.linalg.norm(demand_vec)), 1e-9)
-    if name == "hold":
+    if name in {"hold", MAINTAIN_TARGET_ACTION, STOP_EXECUTION_ACTION}:
         return np.zeros(2, dtype=float)
     if name == "pump_saving":
         if previous_vec is not None and float(np.linalg.norm(previous_vec)) > 1e-9:
@@ -407,6 +478,16 @@ def action_vec(name: str, pressure_vec: np.ndarray, cfg: PlannerConfig,
     raise KeyError(name)
 
 
+def action_vec(name: str, pressure_vec: np.ndarray, cfg: PlannerConfig,
+               previous_vec: np.ndarray | None = None) -> np.ndarray:
+    return _action_vec_from_demand(
+        name,
+        axis_deadband_vec(pressure_vec, cfg),
+        cfg,
+        previous_vec=previous_vec,
+    )
+
+
 def planner_action_vec(
     name: str,
     k: int,
@@ -416,7 +497,22 @@ def planner_action_vec(
     previous_vec: np.ndarray | None = None,
 ) -> tuple[np.ndarray, bool]:
     """Action vector used by both sequence scoring and the provider output."""
-    p = np.asarray(blocks[k].get("pressure_vec", np.zeros(2)), dtype=float)
+    block = blocks[k]
+    action_demand = block.get("action_demand_vec")
+    if action_demand is not None:
+        return (
+            _action_vec_from_demand(
+                name,
+                np.asarray(action_demand, dtype=float),
+                cfg,
+                previous_vec=previous_vec,
+            ),
+            False,
+        )
+    p = np.asarray(block.get("pressure_vec", np.zeros(2)), dtype=float)
+    # Target lifecycle checks may reject an action, but must never rewrite its
+    # physical direction after ranking.  Candidate scoring and runtime therefore
+    # consume the same action vector.
     return action_vec(name, p, cfg, previous_vec=previous_vec), False
 
 
@@ -454,18 +550,267 @@ def update_tanks(masses: np.ndarray, avec: np.ndarray, cfg: PlannerConfig) -> tu
     return new, exec_ratio
 
 
-def compute_pressure_blocks(uv: np.ndarray, discounts: list[float],
-                             cfg: PlannerConfig) -> list[dict[str, Any]]:
+def compensation_vec_from_mass_delta(
+    mass_delta_kg: np.ndarray,
+    cfg: PlannerConfig,
+    *,
+    target_scale: float = 1.0,
+) -> np.ndarray:
+    """Map actual three-tank mass motion back to planner compensation space.
+
+    Common-mode intake or discharge changes platform mass but does not create a
+    pitch/roll compensation vector.  The pseudoinverse therefore retains only
+    the differential component that the three-tank allocation can produce.
+    """
+
+    delta = np.asarray(mass_delta_kg, dtype=float).reshape(-1)[:3]
+    if delta.size < 3:
+        delta = np.pad(delta, (0, 3 - delta.size))
+    denominator = float(cfg.action_mass_quantum_kg) * max(float(target_scale), 0.0)
+    if denominator <= 1e-12:
+        return np.zeros(2, dtype=float)
+    normalized_tank_signal = delta / denominator
+    normalized_attitude = np.linalg.pinv(COMPENSATION_ATTITUDE_ALLOC) @ normalized_tank_signal
+    db = np.array([cfg.deadband_pitch_deg, cfg.deadband_roll_deg], dtype=float)
+    return np.asarray(normalized_attitude, dtype=float) * db
+
+
+def target_replan_context(
+    plant_info: dict[str, Any],
+    cfg: PlannerConfig,
+    *,
+    masses_kg: np.ndarray | None = None,
+) -> tuple[TargetReplanResult | None, np.ndarray]:
+    """Return target-replan status and the posture axes needing correction."""
+
+    if cfg.target_replan_policy_mode == "off":
+        return None, np.zeros(2, dtype=float)
+    if masses_kg is None:
+        masses = np.asarray(
+            plant_info.get("tank_masses", np.zeros(3, dtype=float)),
+            dtype=float,
+        ).reshape(-1)[:3]
+    else:
+        masses = np.asarray(masses_kg, dtype=float).reshape(-1)[:3]
+    if masses.size < 3:
+        masses = np.pad(masses, (0, 3 - masses.size))
+    posture = np.asarray(
+        plant_info.get("posture_vec_deg", np.zeros(2, dtype=float)),
+        dtype=float,
+    ).reshape(-1)[:2]
+    posture_rate = np.asarray(
+        plant_info.get("posture_rate_vec_deg_s", np.zeros(2, dtype=float)),
+        dtype=float,
+    ).reshape(-1)[:2]
+    if posture.size < 2:
+        posture = np.pad(posture, (0, 2 - posture.size))
+    if posture_rate.size < 2:
+        posture_rate = np.pad(posture_rate, (0, 2 - posture_rate.size))
+    primary_target = np.asarray(
+        plant_info.get("primary_target_kg", masses),
+        dtype=float,
+    ).reshape(-1)[:3]
+    if primary_target.size < 3:
+        primary_target = np.pad(primary_target, (0, 3 - primary_target.size))
+    target_direction = compensation_vec_from_mass_delta(
+        primary_target - masses,
+        cfg,
+    )
+    result = evaluate_target_replan(
+        posture_deg=posture,
+        posture_rate_deg_s=posture_rate,
+        current_masses_kg=masses,
+        target_masses_kg=primary_target,
+        config=TargetReplanConfig(
+            pitch_envelope_deg=float(cfg.pitch_envelope_deg),
+            roll_envelope_deg=float(cfg.roll_envelope_deg),
+            target_stop_error_kg=float(cfg.execution_rollout.stop_error_kg),
+            rate_noise_tolerance_deg_s=float(
+                cfg.target_replan_rate_noise_tolerance_deg_s
+            ),
+        ),
+        target_recovery_direction=target_direction,
+    )
+    required_axes = np.asarray(result.outside_envelope_axes, dtype=bool) & ~np.asarray(
+        result.recovering_axes,
+        dtype=bool,
+    )
+    corrective_demand = np.where(required_axes, posture, 0.0)
+    return result, np.asarray(corrective_demand, dtype=float)
+
+
+def _execution_requested_target(
+    name: str,
+    masses_kg: np.ndarray,
+    avec: np.ndarray,
+    plant_info: dict[str, Any],
+    cfg: PlannerConfig,
+    *,
+    primary_target_kg: np.ndarray | None = None,
+) -> tuple[np.ndarray | ExecutionRolloutRequest, float]:
+    """Return the target the runtime would expose for one candidate action."""
+
+    masses = np.asarray(masses_kg, dtype=float).reshape(3)
+    if name in {"hold", STOP_EXECUTION_ACTION}:
+        return ExecutionRolloutRequest.release_to_current(), 1.0
+    if name == MAINTAIN_TARGET_ACTION:
+        return ExecutionRolloutRequest.track(
+            masses
+            if primary_target_kg is None
+            else np.asarray(primary_target_kg, dtype=float)
+        ), 1.0
+    target_scale = max(float(plant_info.get("prediction_primary_scale", 1.0)), 0.0)
+    delta = (
+        tank_signal(avec, cfg)
+        * float(cfg.action_mass_quantum_kg)
+        * target_scale
+    )
+    return np.clip(masses + delta, 0.0, cfg.tank_capacity_kg), target_scale
+
+
+def _simulate_candidate_execution(
+    name: str,
+    avec: np.ndarray,
+    rollout_state: ExecutionRolloutState,
+    plant_info: dict[str, Any],
+    cfg: PlannerConfig,
+    *,
+    requested_target_override: np.ndarray | None = None,
+) -> tuple[ExecutionRolloutStep, np.ndarray, float]:
+    """Evaluate one candidate through the same actuator model as execution."""
+
+    if requested_target_override is None:
+        requested_target, target_scale = _execution_requested_target(
+            name,
+            rollout_state.masses_kg,
+            avec,
+            plant_info,
+            cfg,
+            primary_target_kg=rollout_state.primary_target_kg,
+        )
+    else:
+        requested_target = np.clip(
+            np.asarray(requested_target_override, dtype=float).reshape(3),
+            0.0,
+            cfg.tank_capacity_kg,
+        )
+        target_scale = max(
+            float(plant_info.get("prediction_primary_scale", 1.0)),
+            0.0,
+        )
+    step = simulate_execution_step(
+        rollout_state,
+        requested_target,
+        cfg.execution_rollout,
+    )
+    executed_avec = compensation_vec_from_mass_delta(
+        step.mass_delta_kg,
+        cfg,
+        target_scale=target_scale,
+    )
+    return step, executed_avec, target_scale
+
+
+def compute_pressure_blocks(
+    uv: np.ndarray,
+    discounts: list[float],
+    cfg: PlannerConfig,
+    *,
+    lead_reliability: np.ndarray | None = None,
+    event_probs: dict[str, float] | None = None,
+) -> list[dict[str, Any]]:
+    uv = np.asarray(uv, dtype=float)
+    if uv.ndim != 2 or uv.shape[1] != 2:
+        raise ValueError("uv must have shape (H, 2)")
+    reliability = (
+        np.ones(uv.shape[0], dtype=float)
+        if lead_reliability is None
+        else np.asarray(lead_reliability, dtype=float).reshape(-1)
+    )
+    if reliability.shape != (uv.shape[0],):
+        raise ValueError("lead_reliability must contain one value per forecast lead")
+    reliability = np.clip(reliability, 0.0, 1.0)
+    event_probs = dict(event_probs or {})
     rows = []
     for idx, (name, s, e) in enumerate(BLOCKS):
-        raw = pressure_proxy_vec(uv[s:e], cfg)
-        pvec = raw * float(discounts[idx])
-        rows.append({
+        block_uv = uv[s:e]
+        block_reliability = reliability[s:e]
+        if block_uv.shape[0] == 0:
+            raise ValueError(f"forecast horizon does not contain {name}")
+        step_vectors = np.asarray(
+            [pressure_proxy_vec(block_uv[j : j + 1], cfg) for j in range(block_uv.shape[0])],
+            dtype=float,
+        )
+        if cfg.pressure_aggregation_mode == "legacy_mean":
+            raw = pressure_proxy_vec(block_uv, cfg)
+        elif cfg.pressure_aggregation_mode in {
+            "mean_step_force",
+            "intrastage_stepwise",
+        }:
+            raw = np.mean(step_vectors, axis=0)
+        else:
+            raise ValueError(
+                "pressure_aggregation_mode must be 'legacy_mean', "
+                "'mean_step_force', or 'intrastage_stepwise'"
+            )
+        reliability_scale = (
+            float(np.mean(block_reliability))
+            if cfg.lead_reliability_enabled
+            else 1.0
+        )
+        step_reliability = (
+            block_reliability
+            if cfg.lead_reliability_enabled
+            else np.ones(block_uv.shape[0], dtype=float)
+        )
+        step_evaluation_vectors = (
+            step_vectors
+            * float(discounts[idx])
+            * step_reliability.reshape(-1, 1)
+        )
+        if cfg.pressure_aggregation_mode == "intrastage_stepwise":
+            pvec = np.mean(step_evaluation_vectors, axis=0)
+        else:
+            pvec = raw * float(discounts[idx]) * reliability_scale
+        step_norms = [norm_term(vec, cfg) for vec in step_vectors]
+        unit_vectors = []
+        for vec in step_vectors:
+            magnitude = float(np.linalg.norm(vec))
+            if magnitude > 1e-12:
+                unit_vectors.append(vec / magnitude)
+        direction_consistency = (
+            float(np.linalg.norm(np.mean(unit_vectors, axis=0)))
+            if unit_vectors
+            else 1.0
+        )
+        within_block_reversal = bool(
+            step_vectors.shape[0] > 1
+            and float(np.dot(step_vectors[0], step_vectors[-1])) < 0.0
+        )
+        event_key = f"attention_event_{idx * 20}_{(idx + 1) * 20}m"
+        row = {
             "block_name": name,
             "pressure_vec": pvec,
             "pressure_vec_raw": raw,
             "pressure_norm": norm_term(pvec, cfg),
-        })
+            "pressure_step_vecs": step_vectors,
+            "pressure_step_norms": step_norms,
+            "peak_pressure_norm": float(max(step_norms, default=0.0)),
+            "direction_consistency": direction_consistency,
+            "within_block_reversal": int(within_block_reversal),
+            "lead_reliability": float(np.mean(block_reliability)),
+            "lead_reliability_scale": reliability_scale,
+            "event_probability": float(event_probs.get(event_key, 0.0)),
+        }
+        if cfg.pressure_aggregation_mode == "intrastage_stepwise":
+            row.update(
+                pressure_step_vecs_raw=step_vectors.copy(),
+                pressure_step_vecs_evaluation=step_evaluation_vectors,
+                pressure_step_evaluation_norms=[
+                    norm_term(vec, cfg) for vec in step_evaluation_vectors
+                ],
+            )
+        rows.append(row)
     return rows
 
 
@@ -474,14 +819,20 @@ def compute_pressure_blocks(uv: np.ndarray, discounts: list[float],
 # ---------------------------------------------------------------------------
 
 def hard_violation(masses: np.ndarray, avec: np.ndarray,
-                   plant_info: dict[str, Any], cfg: PlannerConfig) -> tuple[bool, str]:
+                   plant_info: dict[str, Any], cfg: PlannerConfig,
+                   *, execution_stateful: bool = False) -> tuple[bool, str]:
     sig = tank_signal(avec, cfg)
     ratio = masses / max(cfg.tank_capacity_kg, 1.0)
     if np.any((ratio >= cfg.upper_capacity_guard_ratio) & (sig > 0.0)):
         return True, "capacity_guard"
     if np.any((ratio <= cfg.lower_capacity_guard_ratio) & (sig < 0.0)):
         return True, "capacity_guard"
-    if cfg.fullspeed_guard and int(plant_info.get("pump_fullspeed_any", 0)) and np.linalg.norm(avec) > 1e-9:
+    if (
+        cfg.fullspeed_guard
+        and not execution_stateful
+        and int(plant_info.get("pump_fullspeed_any", 0))
+        and np.linalg.norm(avec) > 1e-9
+    ):
         return True, "fullspeed_guard"
     return False, ""
 
@@ -501,7 +852,9 @@ def terminal_same_band(a: float, b: float, cfg: PlannerConfig) -> bool:
 
 
 def reverse_gate(k: int, blocks: list[dict[str, Any]], comp: np.ndarray,
-                 dwell: int, cfg: PlannerConfig) -> tuple[bool, str]:
+                 dwell: int, cfg: PlannerConfig,
+                 *, candidate_action_vec: np.ndarray | None = None
+                 ) -> tuple[bool, str]:
     p = blocks[k]["pressure_vec"]
     if float(np.linalg.norm(comp)) <= cfg.minimum_overcomp_ratio_for_reverse * max(blocks[k]["pressure_norm"], 1e-9):
         return False, "overcomp_too_small"
@@ -512,19 +865,37 @@ def reverse_gate(k: int, blocks: list[dict[str, Any]], comp: np.ndarray,
         if float(np.dot(p, p_next)) >= 0.0 and float(np.dot(comp, p)) >= 0.0:
             return False, "no_future_reversal_signal"
     r_hold = p - cfg.leak * comp
-    r_rev = p - (cfg.leak * comp + action_vec("active_reverse_small", p, cfg))
+    reverse_action = (
+        action_vec("active_reverse_small", p, cfg)
+        if candidate_action_vec is None
+        else np.asarray(candidate_action_vec, dtype=float).reshape(2)
+    )
+    r_rev = p - (cfg.leak * comp + reverse_action)
     if norm_term(r_rev, cfg) + 0.05 >= norm_term(r_hold, cfg):
         return False, "terminal_not_improved"
     return True, "future_reversal_and_overcomp"
 
 
 def medium_gate(k: int, blocks: list[dict[str, Any]], comp: np.ndarray,
-                cfg: PlannerConfig) -> tuple[bool, str]:
+                cfg: PlannerConfig, *,
+                small_action_vec: np.ndarray | None = None,
+                medium_action_vec: np.ndarray | None = None,
+                ) -> tuple[bool, str]:
     """A1.4 necessity gate: medium must be necessary relative to small, not just better than hold."""
     p = blocks[k]["pressure_vec"]
     hold_t = norm_term(p - cfg.leak * comp, cfg)
-    small_t = norm_term(p - (cfg.leak * comp + action_vec("active_small", p, cfg)), cfg)
-    med_t = norm_term(p - (cfg.leak * comp + action_vec("active_medium", p, cfg)), cfg)
+    small_action = (
+        action_vec("active_small", p, cfg)
+        if small_action_vec is None
+        else np.asarray(small_action_vec, dtype=float).reshape(2)
+    )
+    medium_action = (
+        action_vec("active_medium", p, cfg)
+        if medium_action_vec is None
+        else np.asarray(medium_action_vec, dtype=float).reshape(2)
+    )
+    small_t = norm_term(p - (cfg.leak * comp + small_action), cfg)
+    med_t = norm_term(p - (cfg.leak * comp + medium_action), cfg)
 
     if hold_t < cfg.active_medium_hold_term_min:
         return False, "hold_terminal_too_low"
@@ -537,17 +908,65 @@ def medium_gate(k: int, blocks: list[dict[str, Any]], comp: np.ndarray,
     return True, "active_small_insufficient_medium_required"
 
 
+def _intrastage_pressure_views(
+    block: dict[str, Any],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return cost, raw-envelope, and safety views for two forecast leads."""
+
+    evaluated = np.asarray(
+        block.get("pressure_step_vecs_evaluation", ()),
+        dtype=float,
+    )
+    raw = np.asarray(
+        block.get(
+            "pressure_step_vecs_raw_evaluation",
+            block.get("pressure_step_vecs_raw", ()),
+        ),
+        dtype=float,
+    )
+    safety = np.asarray(
+        block.get("pressure_step_vecs_safety", raw),
+        dtype=float,
+    )
+    if evaluated.shape != (2, 2) or raw.shape != (2, 2) or safety.shape != (2, 2):
+        raise ValueError(
+            "intrastage_stepwise requires two two-axis forecast points per block"
+        )
+    return evaluated, raw, safety
+
+
 # ---------------------------------------------------------------------------
 # Sequence evaluation
 # ---------------------------------------------------------------------------
 
-def evaluate_sequence(sequence: tuple[str, ...], blocks: list[dict[str, Any]],
-                      plant_info: dict[str, Any], cfg: PlannerConfig) -> dict[str, Any]:
+def evaluate_sequence(
+    sequence: tuple[str, ...],
+    blocks: list[dict[str, Any]],
+    plant_info: dict[str, Any],
+    cfg: PlannerConfig,
+    *,
+    action_vec_overrides: dict[int, np.ndarray] | None = None,
+    requested_target_overrides: dict[int, np.ndarray] | None = None,
+) -> dict[str, Any]:
+    """Evaluate a candidate sequence against forecast and actuator state.
+
+    The optional overrides are used by the provider supervision path after a
+    ranked action has been capped, redirected, or assigned an exact target.
+    They keep final-action validation in the same model as candidate ranking.
+    """
+
+    action_vec_overrides = dict(action_vec_overrides or {})
+    requested_target_overrides = dict(requested_target_overrides or {})
     comp = np.zeros(2, dtype=float)
     prev_avec = np.zeros(2, dtype=float)
     masses = np.asarray(plant_info.get("tank_masses", np.zeros(3)), dtype=float).reshape(-1)[:3]
     if masses.size < 3:
         masses = np.pad(masses, (0, 3 - masses.size))
+    rollout_state = (
+        ExecutionRolloutState.from_plant_info(plant_info, cfg.execution_rollout)
+        if cfg.execution_rollout_active
+        else None
+    )
 
     costs = dict(attitude_residual_cost=0.0, pump_work_cost=0.0, pump_duration_cost=0.0,
                  startstop_cost=0.0, direction_switch_cost=0.0, reverse_penalty=0.0,
@@ -558,6 +977,10 @@ def evaluate_sequence(sequence: tuple[str, ...], blocks: list[dict[str, Any]],
                  posture_hold_norm=0.0, posture_hold_forecast_credit=0.0,
                  hold_relief_debt_cost=0.0,
                  hold_relief_debt_level=float(plant_info.get("hold_relief_debt_level", 0.0)),
+                 actual_pump_volume_m3=0.0, actual_pump_runtime_s=0.0,
+                 actual_pump_starts=0.0, actual_pump_stops=0.0,
+                 actual_direction_switches=0.0,
+                 execution_target_error_kg=0.0,
                  posture_hold_action_posture_directed=0.0,
                  posture_state_norm=float(plant_info.get("posture_state_norm", 0.0)),
                  posture_state_raw_norm=float(plant_info.get("posture_state_raw_norm", 0.0)),
@@ -565,11 +988,68 @@ def evaluate_sequence(sequence: tuple[str, ...], blocks: list[dict[str, Any]],
     meta = dict(hard_reject_reason="", reverse_allowed=False, reverse_release_reason="",
                 reverse_reject_reason="", reverse_after_full_block_only=False,
                 active_medium_gate_reason="", posture_hold_barrier_reason="disabled",
+                execution_rollout_active=int(bool(cfg.execution_rollout_active)),
+                target_replan_action_redirected=0,
+                target_replan_action_corrective=0,
                 posture_state_credit_reason=str(
                     plant_info.get("posture_state_credit_reason", "disabled")
                 ))
+
+    target_replan: TargetReplanResult | None = None
+    target_replan_demand = np.zeros(2, dtype=float)
+    if cfg.target_replan_policy_mode != "off":
+        target_replan, target_replan_demand = target_replan_context(
+            plant_info,
+            cfg,
+            masses_kg=masses,
+        )
+        assert target_replan is not None
+        meta.update(
+            target_replan_policy_mode=str(cfg.target_replan_policy_mode),
+            target_replan_target_completed=int(target_replan.target_completed),
+            target_replan_outside_pitch=int(
+                target_replan.outside_envelope_axes[0]
+            ),
+            target_replan_outside_roll=int(
+                target_replan.outside_envelope_axes[1]
+            ),
+            target_replan_recovering_pitch=int(target_replan.recovering_axes[0]),
+            target_replan_recovering_roll=int(target_replan.recovering_axes[1]),
+            target_replan_target_direction_helpful=int(
+                target_replan.target_direction_helpful
+            ),
+            target_replan_required=int(target_replan.requires_replan),
+            target_replan_reason=str(target_replan.reason),
+        )
+        first_action = str(sequence[0]) if sequence else ""
+        reject_maintain = first_action == MAINTAIN_TARGET_ACTION
+        reject_completed_stop = (
+            first_action == STOP_EXECUTION_ACTION
+            and target_replan.target_completed
+        )
+        if (
+            cfg.target_replan_policy_mode == "enforce"
+            and target_replan.requires_replan
+            and (reject_maintain or reject_completed_stop)
+        ):
+            return {
+                **meta,
+                "sequence": sequence,
+                "hard_reject_reason": "stale_target_requires_replan",
+                "costs": costs,
+                "selection_reason": "hard_reject",
+            }
+    if cfg.pressure_aggregation_mode == "intrastage_stepwise":
+        meta.update(
+            intrastage_forecast_evaluation=1,
+            intrastage_points_evaluated=0,
+            intrastage_reversal_blocks_evaluated=0,
+            intrastage_peak_residual_norm=0.0,
+            intrastage_peak_envelope_norm=0.0,
+        )
     dwell = 0
     last_sign = 0
+    stage_envelope_norms: list[float] = []
 
     # Current-state hard gate (independent of forecast): if measured posture
     # already exceeds the engagement threshold, the planner cannot select
@@ -607,8 +1087,9 @@ def evaluate_sequence(sequence: tuple[str, ...], blocks: list[dict[str, Any]],
 
     for k, name in enumerate(sequence):
         p = blocks[k]["pressure_vec"]
+        stage_envelope_peak = 0.0
 
-        if name == "active_reverse_small":
+        if name == "active_reverse_small" and not cfg.execution_rollout_active:
             ok, reason = reverse_gate(k, blocks, comp, dwell, cfg)
             meta["reverse_after_full_block_only"] = dwell >= cfg.dwell_blocks_required_for_reverse
             if not ok:
@@ -619,7 +1100,7 @@ def evaluate_sequence(sequence: tuple[str, ...], blocks: list[dict[str, Any]],
             meta["reverse_allowed"] = True
             meta["reverse_release_reason"] = reason
 
-        if name == "active_medium":
+        if name == "active_medium" and not cfg.execution_rollout_active:
             ok, reason = medium_gate(k, blocks, comp, cfg)
             meta["active_medium_gate_reason"] = reason
             if not ok:
@@ -627,63 +1108,347 @@ def evaluate_sequence(sequence: tuple[str, ...], blocks: list[dict[str, Any]],
                         "hard_reject_reason": "active_medium_gate",
                         "costs": costs, "selection_reason": "hard_reject"}
 
-        avec, _ = planner_action_vec(
+        avec, replan_redirected = planner_action_vec(
             name, k, blocks, plant_info, cfg, previous_vec=prev_avec
         )
-        violated, reason = hard_violation(masses, avec, plant_info, cfg)
+        if k in action_vec_overrides:
+            avec = np.asarray(action_vec_overrides[k], dtype=float).reshape(-1)[:2]
+            if avec.size < 2:
+                avec = np.pad(avec, (0, 2 - avec.size))
+        if (
+            cfg.candidate_action_mode == "explicit_target_lifecycle"
+            and name
+            in {
+                "pump_saving",
+                "active_small",
+                "active_medium",
+                "active_reverse_small",
+            }
+            and float(np.linalg.norm(avec)) <= 1e-12
+        ):
+            return {
+                **meta,
+                "sequence": sequence,
+                "hard_reject_reason": "active_action_has_zero_effect",
+                "costs": costs,
+                "selection_reason": "hard_reject",
+            }
+        if k == 0 and target_replan is not None and target_replan.requires_replan:
+            required_axes = np.abs(target_replan_demand) > 1e-12
+            action_is_corrective = bool(
+                np.any(required_axes)
+                and np.linalg.norm(avec) > 1e-12
+                and np.all(
+                    target_replan_demand[required_axes] * avec[required_axes] > 0.0
+                )
+            )
+            meta["target_replan_action_redirected"] = int(replan_redirected)
+            meta["target_replan_action_corrective"] = int(action_is_corrective)
+            requires_corrective_vector = name != STOP_EXECUTION_ACTION
+            if (
+                cfg.target_replan_policy_mode == "enforce"
+                and requires_corrective_vector
+                and not action_is_corrective
+            ):
+                return {
+                    **meta,
+                    "sequence": sequence,
+                    "hard_reject_reason": "replan_action_not_corrective",
+                    "costs": costs,
+                    "selection_reason": "hard_reject",
+                }
+        violated, reason = hard_violation(
+            masses,
+            avec,
+            plant_info,
+            cfg,
+            execution_stateful=bool(cfg.execution_rollout_active),
+        )
         if violated:
             return {**meta, "sequence": sequence, "hard_reject_reason": reason,
                     "costs": costs, "selection_reason": "hard_reject"}
 
-        masses, exec_ratio = update_tanks(masses, avec, cfg)
-        comp = cfg.leak * comp + exec_ratio * avec
+        if cfg.execution_rollout_active:
+            assert rollout_state is not None
+            comp_before_stage = comp.copy()
+            rollout_state_before_stage = rollout_state
+            if k in requested_target_overrides:
+                requested_target_override = np.asarray(
+                    requested_target_overrides[k], dtype=float
+                ).reshape(-1)[:3]
+                if requested_target_override.size < 3:
+                    requested_target_override = np.pad(
+                        requested_target_override,
+                        (0, 3 - requested_target_override.size),
+                    )
+            else:
+                requested_target_override = None
+            rollout_step, executed_avec, target_scale = (
+                _simulate_candidate_execution(
+                    name,
+                    avec,
+                    rollout_state_before_stage,
+                    plant_info,
+                    cfg,
+                    requested_target_override=requested_target_override,
+                )
+            )
+
+            if name == "active_medium":
+                small_avec, _ = planner_action_vec(
+                    "active_small",
+                    k,
+                    blocks,
+                    plant_info,
+                    cfg,
+                    previous_vec=prev_avec,
+                )
+                _, executed_small_avec, _ = _simulate_candidate_execution(
+                    "active_small",
+                    small_avec,
+                    rollout_state_before_stage,
+                    plant_info,
+                    cfg,
+                )
+                ok, reason = medium_gate(
+                    k,
+                    blocks,
+                    comp_before_stage,
+                    cfg,
+                    small_action_vec=executed_small_avec,
+                    medium_action_vec=executed_avec,
+                )
+                meta["active_medium_gate_reason"] = reason
+                if not ok:
+                    return {
+                        **meta,
+                        "sequence": sequence,
+                        "hard_reject_reason": "active_medium_gate",
+                        "costs": costs,
+                        "selection_reason": "hard_reject",
+                    }
+
+            if name == "active_reverse_small":
+                ok, reason = reverse_gate(
+                    k,
+                    blocks,
+                    comp_before_stage,
+                    dwell,
+                    cfg,
+                    candidate_action_vec=executed_avec,
+                )
+                meta["reverse_after_full_block_only"] = (
+                    dwell >= cfg.dwell_blocks_required_for_reverse
+                )
+                if not ok:
+                    return {
+                        **meta,
+                        "sequence": sequence,
+                        "hard_reject_reason": "reverse_not_released",
+                        "reverse_reject_reason": reason,
+                        "costs": costs,
+                        "selection_reason": "hard_reject",
+                    }
+                meta["reverse_allowed"] = True
+                meta["reverse_release_reason"] = reason
+
+            rollout_state = rollout_step.state
+            masses = rollout_state.masses_kg.copy()
+            comp = cfg.leak * comp + executed_avec
+
+            if k == 0:
+                meta["first_execution_requested_target_kg"] = (
+                    rollout_step.requested_target_kg.astype(float).tolist()
+                )
+                meta["first_execution_shaped_target_kg"] = (
+                    rollout_step.shaped_target_kg.astype(float).tolist()
+                )
+                meta["first_execution_mass_delta_kg"] = (
+                    rollout_step.mass_delta_kg.astype(float).tolist()
+                )
+                meta["first_execution_action_vec"] = (
+                    np.asarray(executed_avec, dtype=float).tolist()
+                )
+
+            nominal_volume = (
+                2.0
+                * float(cfg.action_mass_quantum_kg)
+                * max(float(target_scale), 1e-12)
+                / max(float(cfg.execution_rollout.water_density_kg_m3), 1e-12)
+            )
+            total_available_runtime = max(
+                3.0 * float(cfg.execution_rollout.block_duration_s),
+                1e-12,
+            )
+            costs["pump_work_cost"] += (
+                float(rollout_step.transferred_volume_m3) / nominal_volume
+            )
+            costs["pump_duration_cost"] += (
+                float(rollout_step.active_time_s) / total_available_runtime
+            )
+            costs["startstop_cost"] += float(
+                rollout_step.starts + rollout_step.stops
+            ) / 6.0
+            costs["direction_switch_cost"] += float(
+                rollout_step.direction_switches
+            ) / 3.0
+            costs["actual_pump_volume_m3"] += float(
+                rollout_step.transferred_volume_m3
+            )
+            costs["actual_pump_runtime_s"] += float(
+                rollout_step.active_time_s
+            )
+            costs["actual_pump_starts"] += float(rollout_step.starts)
+            costs["actual_pump_stops"] += float(rollout_step.stops)
+            costs["actual_direction_switches"] += float(
+                rollout_step.direction_switches
+            )
+            costs["execution_target_error_kg"] = float(
+                np.sum(
+                    np.abs(
+                        rollout_step.requested_target_kg
+                        - rollout_step.state.masses_kg
+                    )
+                )
+            )
+        else:
+            masses, exec_ratio = update_tanks(masses, avec, cfg)
+            comp = cfg.leak * comp + exec_ratio * avec
         residual_vec = p - comp
         residual_norm = norm_term(residual_vec, cfg)
-        # Safety-floor hard reject: check unattenuated predicted attitude
-        # against the absolute pitch/roll floor. Uses pressure_vec_safety
-        # (forecast pressure + raw posture, no gain) minus same comp so that
-        # any planned compensation reduces the safety residual identically.
-        # Independent of cost function — pure hard constraint.
-        if cfg.safety_floor_active:
-            p_safety = np.asarray(
-                blocks[k].get("pressure_vec_safety",
-                              blocks[k].get("pressure_vec_raw", p)),
+        intrastage_active = (
+            cfg.pressure_aggregation_mode == "intrastage_stepwise"
+        )
+        if intrastage_active:
+            step_eval, step_raw, step_safety = _intrastage_pressure_views(
+                blocks[k]
+            )
+            step_residuals = step_eval - comp
+            step_residual_norms = np.asarray(
+                [norm_term(vec, cfg) for vec in step_residuals],
                 dtype=float,
             )
-            safety_resid = p_safety - comp
-            if (abs(float(safety_resid[0])) > float(cfg.safety_floor_pitch_deg)
-                    or abs(float(safety_resid[1])) > float(cfg.safety_floor_roll_deg)):
-                return {
-                    **meta, "sequence": sequence,
-                    "hard_reject_reason": f"safety_floor_violated_at_block_{k}",
-                    "costs": costs, "selection_reason": "hard_reject",
-                    "safety_floor_predicted_pitch": float(safety_resid[0]),
-                    "safety_floor_predicted_roll": float(safety_resid[1]),
-                }
-        # envelope evaluated either on discounted or raw (undiscounted) residual.
-        if cfg.envelope_use_discount:
-            env_norm = envelope_norm(residual_vec, cfg)
+            meta["intrastage_points_evaluated"] += int(step_residuals.shape[0])
+            meta["intrastage_reversal_blocks_evaluated"] += int(
+                bool(blocks[k].get("within_block_reversal", 0))
+            )
+            meta["intrastage_peak_residual_norm"] = max(
+                float(meta["intrastage_peak_residual_norm"]),
+                float(np.max(step_residual_norms)),
+            )
+
+            # Peak and reversal safety are checked at each 10-minute lead. A
+            # large excursion can therefore no longer disappear when opposite
+            # directions cancel in the 20-minute block mean.
+            if cfg.safety_floor_active:
+                for lead_index, safety_vec in enumerate(step_safety - comp):
+                    if (
+                        abs(float(safety_vec[0]))
+                        > float(cfg.safety_floor_pitch_deg)
+                        or abs(float(safety_vec[1]))
+                        > float(cfg.safety_floor_roll_deg)
+                    ):
+                        return {
+                            **meta,
+                            "sequence": sequence,
+                            "hard_reject_reason": (
+                                f"safety_floor_violated_at_block_{k}_lead_{lead_index}"
+                            ),
+                            "costs": costs,
+                            "selection_reason": "hard_reject",
+                            "safety_floor_predicted_pitch": float(safety_vec[0]),
+                            "safety_floor_predicted_roll": float(safety_vec[1]),
+                            "intrastage_safety_lead_index": int(lead_index),
+                        }
+
+            envelope_residuals = (
+                step_residuals
+                if cfg.envelope_use_discount
+                else step_raw - comp
+            )
+            step_envelope_norms = np.asarray(
+                [envelope_norm(vec, cfg) for vec in envelope_residuals],
+                dtype=float,
+            )
+            meta["intrastage_peak_envelope_norm"] = max(
+                float(meta["intrastage_peak_envelope_norm"]),
+                float(np.max(step_envelope_norms)),
+            )
+            if cfg.attitude_zone_form == "smooth_huber":
+                zone_excesses = np.maximum(
+                    0.0,
+                    step_residual_norms - float(cfg.attitude_zone_delta_norm),
+                )
+                costs["attitude_residual_cost"] += float(
+                    np.mean(zone_excesses ** 2)
+                )
+            else:
+                costs["attitude_residual_cost"] += float(
+                    np.mean(step_residual_norms ** 2)
+                )
+            envelope_excesses = np.maximum(0.0, step_envelope_norms - 1.0)
+            costs["envelope_violation_cost"] += float(
+                np.mean(envelope_excesses ** 2)
+            )
+            costs["max_envelope_norm"] = max(
+                float(costs["max_envelope_norm"]),
+                float(np.max(step_envelope_norms)),
+            )
+            stage_envelope_peak = float(np.max(step_envelope_norms))
         else:
-            p_raw = blocks[k].get("pressure_vec_raw", p)
-            env_norm = envelope_norm(p_raw - comp, cfg)
-        if cfg.attitude_zone_form == "smooth_huber":
-            zone_excess = max(0.0, residual_norm - float(cfg.attitude_zone_delta_norm))
-            costs["attitude_residual_cost"] += zone_excess ** 2
-        else:
-            costs["attitude_residual_cost"] += residual_norm ** 2
-        # Soft envelope penalty: zero when inside, quadratic when outside.
-        env_excess = max(0.0, env_norm - 1.0)
-        costs["envelope_violation_cost"] += env_excess ** 2
-        if env_norm > costs["max_envelope_norm"]:
-            costs["max_envelope_norm"] = env_norm
-        db = np.array([cfg.deadband_pitch_deg, cfg.deadband_roll_deg], dtype=float)
-        costs["pump_work_cost"] += float(np.linalg.norm(avec / db))
-        if np.linalg.norm(avec) > 1e-9:
-            costs["pump_duration_cost"] += 1.0
-        if np.linalg.norm(prev_avec) <= 1e-9 and np.linalg.norm(avec) > 1e-9:
-            costs["startstop_cost"] += 1.0
-        if np.linalg.norm(prev_avec) > 1e-9 and np.linalg.norm(avec) > 1e-9 and float(np.dot(prev_avec, avec)) < 0.0:
-            costs["direction_switch_cost"] += 1.0
+            # Legacy block-level path. Keep this branch unchanged so
+            # planner_runtime.v1 remains numerically identical.
+            if cfg.safety_floor_active:
+                p_safety = np.asarray(
+                    blocks[k].get(
+                        "pressure_vec_safety",
+                        blocks[k].get("pressure_vec_raw", p),
+                    ),
+                    dtype=float,
+                )
+                safety_resid = p_safety - comp
+                if (
+                    abs(float(safety_resid[0]))
+                    > float(cfg.safety_floor_pitch_deg)
+                    or abs(float(safety_resid[1]))
+                    > float(cfg.safety_floor_roll_deg)
+                ):
+                    return {
+                        **meta,
+                        "sequence": sequence,
+                        "hard_reject_reason": f"safety_floor_violated_at_block_{k}",
+                        "costs": costs,
+                        "selection_reason": "hard_reject",
+                        "safety_floor_predicted_pitch": float(safety_resid[0]),
+                        "safety_floor_predicted_roll": float(safety_resid[1]),
+                    }
+            if cfg.envelope_use_discount:
+                env_norm = envelope_norm(residual_vec, cfg)
+            else:
+                p_raw = blocks[k].get("pressure_vec_raw", p)
+                env_norm = envelope_norm(p_raw - comp, cfg)
+            if cfg.attitude_zone_form == "smooth_huber":
+                zone_excess = max(
+                    0.0,
+                    residual_norm - float(cfg.attitude_zone_delta_norm),
+                )
+                costs["attitude_residual_cost"] += zone_excess ** 2
+            else:
+                costs["attitude_residual_cost"] += residual_norm ** 2
+            env_excess = max(0.0, env_norm - 1.0)
+            costs["envelope_violation_cost"] += env_excess ** 2
+            if env_norm > costs["max_envelope_norm"]:
+                costs["max_envelope_norm"] = env_norm
+            stage_envelope_peak = float(env_norm)
+        if not cfg.execution_rollout_active:
+            db = np.array([cfg.deadband_pitch_deg, cfg.deadband_roll_deg], dtype=float)
+            costs["pump_work_cost"] += float(np.linalg.norm(avec / db))
+            if np.linalg.norm(avec) > 1e-9:
+                costs["pump_duration_cost"] += 1.0
+            if np.linalg.norm(prev_avec) <= 1e-9 and np.linalg.norm(avec) > 1e-9:
+                costs["startstop_cost"] += 1.0
+            if np.linalg.norm(prev_avec) > 1e-9 and np.linalg.norm(avec) > 1e-9 and float(np.dot(prev_avec, avec)) < 0.0:
+                costs["direction_switch_cost"] += 1.0
         if name == "active_reverse_small":
             costs["reverse_penalty"] += 1.0
         ratio = masses / max(cfg.tank_capacity_kg, 1.0)
@@ -696,8 +1461,16 @@ def evaluate_sequence(sequence: tuple[str, ...], blocks: list[dict[str, Any]],
             dwell = dwell + 1 if sign == last_sign else 1
             last_sign = sign
         prev_avec = avec
+        stage_envelope_norms.append(stage_envelope_peak)
 
-    terminal_vec = blocks[-1]["pressure_vec"] - comp
+    if cfg.pressure_aggregation_mode == "intrastage_stepwise":
+        terminal_step_eval, terminal_step_raw, _ = _intrastage_pressure_views(
+            blocks[-1]
+        )
+        terminal_vec = terminal_step_eval[-1] - comp
+    else:
+        terminal_step_raw = None
+        terminal_vec = blocks[-1]["pressure_vec"] - comp
     terminal_norm_val = norm_term(terminal_vec, cfg)
     if cfg.attitude_zone_form == "smooth_huber":
         terminal_excess = max(0.0, terminal_norm_val - float(cfg.attitude_zone_terminal_delta_norm))
@@ -706,17 +1479,34 @@ def evaluate_sequence(sequence: tuple[str, ...], blocks: list[dict[str, Any]],
         costs["terminal_residual_cost"] = terminal_norm_val ** 2
     if cfg.envelope_use_discount:
         terminal_env = envelope_norm(terminal_vec, cfg)
+    elif terminal_step_raw is not None:
+        terminal_env = envelope_norm(terminal_step_raw[-1] - comp, cfg)
     else:
         terminal_raw = blocks[-1].get("pressure_vec_raw", blocks[-1]["pressure_vec"])
         terminal_env = envelope_norm(terminal_raw - comp, cfg)
     costs["terminal_envelope_violation"] = max(0.0, terminal_env - 1.0) ** 2
     if terminal_env > costs["max_envelope_norm"]:
         costs["max_envelope_norm"] = terminal_env
-    # zone-MPC barrier flag: True if envelope violated AND no strong action used.
-    has_strong = any(a in cfg.envelope_barrier_strong_actions for a in sequence)
-    costs["envelope_barrier_triggered"] = float(
-        cfg.envelope_barrier_active and costs["max_envelope_norm"] > 1.0 and not has_strong
-    )
+    if cfg.execution_rollout_active:
+        # Each stage must answer for its own envelope violation.  A stronger
+        # action later in the horizon cannot make an unsafe current hold cheap.
+        costs["envelope_barrier_triggered"] = float(
+            sum(
+                envelope > 1.0
+                and action not in cfg.envelope_barrier_strong_actions
+                for action, envelope in zip(sequence, stage_envelope_norms)
+            )
+            if cfg.envelope_barrier_active
+            else 0.0
+        )
+    else:
+        # Preserve the submitted planner's sequence-level barrier semantics.
+        has_strong = any(a in cfg.envelope_barrier_strong_actions for a in sequence)
+        costs["envelope_barrier_triggered"] = float(
+            cfg.envelope_barrier_active
+            and costs["max_envelope_norm"] > 1.0
+            and not has_strong
+        )
     if cfg.hold_relief_debt_active:
         first_action = str(sequence[0]) if sequence else "hold"
         debt_level = max(0.0, float(plant_info.get("hold_relief_debt_level", 0.0)))
@@ -844,6 +1634,28 @@ DEFAULT_PLANT_INFO: dict[str, Any] = {
 }
 
 _ALL_SEQUENCES = [(a, b, c) for a in ACTIONS for b in ACTIONS for c in ACTIONS]
+
+
+def candidate_actions(cfg: PlannerConfig) -> tuple[str, ...]:
+    """Return the action library selected by the versioned planner contract."""
+
+    if cfg.candidate_action_mode == "legacy_five":
+        return ACTIONS
+    if cfg.candidate_action_mode == "explicit_target_lifecycle":
+        return (
+            MAINTAIN_TARGET_ACTION,
+            STOP_EXECUTION_ACTION,
+        ) + tuple(action for action in ACTIONS if action != "hold")
+    raise ValueError(
+        f"unsupported candidate_action_mode={cfg.candidate_action_mode!r}"
+    )
+
+
+def candidate_sequences(cfg: PlannerConfig) -> list[tuple[str, str, str]]:
+    actions = candidate_actions(cfg)
+    if actions == ACTIONS:
+        return _ALL_SEQUENCES
+    return [(a, b, c) for a in actions for b in actions for c in actions]
 
 
 def run_planner_on_windows(

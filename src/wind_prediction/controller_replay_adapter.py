@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime
 from typing import Any, Mapping
 
@@ -11,6 +12,15 @@ from .forecast_adapter import ForecastModelAdapter
 from .forecast_contract import ForecastContract, validate_forecast_result
 from .forecast_evidence import ForecastEvidence, evidence_from_result
 from .replay_dataset import Fino1ReplayDataset
+
+
+def _array_sha256(values: Any) -> str:
+    array = np.ascontiguousarray(values)
+    digest = hashlib.sha256()
+    digest.update(array.dtype.str.encode("ascii"))
+    digest.update(repr(tuple(array.shape)).encode("ascii"))
+    digest.update(array.tobytes())
+    return digest.hexdigest()
 
 
 class ReplayForecastEvidenceSource:
@@ -73,6 +83,10 @@ class ReplayForecastEvidenceSource:
             ),
             lead_reliability=reliability,
             metadata={
+                "series_id": sample.series_id,
+                "history_start": sample.history_start.strftime("%Y-%m-%d %H:%M:%S"),
+                "history_end": sample.history_end.strftime("%Y-%m-%d %H:%M:%S"),
+                "input_window_sha256": _array_sha256(sample.x_window),
                 "event_thresholds": dict(
                     getattr(self.forecast_adapter, "thresholds", {}) or {}
                 )

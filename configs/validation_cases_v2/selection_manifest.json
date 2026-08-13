@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "selection_seed": "fowt-v2-staged-cases-20260812",
+  "source_split": "test",
+  "case_duration_s": 21600,
+  "minimum_start_separation_s": 172800,
+  "selection_inputs": [
+    "wind_speed_ms",
+    "wind_u_ms",
+    "wind_v_ms",
+    "timestamp",
+    "split"
+  ],
+  "controller_outputs_used": false,
+  "historical_intervals_excluded": 174,
+  "eligible_candidate_counts": {
+    "low_disturbance": 87,
+    "oscillation": 114,
+    "relief": 866,
+    "reversal": 309,
+    "strengthening": 762
+  },
+  "thresholds": {
+    "trend_ms": 1.5,
+    "low_trend_ms": 0.75,
+    "strengthening_direction_deg": 45.0,
+    "relief_direction_deg": 60.0,
+    "reversal_direction_deg": 60.0,
+    "reversal_vector_net_ms": 3.0,
+    "oscillation_path_excess_q75": 4.577487672251812,
+    "oscillation_speed_range_q60": 3.4705,
+    "low_speed_range_q25": 2.0874999999999995,
+    "low_vector_path_q25": 9.285015128723357,
+    "low_direction_shift_q25": 6.701241906797464
+  },
+  "stage_counts": {
+    "stage10": 10,
+    "stage20": 20,
+    "stage30": 30
+  },
+  "category_counts": {
+    "stage10": {
+      "future_relief_or_reversal": 3,
+      "low_disturbance": 2,
+      "oscillation": 2,
+      "strengthening": 3
+    },
+    "stage20": {
+      "future_relief_or_reversal": 5,
+      "low_disturbance": 5,
+      "oscillation": 5,
+      "strengthening": 5
+    },
+    "stage30": {
+      "future_relief_or_reversal": 8,
+      "low_disturbance": 7,
+      "oscillation": 7,
+      "strengthening": 8
+    }
+  },
+  "subtype_counts": {
+    "stage10": {
+      "low_disturbance": 2,
+      "oscillation": 2,
+      "relief": 2,
+      "reversal": 1,
+      "strengthening": 3
+    },
+    "stage20": {
+      "low_disturbance": 5,
+      "oscillation": 5,
+      "relief": 3,
+      "reversal": 2,
+      "strengthening": 5
+    },
+    "stage30": {
+      "low_disturbance": 7,
+      "oscillation": 7,
+      "relief": 4,
+      "reversal": 4,
+      "strengthening": 8
+    }
+  },
+  "within_and_cross_stage_overlap_count": 0,
+  "minimum_actual_start_separation_s": 259200,
+  "historical_overlap_count": 0,
+  "source_observations_sha256": "7445f889b7c92dad6d0dcfe588dabc846852c0538720cd2f0f12159a1799f376",
+  "combined_csv_sha256": "d7125feec85095bc8994b84c7695818ebf82fb48ad374c9bff19986c56d0cb1c"
+}

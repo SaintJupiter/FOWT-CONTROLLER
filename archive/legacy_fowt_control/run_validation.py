@@ -8,7 +8,6 @@ from core_model import FloatingPlatform
 from controllers import MIMOController
 from controllers_extras import (
     ClosedLoopPolicy,
-    CommandRateLimiter,
     HeaveBiasBalancer,
     SetpointShaper,
     TrimGovernor,
@@ -22,6 +21,7 @@ from defaults import (
     TRIM_CFG_TEST_F,
     clone_cfg,
 )
+from target_execution import TargetSlewLimiter, resolve_target_slew_config
 from wind_env import MarkovWindGenerator, WindEnvMarkov, WindTracePlayer, wind_speed_to_thrust_n
 
 RANDOM_SEED = 42
@@ -641,6 +641,22 @@ def _append_timeseries_row(
     alloc_cmd = obs["alloc_cmd"]
     alloc_clip_any = obs["alloc_clip_any"]
     alloc_clip_mask = obs["alloc_clip_mask"]
+    target_feedback = _as_vec3(dbg.get("target_feedback_kg"), target_masses)
+    target_prediction_candidate = _as_vec3(
+        dbg.get("target_prediction_candidate_kg"), target_feedback
+    )
+    target_intent = _as_vec3(dbg.get("target_intent_kg"), target_feedback)
+    target_pre_execution = _as_vec3(
+        dbg.get("target_pre_execution_kg"), target_intent
+    )
+    target_after_slew_limiter = _as_vec3(
+        dbg.get(
+            "target_after_slew_limiter_kg",
+            dbg.get("target_after_rate_limiter_kg"),
+        ),
+        target_pre_execution,
+    )
+    target_final = _as_vec3(dbg.get("target_final_kg"), target_masses)
 
     timeseries.append(
         {
@@ -659,8 +675,11 @@ def _append_timeseries_row(
             "hm_total_ballast_kg": float(
                 dbg.get("hm_total_ballast_kg", np.sum(info["tank_masses"]))
             ),
-            "ballast_total_kg": float(
+            "controller_observed_ballast_total_kg": float(
                 dbg.get("ballast_total_kg", np.sum(info["tank_masses"]))
+            ),
+            "ballast_total_kg": float(
+                info.get("ballast_total_kg", np.sum(info["tank_masses"]))
             ),
             "heave_correction_per_tank_kg": float(
                 dbg.get("heave_correction_per_tank_kg", 0.0)
@@ -671,6 +690,55 @@ def _append_timeseries_row(
             "target_tank1_kg": float(target_masses[0]),
             "target_tank2_kg": float(target_masses[1]),
             "target_tank3_kg": float(target_masses[2]),
+            "target_intent_source": str(
+                dbg.get("target_intent_source", "posture_feedback")
+            ),
+            "target_adjustment_path": str(
+                dbg.get("target_adjustment_path", "none")
+            ),
+            "target_final_adjustment_stage": str(
+                dbg.get("target_final_adjustment_stage", "none")
+            ),
+            "target_feedback_tank1_kg": float(target_feedback[0]),
+            "target_feedback_tank2_kg": float(target_feedback[1]),
+            "target_feedback_tank3_kg": float(target_feedback[2]),
+            "target_prediction_candidate_tank1_kg": float(
+                target_prediction_candidate[0]
+            ),
+            "target_prediction_candidate_tank2_kg": float(
+                target_prediction_candidate[1]
+            ),
+            "target_prediction_candidate_tank3_kg": float(
+                target_prediction_candidate[2]
+            ),
+            "target_intent_tank1_kg": float(target_intent[0]),
+            "target_intent_tank2_kg": float(target_intent[1]),
+            "target_intent_tank3_kg": float(target_intent[2]),
+            "target_pre_execution_tank1_kg": float(target_pre_execution[0]),
+            "target_pre_execution_tank2_kg": float(target_pre_execution[1]),
+            "target_pre_execution_tank3_kg": float(target_pre_execution[2]),
+            "target_after_slew_limiter_tank1_kg": float(
+                target_after_slew_limiter[0]
+            ),
+            "target_after_slew_limiter_tank2_kg": float(
+                target_after_slew_limiter[1]
+            ),
+            "target_after_slew_limiter_tank3_kg": float(
+                target_after_slew_limiter[2]
+            ),
+            # Historical aliases kept until archived figure scripts are retired.
+            "target_after_rate_limiter_tank1_kg": float(
+                target_after_slew_limiter[0]
+            ),
+            "target_after_rate_limiter_tank2_kg": float(
+                target_after_slew_limiter[1]
+            ),
+            "target_after_rate_limiter_tank3_kg": float(
+                target_after_slew_limiter[2]
+            ),
+            "target_final_tank1_kg": float(target_final[0]),
+            "target_final_tank2_kg": float(target_final[1]),
+            "target_final_tank3_kg": float(target_final[2]),
             "err_tank1_kg": float(err_masses[0]),
             "err_tank2_kg": float(err_masses[1]),
             "err_tank3_kg": float(err_masses[2]),
@@ -678,6 +746,33 @@ def _append_timeseries_row(
             "pump_rate2_m3min": float(info["pump_rate_cmd_m3_min"][1]),
             "pump_rate3_m3min": float(info["pump_rate_cmd_m3_min"][2]),
             "pump_total_rate_m3_min": float(np.sum(info["pump_rate_cmd_m3_min"])),
+            "pump_net_rate1_m3min": float(
+                _as_vec3(info.get("pump_net_rate_m3_min", [0.0, 0.0, 0.0]))[0]
+            ),
+            "pump_net_rate2_m3min": float(
+                _as_vec3(info.get("pump_net_rate_m3_min", [0.0, 0.0, 0.0]))[1]
+            ),
+            "pump_net_rate3_m3min": float(
+                _as_vec3(info.get("pump_net_rate_m3_min", [0.0, 0.0, 0.0]))[2]
+            ),
+            "pump_total_inflow_m3_min": float(
+                np.sum(_as_vec3(info.get("pump_inflow_m3_min", [0.0, 0.0, 0.0])))
+            ),
+            "pump_total_outflow_m3_min": float(
+                np.sum(_as_vec3(info.get("pump_outflow_m3_min", [0.0, 0.0, 0.0])))
+            ),
+            "tank1_mass_delta_kg": float(
+                _as_vec3(info.get("tank_mass_delta_kg", [0.0, 0.0, 0.0]))[0]
+            ),
+            "tank2_mass_delta_kg": float(
+                _as_vec3(info.get("tank_mass_delta_kg", [0.0, 0.0, 0.0]))[1]
+            ),
+            "tank3_mass_delta_kg": float(
+                _as_vec3(info.get("tank_mass_delta_kg", [0.0, 0.0, 0.0]))[2]
+            ),
+            "ballast_total_delta_kg": float(
+                info.get("ballast_total_delta_kg", 0.0)
+            ),
             "pump_target_rate1_m3min": float(_as_vec3(info.get("pump_rate_target_m3_min", [0.0, 0.0, 0.0]))[0]),
             "pump_target_rate2_m3min": float(_as_vec3(info.get("pump_rate_target_m3_min", [0.0, 0.0, 0.0]))[1]),
             "pump_target_rate3_m3min": float(_as_vec3(info.get("pump_rate_target_m3_min", [0.0, 0.0, 0.0]))[2]),
@@ -1442,14 +1537,15 @@ def _build_case_components(
                 enabled=True,
             )
 
-    rate_limit_enabled = bool(target_shape_cfg.get("enable_rate_limit", False))
-    cmd_limiter = None
+    target_slew_cfg = resolve_target_slew_config(target_shape_cfg)
+    rate_limit_enabled = bool(target_slew_cfg["enabled"])
+    target_slew_limiter = None
     if rate_limit_enabled:
-        cmd_limiter = CommandRateLimiter(
+        target_slew_limiter = TargetSlewLimiter(
             dt=dt,
             rho=plant.rho,
             max_capacity=plant.tank_capacity,
-            rate_limit_m3_min=target_shape_cfg.get("rate_limit_m3_min", 12.0),
+            target_slew_rate_m3_min=target_slew_cfg["rate_m3_min"],
             enabled=True,
         )
 
@@ -1457,7 +1553,7 @@ def _build_case_components(
         controller=ctrl,
         trim_governor=trim_governor,
         setpoint_shaper=setpoint_shaper,
-        command_rate_limiter=cmd_limiter,
+        target_slew_limiter=target_slew_limiter,
         heave_balancer=heave_balancer,
         preview_trim_provider=preview_trim_provider,
         primary_safety_cfg=target_shape_cfg,
@@ -2360,6 +2456,7 @@ def _finalize_case_summary(
     rate_limit_enabled,
     protocol_meta,
 ):
+    target_slew_cfg = resolve_target_slew_config(target_shape_cfg)
     pitch_rms = float(np.sqrt(acc["pitch_sq_sum"] / n_steps))
     roll_rms = float(np.sqrt(acc["roll_sq_sum"] / n_steps))
     pitch_exceed_ratio = acc["pitch_exceed_steps"] / n_steps
@@ -2457,7 +2554,7 @@ def _finalize_case_summary(
         f"pump_latch_switches={int(acc['pump_latch_switch_count'])}, "
         f"primary_safety_fallback={preview_primary_safety_fallback_ratio:.3f}, "
         f"rate_limit_enabled={int(rate_limit_enabled)}, "
-        f"authority={target_shape_cfg.get('actuator_authority', 'plant')}, "
+        f"authority={target_slew_cfg['actuator_authority']}, "
         f"target_mode={acc.get('target_mode', 'g1')}, "
         f"lookup={int(acc.get('target_lookup_hit', 0))}/{int(acc.get('target_lookup_total', 0))}"
     )
@@ -2543,9 +2640,9 @@ def _finalize_case_summary(
         "heave_init_applied": int(heave_init_info["ok"]),
         "heave_init_z_eq_m": float(heave_init_info["z_eq_m"]),
         "heave_init_a_wp_m2": float(heave_init_info["a_waterplane_m2"]),
-        "rate_limit_m3_min": float(target_shape_cfg.get("rate_limit_m3_min", np.nan)),
+        "rate_limit_m3_min": float(target_slew_cfg["rate_m3_min"]),
         "rate_limit_enabled": int(rate_limit_enabled),
-        "actuator_authority": str(target_shape_cfg.get("actuator_authority", "plant")),
+        "actuator_authority": str(target_slew_cfg["actuator_authority"]),
         "heave_bias_on": int(heave_balancer is not None),
         "control_on": int(control_enabled),
         "wind_on": int(has_wind),
@@ -3098,8 +3195,8 @@ def run_slowing_ablation_suite(
     # Apply changes incrementally so each step isolates one layer.
     cfg_base_shape = {
         "actuator_authority": "plant",
-        "enable_rate_limit": False,
-        "rate_limit_m3_min": 10.0,
+        "enable_target_slew_limit": False,
+        "target_slew_rate_m3_min": 10.0,
         "enable_setpoint_shaping": True,
         "setpoint_alpha": 0.98,
         "setpoint_rate_deg_s": 0.02,
@@ -3166,8 +3263,9 @@ def run_slowing_ablation_suite(
         row["trim_mode"] = "off"
         row["cfg_update_interval_s"] = float(cfg["controller_cfg"].get("update_interval", 5.0))
         row["cfg_filter_tau_s"] = float(cfg["controller_cfg"].get("filter_tau", 10.0))
-        row["cfg_rate_limit_enabled"] = int(bool(cfg["shape_cfg"].get("enable_rate_limit", False)))
-        row["cfg_rate_limit_m3_min"] = float(cfg["shape_cfg"].get("rate_limit_m3_min", np.nan))
+        target_slew_cfg = resolve_target_slew_config(cfg["shape_cfg"])
+        row["cfg_rate_limit_enabled"] = int(target_slew_cfg["enabled"])
+        row["cfg_rate_limit_m3_min"] = float(target_slew_cfg["rate_m3_min"])
         row["cfg_setpoint_shaping_enabled"] = int(
             bool(cfg["shape_cfg"].get("enable_setpoint_shaping", False))
         )

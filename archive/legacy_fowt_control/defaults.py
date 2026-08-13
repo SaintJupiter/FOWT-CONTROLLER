@@ -76,8 +76,8 @@ DEFAULT_TRIM_CFG_SIMPLE_DEFAULT = {
 
 DEFAULT_TARGET_SHAPE_CFG = {
     "actuator_authority": "plant",
-    "enable_rate_limit": True,
-    "rate_limit_m3_min": 10.0,
+    "enable_target_slew_limit": True,
+    "target_slew_rate_m3_min": 10.0,
     "enable_setpoint_shaping": True,
     "setpoint_alpha": 0.98,
     "setpoint_rate_deg_s": 0.02,
@@ -147,17 +147,28 @@ DEFAULT_PLATFORM_PROFILE = "default"
 # override the subset needed for low-order reference mapping.
 DEFAULT_PLATFORM_PROFILES = {
     "default": {},
+    "research_incremental_v1": {
+        # Local control-development model about the initial working ballast.
+        # Absolute equilibrium loads are embedded in the reference state, while
+        # ballast changes update physical mass properties and incremental loads.
+        "profile_status": "framework_only_not_for_performance_validation",
+        "load_reference_mode": "reference_incremental",
+        "mass_property_mode": "reference_delta_point_mass",
+        "mooring_reference_mode": "zero_at_reference",
+        "reference_property_mode": "assembled_dry_plus_baseline",
+    },
     "reference_mapped_volturnus_s": {
-        # Keep the current ballast pattern/capacity untouched and only retune the
-        # low-order rigid-body foundation toward the public VolturnUS-S reference.
+        # Audit-only historical experiment. This profile mixes public values with
+        # the local three-point-tank geometry and must not be used as a validated
+        # VolturnUS-S control model.
+        "profile_status": "audit_only_not_for_control_validation",
         "mass_dry": 16879507.61225,
         "I_body": [1.251e10, 1.251e10, 1.2e11],
         "hydro_params": {
             "GM_L": 10.778625795547065,
             "GM_T": 10.778625795547065,
         },
-        # The report inertia is a rigid-body quantity; this multiplier absorbs
-        # the missing low-order added-inertia contribution in the simplified model.
+        # Period-fit multiplier retained only to reproduce the historical audit.
         "rot_inertia_multiplier_roll_pitch": 3.422090977520233,
         # First-round damping stays conservative; it will be refined in Step B3
         # only if free-decay still deviates materially.
@@ -167,8 +178,8 @@ DEFAULT_PLATFORM_PROFILES = {
 
 REFERENCE_MAPPED_VOLTURNUS_S_PARAM_SOURCES = {
     "mass_dry": {
-        "source_type": "direct_mapping",
-        "source_note": "From 76773 displaced volume 20206.34889 m^3 times rho=1025 kg/m^3, minus current default ballast total to preserve the existing ballast pattern.",
+        "source_type": "historical_incompatible_derivation",
+        "source_note": "Audit-only legacy derivation from displaced mass minus local default ballast. It is not a public dry-platform mass and must not be used in a validated reference profile.",
     },
     "I_body[0]": {
         "source_type": "direct_mapping",
@@ -179,16 +190,16 @@ REFERENCE_MAPPED_VOLTURNUS_S_PARAM_SOURCES = {
         "source_note": "76773 Table 2 pitch/roll inertia about center of gravity = 1.251E+10 kg-m^2.",
     },
     "hydro_params.GM_L": {
-        "source_type": "direct_mapping",
-        "source_note": "Back-solved from 76773 Table 3 hydrostatic stiffness 2.190E+09 N-m/rad with displaced volume 20206.34889 m^3.",
+        "source_type": "historical_incompatible_derivation",
+        "source_note": "Audit-only back-calculation from WAMIT hull hydrostatic stiffness. The source stiffness excludes the mass/gravity contribution and is not a complete GM.",
     },
     "hydro_params.GM_T": {
-        "source_type": "direct_mapping",
-        "source_note": "Back-solved from 76773 Table 3 hydrostatic stiffness 2.190E+09 N-m/rad with displaced volume 20206.34889 m^3.",
+        "source_type": "historical_incompatible_derivation",
+        "source_note": "Audit-only back-calculation from WAMIT hull hydrostatic stiffness. The source stiffness excludes the mass/gravity contribution and is not a complete GM.",
     },
     "rot_inertia_multiplier_roll_pitch": {
-        "source_type": "equivalent_tuning",
-        "source_note": "Chosen so that the effective pitch/roll inertia implied by the simplified model matches the 27.78 s reference free-decay period order while keeping the direct-mapped rigid-body inertia value visible.",
+        "source_type": "historical_period_fit_not_for_validation",
+        "source_note": "Chosen to reproduce the reported roll/pitch period with a mixed stiffness and inertia model. This is circular for period validation and is retained only for historical audit reproduction.",
     },
     "zetas[3]": {
         "source_type": "equivalent_tuning",
@@ -213,8 +224,8 @@ DEFAULT_MAIN_EXPERIMENT_PROTOCOL = {
     # Keep shaper on with fixed parameters across main comparisons.
     "target_shape_cfg": {
         "actuator_authority": "plant",
-        "enable_rate_limit": True,
-        "rate_limit_m3_min": 10.0,
+        "enable_target_slew_limit": True,
+        "target_slew_rate_m3_min": 10.0,
         "enable_setpoint_shaping": True,
         "setpoint_alpha": 0.98,
         "setpoint_rate_deg_s": 0.02,

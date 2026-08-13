@@ -29,6 +29,24 @@ def _reject_unknown(name: str, values: Mapping[str, Any], allowed: set[str]) -> 
         raise ValueError(f"unknown {name} configuration keys: {unknown}")
 
 
+def _required_mapping(document: Mapping[str, Any], name: str) -> dict[str, Any]:
+    if name not in document:
+        raise ValueError(f"missing required {name} configuration section")
+    value = document[name]
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{name} configuration section must be a JSON object")
+    return dict(value)
+
+
+def _json_object_without_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError(f"duplicate JSON configuration key: {key}")
+        value[key] = item
+    return value
+
+
 def controller_config_to_dict(config: ControlCoreConfig) -> dict[str, Any]:
     controller = asdict(config)
     execution = controller.pop("execution")
@@ -65,9 +83,9 @@ def parse_controller_config(document: Mapping[str, Any]) -> ControlCoreConfig:
             "unsupported controller configuration schema_version: "
             f"{document.get('schema_version')!r}"
         )
-    controller_values = dict(document.get("controller") or {})
-    execution_values = dict(document.get("execution") or {})
-    policy_values = dict(document.get("forecast_policy") or {})
+    controller_values = _required_mapping(document, "controller")
+    execution_values = _required_mapping(document, "execution")
+    policy_values = _required_mapping(document, "forecast_policy")
 
     controller_fields = {field.name for field in fields(ControlCoreConfig)} - {
         "execution",
@@ -102,7 +120,10 @@ def load_controller_config(path: str | Path) -> LoadedControllerConfiguration:
     source_path = Path(path).expanduser().resolve()
     if not source_path.is_file():
         raise FileNotFoundError(source_path)
-    document = json.loads(source_path.read_text(encoding="utf-8"))
+    document = json.loads(
+        source_path.read_text(encoding="utf-8"),
+        object_pairs_hook=_json_object_without_duplicates,
+    )
     config = parse_controller_config(document)
     normalized = controller_config_to_dict(config)
     return LoadedControllerConfiguration(

@@ -43,7 +43,11 @@ def _forecast(origin: str, wind_speed_ms: float) -> ForecastEvidence:
 
 def main() -> None:
     loaded = load_controller_config(ROOT / "configs/controller_core_v2.json")
-    controller = ForecastAssistedBallastController(loaded.config)
+    controller = ForecastAssistedBallastController.from_config_file(
+        loaded.source_path
+    )
+    if controller.config_sha256 != loaded.sha256:
+        raise RuntimeError("controller did not retain the loaded configuration digest")
     state = ControllerRuntimeState.initialize((900_000.0,) * 3)
     rows = []
     for index, posture in enumerate(((2.4, 0.2), (1.9, 0.4), (1.2, 0.1))):

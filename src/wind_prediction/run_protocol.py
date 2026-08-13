@@ -4,10 +4,13 @@ import argparse
 import json
 import math
 import os
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
+
+from .run_identity import RunIdentity as ContentAddressedRunIdentity
+from .run_identity import build_run_identity
 
 
 @dataclass(frozen=True)
@@ -29,6 +32,8 @@ class RunIdentity:
 class RunInputs:
     dataset_dir: str
     model_dir: str | None
+    stiffness_file: str | None
+    planner_runtime_config: str | None
     cases_csv: str | None
     case_ids: list[str]
     duration_s: float
@@ -204,6 +209,14 @@ def build_casebook_run_protocol(
         inputs=RunInputs(
             dataset_dir=str(_display_path(dataset_dir, repo_root)),
             model_dir=_display_path(getattr(args, "model_dir", ""), repo_root),
+            stiffness_file=_display_path(
+                getattr(args, "stiffness_file", ""),
+                repo_root,
+            ),
+            planner_runtime_config=_display_path(
+                getattr(args, "planner_runtime_config", ""),
+                repo_root,
+            ),
             cases_csv=cases_csv,
             case_ids=_split_case_ids(getattr(args, "case_ids", "")),
             duration_s=float(getattr(args, "duration_s", 0.0)),
@@ -262,6 +275,181 @@ def write_run_protocol(path: str | Path, protocol: RunProtocol | Mapping[str, An
     out_path = Path(path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     payload = protocol.to_dict() if isinstance(protocol, RunProtocol) else dict(protocol)
+    out_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True, allow_nan=False)
+        + "\n",
+        encoding="utf-8",
+    )
+    return out_path
+
+
+_MODEL_IDENTITY_FILES = (
+    "lstm_best.pt",
+    "lstm_config.json",
+    "lstm_event_thresholds.json",
+)
+_DATASET_IDENTITY_FILES = (
+    "metadata.json",
+    "scaler_train.json",
+)
+_CASEBOOK_PATH_ARGUMENTS = {
+    "blend_baseline_model_dir",
+    "blend_relief_model_dir",
+    "bucket_snapshot_dir",
+    "cases_csv",
+    "dataset_dir",
+    "forced_prefix_actions",
+    "model_dir",
+    "planner_runtime_config",
+    "stiffness_file",
+}
+
+
+def _resolve_input_path(path: str | Path, repo_root: Path) -> Path:
+    candidate = Path(path).expanduser()
+    return candidate.resolve() if candidate.is_absolute() else (repo_root / candidate).resolve()
+
+
+def _json_compatible(value: Any, *, repo_root: Path) -> Any:
+    if is_dataclass(value) and not isinstance(value, type):
+        return _json_compatible(asdict(value), repo_root=repo_root)
+    if isinstance(value, Path):
+        return _display_path(value, repo_root)
+    if isinstance(value, Mapping):
+        return {
+            str(key): _json_compatible(item, repo_root=repo_root)
+            for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+        }
+    if isinstance(value, (list, tuple)):
+        return [_json_compatible(item, repo_root=repo_root) for item in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
+
+
+def _casebook_model_files(
+    args: argparse.Namespace,
+    *,
+    repo_root: Path,
+) -> dict[str, Path]:
+    source = str(getattr(args, "forecast_source", ""))
+    directories: list[tuple[str, str | Path]] = []
+    if source == "learned":
+        directories.append(("forecast", getattr(args, "model_dir", "")))
+    elif source.startswith("blend_"):
+        directories.extend(
+            (
+                ("baseline", getattr(args, "blend_baseline_model_dir", "")),
+                ("relief", getattr(args, "blend_relief_model_dir", "")),
+            )
+        )
+
+    files: dict[str, Path] = {}
+    for prefix, supplied_dir in directories:
+        model_dir = _resolve_input_path(supplied_dir, repo_root)
+        for filename in _MODEL_IDENTITY_FILES:
+            files[f"{prefix}_{filename}"] = model_dir / filename
+    return files
+
+
+def _casebook_effective_config(
+    *,
+    protocol: RunProtocol,
+    args: argparse.Namespace,
+    planner_config: Any,
+    repo_root: Path,
+) -> dict[str, Any]:
+    argument_values: dict[str, Any] = {}
+    for key, value in vars(args).items():
+        if key == "out_dir":
+            continue
+        if key in _CASEBOOK_PATH_ARGUMENTS and value not in (None, ""):
+            argument_values[key] = _display_path(value, repo_root)
+        else:
+            argument_values[key] = value
+    return {
+        "runner": "prediction_primary_casebook",
+        "protocol_schema": protocol.schema_version,
+        "protocol_identity": asdict(protocol.identity),
+        "protocol_configuration": asdict(protocol.configuration),
+        "arguments": _json_compatible(argument_values, repo_root=repo_root),
+        "planner_config": _json_compatible(planner_config, repo_root=repo_root),
+    }
+
+
+def build_casebook_run_identity(
+    *,
+    protocol: RunProtocol,
+    args: argparse.Namespace,
+    planner_config: Any,
+    repo_root: str | Path,
+    out_dir: str | Path,
+    dataset_dir: str | Path,
+    forecast_source_effective: str,
+    created_at_utc: str | None = None,
+    repository_state: Any = None,
+    python_version: str | None = None,
+    dependency_versions: Mapping[str, str] | None = None,
+) -> ContentAddressedRunIdentity:
+    """Build the immutable sidecar identity for a casebook protocol.
+
+    Result counters and elapsed time are intentionally excluded. The identity
+    changes only when the effective experiment definition or a declared input
+    file changes.
+    """
+
+    root = Path(repo_root).expanduser().resolve()
+    dataset_root = _resolve_input_path(dataset_dir, root)
+    planner_runtime = getattr(args, "planner_runtime_config", "")
+    cases_csv = getattr(args, "cases_csv", "")
+    stiffness_file = getattr(args, "stiffness_file", "")
+
+    additional_groups: dict[str, Mapping[str, str | Path]] = {
+        "configuration": {
+            "planner_runtime_config": planner_runtime,
+        },
+    }
+    if cases_csv:
+        additional_groups["cases"] = {"cases_csv": cases_csv}
+    if stiffness_file:
+        additional_groups["plant"] = {"stiffness_file": stiffness_file}
+
+    return build_run_identity(
+        repo_root=root,
+        effective_config=_casebook_effective_config(
+            protocol=protocol,
+            args=args,
+            planner_config=planner_config,
+            repo_root=root,
+        ),
+        model_files=_casebook_model_files(args, repo_root=root),
+        dataset_files={
+            filename: dataset_root / filename
+            for filename in _DATASET_IDENTITY_FILES
+        },
+        additional_file_groups=additional_groups,
+        output_directory=out_dir,
+        control_profile=protocol.identity.primary_control_profile,
+        forecast_source=protocol.identity.forecast_source_requested,
+        forecast_model_version=str(forecast_source_effective),
+        created_at_utc=created_at_utc,
+        repository_state=repository_state,
+        python_version=python_version,
+        dependency_versions=dependency_versions,
+    )
+
+
+def write_run_identity(
+    path: str | Path,
+    identity: ContentAddressedRunIdentity | Mapping[str, Any],
+) -> Path:
+    out_path = Path(path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = (
+        identity.to_dict()
+        if isinstance(identity, ContentAddressedRunIdentity)
+        else dict(identity)
+    )
     out_path.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True, allow_nan=False)
         + "\n",

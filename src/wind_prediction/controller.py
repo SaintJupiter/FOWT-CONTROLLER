@@ -30,6 +30,11 @@ from .controller_configuration import (
     parse_controller_config,
 )
 from .controller_plant_adapter import CompactControllerPlantAdapter
+from .controller_chain_runner import (
+    ChainRunResult,
+    ChainRunSummary,
+    run_controller_plant_chain,
+)
 from .forecast_evidence import ForecastEvidence
 
 __all__ = [
@@ -45,6 +50,8 @@ __all__ = [
     "ControllerMeasurements",
     "ControllerRuntimeState",
     "CompactControllerPlantAdapter",
+    "ChainRunResult",
+    "ChainRunSummary",
     "ForecastAssistedBallastController",
     "ForecastEvidence",
     "LoadedControllerConfiguration",
@@ -54,4 +61,5 @@ __all__ = [
     "decide_control_cycle",
     "load_controller_config",
     "parse_controller_config",
+    "run_controller_plant_chain",
 ]

@@ -1,0 +1,130 @@
+{
+  "schema_version": "2.0",
+  "created_at": "2026-08-11",
+  "purpose": "Fast, reproducible control-chain gate using explicit physical and planner inputs.",
+  "casebook_command": [
+    "python3",
+    "scripts/analysis/run_prediction_primary_casebook.py",
+    "--out-dir",
+    "outputs/wind_prediction/control_chain_smoke_gate_v2",
+    "--cases-csv",
+    "configs/control_chain_smoke_gate_cases_v1.csv",
+    "--case-ids",
+    "01,02,04",
+    "--duration-s",
+    "7200",
+    "--primary-only",
+    "--skip-figures",
+    "--forecast-source",
+    "oracle",
+    "--primary-control-profile",
+    "manual",
+    "--primary-pump-profile",
+    "engineered_minimal",
+    "--primary-hold-target-mode",
+    "pause",
+    "--event-reset-mode",
+    "action",
+    "--planner-envelope-raw",
+    "--planner-envelope-barrier",
+    "--planner-posture-state-residual",
+    "--planner-posture-state-gain",
+    "0.4",
+    "--planner-posture-state-clip-norm",
+    "6.0",
+    "--planner-attitude-residual-weight",
+    "1.0",
+    "--planner-terminal-residual-weight",
+    "1.0",
+    "--planner-posture-hold-forecast-credit",
+    "0.0",
+    "--stiffness-file",
+    "archive/legacy_fowt_control/data/副本水平刚度曲线.xlsx",
+    "--planner-runtime-config",
+    "configs/planner_runtime_v1.json"
+  ],
+  "expected_cases": [
+    "01_fr_relief_01",
+    "02_fr_relief_09",
+    "04_lowrisk_clean"
+  ],
+  "reference_summary_csv": "configs/control_chain_smoke_gate_reference_v2.csv",
+  "required_config": {
+    "primary_control_profile": "manual",
+    "forecast_source_effective": "oracle_future",
+    "primary_hold_target_mode": "pause",
+    "planner_envelope_mode": "raw",
+    "planner_envelope_barrier_active": 1,
+    "planner_posture_state_residual_active": 1,
+    "pump_suppression_enabled": 0,
+    "preview_lead_action_enabled": 0,
+    "relief_medium_cap_enabled": 0,
+    "recovery_mode_enabled": 0
+  },
+  "required_zero_ratio_columns": [
+    "preview_pump_suppression_ratio",
+    "preview_event_risk_boost_ratio",
+    "preview_event_risk_floor_ratio",
+    "preview_lead_action_ratio",
+    "preview_relief_medium_cap_ratio",
+    "preview_medium_escalation_ratio",
+    "preview_hold_comfort_release_ratio",
+    "preview_hold_risk_micro_action_ratio"
+  ],
+  "case_thresholds": {
+    "01_fr_relief_01": {
+      "primary_pump_work_m3_max": 800.0,
+      "primary_pitch_p95_max": 8.0,
+      "primary_roll_p95_max": 4.0,
+      "primary_safety_fallback_ratio_max": 0.15
+    },
+    "02_fr_relief_09": {
+      "primary_pump_work_m3_max": 600.0,
+      "primary_pitch_p95_max": 6.5,
+      "primary_roll_p95_max": 6.0,
+      "primary_safety_fallback_ratio_max": 0.08
+    },
+    "04_lowrisk_clean": {
+      "primary_pump_work_m3_max": 10.0,
+      "primary_pitch_p95_max": 2.0,
+      "primary_roll_p95_max": 0.5,
+      "primary_safety_fallback_ratio_max": 0.01
+    }
+  },
+  "reference_tolerance": {
+    "enabled": true,
+    "primary_pump_work_m3_abs_max": 0.01,
+    "primary_pitch_p95_abs_max": 0.001,
+    "primary_roll_p95_abs_max": 0.001,
+    "primary_safety_fallback_ratio_abs_max": 0.000001
+  },
+  "timeseries_contract": {
+    "enabled": true,
+    "directory": "outputs/wind_prediction/control_chain_smoke_gate_v2/timeseries",
+    "required_columns": [
+      "ballast_total_kg",
+      "ballast_total_delta_kg",
+      "tank1_kg",
+      "tank2_kg",
+      "tank3_kg",
+      "tank1_mass_delta_kg",
+      "tank2_mass_delta_kg",
+      "tank3_mass_delta_kg",
+      "pump_rate1_m3min",
+      "pump_rate2_m3min",
+      "pump_rate3_m3min",
+      "pump_net_rate1_m3min",
+      "pump_net_rate2_m3min",
+      "pump_net_rate3_m3min",
+      "target_tank1_kg",
+      "target_tank2_kg",
+      "target_tank3_kg",
+      "target_final_tank1_kg",
+      "target_final_tank2_kg",
+      "target_final_tank3_kg"
+    ],
+    "target_abs_max": 0.000001,
+    "mass_balance_abs_max": 0.000001,
+    "pump_rate_abs_max": 0.000001
+  }
+}

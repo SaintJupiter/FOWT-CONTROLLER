@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/fowt_matplotlib_cache")
+os.environ.setdefault("XDG_CACHE_HOME", "/tmp/fowt_xdg_cache")
+Path(os.environ["MPLCONFIGDIR"]).mkdir(parents=True, exist_ok=True)
+Path(os.environ["XDG_CACHE_HOME"]).mkdir(parents=True, exist_ok=True)
 
 import matplotlib as mpl
 
@@ -18,12 +24,13 @@ OUT = ROOT / "outputs" / "paper_figures_current" / "results"
 
 def pick_font() -> str:
     preferred = [
-        "PingFang SC",
-        "Hiragino Sans GB",
         "Songti SC",
         "STSong",
-        "Arial Unicode MS",
+        "SimSun",
         "Noto Sans CJK SC",
+        "PingFang SC",
+        "Hiragino Sans GB",
+        "Arial Unicode MS",
         "SimHei",
     ]
     installed = {f.name for f in font_manager.fontManager.ttflist}
@@ -36,20 +43,26 @@ def pick_font() -> str:
 FONT = pick_font()
 mpl.rcParams.update(
     {
-        "font.family": "sans-serif",
-        "font.sans-serif": [FONT, "DejaVu Sans"],
+        "font.family": ["Times New Roman", FONT, "DejaVu Sans", "sans-serif"],
+        "font.sans-serif": ["Times New Roman", FONT, "DejaVu Sans", "sans-serif"],
+        "font.serif": ["Times New Roman", FONT, "DejaVu Serif", "serif"],
+        "mathtext.fontset": "custom",
+        "mathtext.rm": "Times New Roman",
+        "mathtext.it": "Times New Roman:italic",
+        "mathtext.bf": "Times New Roman:bold",
         "axes.unicode_minus": False,
-        "font.size": 9,
-        "axes.labelsize": 9,
-        "axes.titlesize": 10,
-        "xtick.labelsize": 8,
-        "ytick.labelsize": 8,
-        "legend.fontsize": 8,
+        "font.size": 7.4,
+        "axes.labelsize": 7.8,
+        "axes.titlesize": 9.2,
+        "xtick.labelsize": 7.0,
+        "ytick.labelsize": 7.0,
+        "legend.fontsize": 7.2,
         "figure.dpi": 160,
-        "savefig.dpi": 300,
+        "savefig.dpi": 600,
         "savefig.bbox": "tight",
         "axes.spines.top": False,
         "axes.spines.right": False,
+        "svg.fonttype": "none",
         "pdf.fonttype": 42,
         "ps.fonttype": 42,
     }
@@ -67,11 +80,59 @@ COLORS = {
     "grid": "#E5E7EB",
 }
 
+RUN_ROOT = ROOT / "outputs" / "wind_prediction" / "selector_mixed_6h_limit20_v1"
+FINAL_PER_CASE = RUN_ROOT / "selector_gated_summary_101case_6h" / "selector_gated_per_case.csv"
+FINAL_EXTENDED_PER_CASE = RUN_ROOT / "selector_gated_summary_101case_6h" / "selector_gated_extended_per_case.csv"
+CASEBOOK_SUMMARY = RUN_ROOT / "blind_d1_engineered_101case_6h" / "casebook_summary.csv"
+TS_ROOT = RUN_ROOT / "blind_d1_engineered_101case_6h" / "timeseries"
+V6_TABLES = (
+    ROOT
+    / "outputs"
+    / "paper_figures_current"
+    / "overnight_evidence"
+    / "control_validation_redesign"
+    / "v6_final_polished"
+    / "tables"
+)
+V7_OUT = ROOT / "outputs" / "paper_figures_current" / "validation_expansion_v7"
+V7_FIGURES = V7_OUT / "figures"
+V7_TABLES = V7_OUT / "tables"
+
+ROLE_CN = {
+    "positive_allow": "具有调节空间的窗口",
+    "negative_abstain": "风险边界窗口",
+    "background_abstain": "低扰动背景窗口",
+}
+
+V7_COLORS = {
+    "baseline": "#74808D",
+    "predictive": "#4B97B8",
+    "predictive_dark": "#155E83",
+    "benefit": "#7EA692",
+    "benefit_soft": "#DCEBE4",
+    "penalty": "#B98272",
+    "penalty_soft": "#EFE0DA",
+    "neutral": "#1F2933",
+    "muted": "#5F6F82",
+    "grid": "#E8EDF2",
+    "axis": "#B9C3CF",
+    "light": "#D7DEE7",
+}
+
 
 def save(fig: plt.Figure, stem: str) -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     fig.savefig(OUT / f"{stem}.png")
     fig.savefig(OUT / f"{stem}.pdf")
+    plt.close(fig)
+
+
+def save_publication(fig: plt.Figure, stem: str, dpi: int = 600) -> None:
+    OUT.mkdir(parents=True, exist_ok=True)
+    fig.savefig(OUT / f"{stem}.svg")
+    fig.savefig(OUT / f"{stem}.pdf")
+    fig.savefig(OUT / f"{stem}.png", dpi=dpi)
+    fig.savefig(OUT / f"{stem}.tiff", dpi=dpi)
     plt.close(fig)
 
 
@@ -529,73 +590,152 @@ def figure_positive_actionable_pump_lines() -> None:
         ROOT
         / "outputs/wind_prediction/selector_mixed_6h_limit20_v1/selector_gated_summary_101case_6h/selector_gated_per_case.csv"
     )
-    df = per.loc[per["validation_role"] == "positive_allow"].copy()
-    df["saved_m3"] = df["closed_pump_m3"] - df["gated_pump_m3"]
-    df = df.sort_values("closed_pump_m3").reset_index(drop=True)
+    per["saved_m3"] = per["closed_pump_m3"] - per["gated_pump_m3"]
+    df = per.loc[(per["validation_role"] == "positive_allow") & (per["saved_m3"] > 1e-6)].copy()
+    df = df.sort_values("saved_m3", ascending=False)
+    df = df.reset_index(drop=True)
+    df["cumulative_saved_m3"] = df["saved_m3"].cumsum()
     x = np.arange(1, len(df) + 1)
 
-    closed_mean = float(df["closed_pump_m3"].mean())
-    supervised_mean = float(df["gated_pump_m3"].mean())
+    total_closed = float(df["closed_pump_m3"].sum())
     total_saved = float(df["saved_m3"].sum())
-    saving_pct = total_saved / float(df["closed_pump_m3"].sum()) * 100.0
+    saving_pct = total_saved / total_closed * 100.0
+    mean_saved = float(df["saved_m3"].mean())
+    if len(df) != 50:
+        raise ValueError(f"Expected 50 actionable windows, found {len(df)}")
+    if not np.isclose(total_saved, 18558.71, atol=0.03):
+        raise ValueError(f"Unexpected actionable saved volume: {total_saved:.4f} m3")
+    if not np.isclose(saving_pct, 34.35, atol=0.01):
+        raise ValueError(f"Unexpected actionable saving percentage: {saving_pct:.4f}%")
 
-    fig, ax = plt.subplots(figsize=(6.4, 3.55), constrained_layout=True)
-    ax.plot(
-        x,
-        df["closed_pump_m3"],
-        color=COLORS["baseline"],
-        linewidth=1.4,
-        marker="o",
-        markersize=3.0,
-        label="原闭环",
-    )
-    ax.plot(
-        x,
-        df["gated_pump_m3"],
-        color=COLORS["supervised"],
-        linewidth=1.4,
-        marker="o",
-        markersize=3.0,
-        label="监督策略",
-    )
-    ax.fill_between(
-        x,
-        df["gated_pump_m3"].to_numpy(dtype=float),
-        df["closed_pump_m3"].to_numpy(dtype=float),
-        where=df["closed_pump_m3"].to_numpy(dtype=float) >= df["gated_pump_m3"].to_numpy(dtype=float),
-        color=COLORS["saving"],
-        alpha=0.14,
-        linewidth=0,
-        label="节省量",
-    )
-    ax.axhline(closed_mean, color=COLORS["baseline"], linewidth=0.9, linestyle="--", alpha=0.8)
-    ax.axhline(supervised_mean, color=COLORS["supervised"], linewidth=0.9, linestyle="--", alpha=0.8)
-    ax.text(
+    blue = "#0F4D92"
+    blue_soft = "#B4C0E4"
+    teal = "#42949E"
+    neutral_light = "#CFCECE"
+    neutral_grid = "#E8E8E8"
+    neutral_mid = "#767676"
+    neutral_dark = "#4D4D4D"
+    fig_width = 183 / 25.4
+    fig_height = 94 / 25.4
+    fig, (ax1, ax2) = plt.subplots(
+        2,
         1,
-        max(df["closed_pump_m3"].max(), df["gated_pump_m3"].max()) * 0.96,
-        f"总降低 {saving_pct:.2f}%，节省 {total_saved:,.0f} 立方米",
+        figsize=(fig_width, fig_height),
+        sharex=True,
+        gridspec_kw={"height_ratios": [0.86, 1.32], "hspace": 0.13},
+    )
+    fig.subplots_adjust(left=0.088, right=0.878, top=0.835, bottom=0.18)
+    fig.text(
+        0.088,
+        0.975,
+        "具有调节空间窗口的累计泵量降低量",
         ha="left",
         va="top",
-        fontsize=8,
-        color=COLORS["saving"],
+        fontsize=8.4,
+        fontweight="bold",
+        color=neutral_dark,
     )
-    ax.text(
-        1,
-        max(df["closed_pump_m3"].max(), df["gated_pump_m3"].max()) * 0.87,
-        f"均值：原闭环 {closed_mean:.0f}，监督策略 {supervised_mean:.0f} 立方米",
+    fig.text(
+        0.088,
+        0.928,
+        "仅展示50个实际产生累计泵量降低的窗口；横轴按单窗口降低量降序排列。",
         ha="left",
         va="top",
-        fontsize=8,
-        color="#374151",
+        fontsize=6.6,
+        color=neutral_mid,
     )
-    ax.set_xlabel("预测可行动窗口序号（按原闭环水泵负载排序）")
-    ax.set_ylabel("累计水泵负载（立方米）")
-    ax.set_title("预测可行动窗口累计水泵负载对比", loc="left", fontweight="bold", fontsize=10)
-    ax.set_xlim(1, len(df))
-    ax.set_ylim(0, max(df["closed_pump_m3"].max(), df["gated_pump_m3"].max()) * 1.10)
-    ax.legend(frameon=False, loc="upper left", ncols=3)
-    ax.grid(axis="y", color=COLORS["grid"], linewidth=0.8)
-    save(fig, "fig_positive_actionable_pump_lines")
+
+    ax1.axhline(0, color=neutral_light, linewidth=0.58, linestyle=(0, (4, 2)))
+    ax1.vlines(x, 0, df["saved_m3"], color=blue_soft, linewidth=0.46, alpha=0.54)
+    ax1.plot(
+        x,
+        df["saved_m3"],
+        color=blue,
+        linewidth=0.86,
+        marker="o",
+        markersize=2.15,
+        markerfacecolor="white",
+        markeredgecolor=blue,
+        markeredgewidth=0.58,
+        zorder=3,
+    )
+    ax1.axhline(mean_saved, color=neutral_mid, linewidth=0.62, linestyle=(0, (3, 2)))
+    ax1.text(
+        49.4,
+        mean_saved + 62.0,
+        f"均值 {mean_saved:.2f} m$^3$",
+        ha="right",
+        va="center",
+        fontsize=6.2,
+        color=neutral_dark,
+        bbox={"facecolor": "white", "edgecolor": "none", "pad": 0.8, "alpha": 0.94},
+    )
+    ax1.text(-0.078, 1.045, "a", transform=ax1.transAxes, ha="left", va="bottom", fontsize=8.0, fontweight="bold", color=neutral_dark)
+    ax1.text(-0.036, 1.045, "单窗口累计泵量降低量", transform=ax1.transAxes, ha="left", va="bottom", fontsize=7.2, color=neutral_dark)
+    ax1.set_ylabel("降低量 (m$^3$)", fontsize=6.8, labelpad=2)
+    ax1.set_ylim(-35, float(df["saved_m3"].max()) * 1.12)
+    ax1.yaxis.set_major_formatter(mpl.ticker.StrMethodFormatter("{x:,.0f}"))
+
+    cumulative_1e4 = df["cumulative_saved_m3"].to_numpy(dtype=float) / 1e4
+    total_1e4 = total_saved / 1e4
+    ax2.plot(
+        x,
+        cumulative_1e4,
+        color=teal,
+        linewidth=1.14,
+        marker="o",
+        markersize=2.0,
+        markerfacecolor="white",
+        markeredgecolor=teal,
+        markeredgewidth=0.55,
+        zorder=3,
+    )
+    ax2.fill_between(x, 0, cumulative_1e4, color=teal, alpha=0.11, linewidth=0)
+    ax2.axhline(total_1e4, color=neutral_light, linewidth=0.58, linestyle=(0, (4, 2)))
+    ax2.scatter([50], [total_1e4], s=17, color=teal, zorder=4)
+    ax2.text(
+        50.9,
+        total_1e4,
+        f"{total_saved:,.2f} m$^3$\n{saving_pct:.2f}%",
+        ha="left",
+        va="center",
+        fontsize=6.6,
+        fontweight="bold",
+        color=teal,
+        linespacing=1.15,
+        clip_on=False,
+    )
+    ax2.text(-0.078, 1.035, "b", transform=ax2.transAxes, ha="left", va="bottom", fontsize=8.0, fontweight="bold", color=neutral_dark)
+    ax2.text(-0.036, 1.035, "累计泵量降低量", transform=ax2.transAxes, ha="left", va="bottom", fontsize=7.2, color=neutral_dark)
+    ax2.set_ylabel("累计降低量 ($10^4$ m$^3$)", fontsize=6.8, labelpad=2)
+    ax2.set_xlabel("具有调节空间窗口序号", fontsize=6.8, labelpad=2)
+    ax2.set_ylim(-0.05, total_1e4 * 1.13)
+    ax2.yaxis.set_major_formatter(mpl.ticker.StrMethodFormatter("{x:.1f}"))
+    ax2.set_xlim(1, 55)
+    ax2.set_xticks([1, 10, 20, 30, 40, 50])
+
+    for ax in (ax1, ax2):
+        ax.set_facecolor("white")
+        ax.grid(axis="y", color=neutral_grid, linewidth=0.45)
+        ax.grid(axis="x", visible=False)
+        ax.spines["left"].set_color(neutral_light)
+        ax.spines["bottom"].set_color(neutral_light)
+        ax.spines["left"].set_linewidth(0.62)
+        ax.spines["bottom"].set_linewidth(0.62)
+        ax.tick_params(axis="both", colors=neutral_mid, labelsize=6.4, length=2.2, width=0.62, pad=1.5)
+        ax.yaxis.label.set_color(neutral_dark)
+        ax.xaxis.label.set_color(neutral_dark)
+
+    fig.text(
+        0.088,
+        0.052,
+        "注：风险边界窗口和低扰动背景窗口见表11；其最终保持无预测闭环反馈策略输出，未纳入本图横轴。",
+        ha="left",
+        va="center",
+        fontsize=6.2,
+        color=neutral_mid,
+    )
+    save_publication(fig, "fig_positive_actionable_pump_lines")
 
 
 def figure_positive_latch_switch_comparison() -> None:
@@ -770,7 +910,716 @@ def figure_compact_table6_only() -> None:
     save(fig, "fig_table6_compact_pump_comparison")
 
 
+def v7_save(fig: plt.Figure, stem: str) -> None:
+    V7_FIGURES.mkdir(parents=True, exist_ok=True)
+    for ext in ("png", "pdf", "svg"):
+        kwargs = {"bbox_inches": "tight"}
+        if ext == "png":
+            kwargs["dpi"] = 600
+        fig.savefig(V7_FIGURES / f"{stem}.{ext}", **kwargs)
+    plt.close(fig)
+
+
+def v7_style_axis(ax: plt.Axes, *, xgrid: bool = False, ygrid: bool = True) -> None:
+    ax.set_facecolor("white")
+    ax.spines["left"].set_color(V7_COLORS["axis"])
+    ax.spines["bottom"].set_color(V7_COLORS["axis"])
+    ax.spines["left"].set_linewidth(0.92)
+    ax.spines["bottom"].set_linewidth(0.92)
+    ax.tick_params(axis="both", colors=V7_COLORS["muted"], width=0.88, length=3.2, pad=2.4, labelsize=9.8)
+    ax.xaxis.label.set_color(V7_COLORS["neutral"])
+    ax.yaxis.label.set_color(V7_COLORS["neutral"])
+    ax.xaxis.label.set_size(11.2)
+    ax.yaxis.label.set_size(11.2)
+    if ygrid:
+        ax.grid(axis="y", color=V7_COLORS["grid"], linewidth=0.72)
+    if xgrid:
+        ax.grid(axis="x", color=V7_COLORS["grid"], linewidth=0.72)
+
+
+def v7_panel_label(ax: plt.Axes, label: str) -> None:
+    ax.text(
+        -0.08,
+        1.04,
+        label,
+        transform=ax.transAxes,
+        ha="left",
+        va="bottom",
+        fontsize=8.4,
+        fontweight="bold",
+        color=V7_COLORS["neutral"],
+    )
+
+
+def v7_case_paths(case_id: str) -> tuple[Path, Path]:
+    closed = sorted(TS_ROOT.glob(f"{case_id}_*_closed_only_timeseries.csv"))
+    predictive = sorted(TS_ROOT.glob(f"{case_id}_*_prediction_primary_econ_timeseries.csv"))
+    if len(closed) != 1 or len(predictive) != 1:
+        raise FileNotFoundError(f"Expected one closed and one predictive timeseries for {case_id}")
+    return closed[0], predictive[0]
+
+
+def v7_load_final_per_case() -> pd.DataFrame:
+    df = pd.read_csv(FINAL_PER_CASE)
+    df["窗口序号"] = np.arange(1, len(df) + 1)
+    df["窗口类别"] = df["validation_role"].map(ROLE_CN)
+    df["累计泵量降低_m3"] = df["closed_pump_m3"] - df["gated_pump_m3"]
+    df["水泵启停频次减少"] = df["closed_latch_switches"] - df["gated_latch_switches"]
+    return df
+
+
+def v7_load_extended_per_case() -> pd.DataFrame:
+    df = pd.read_csv(FINAL_EXTENDED_PER_CASE)
+    df["窗口序号"] = np.arange(1, len(df) + 1)
+    df["窗口类别"] = df["validation_role"].map(ROLE_CN)
+    return df
+
+
+def v7_load_actuator_source() -> pd.DataFrame:
+    df = pd.read_csv(V6_TABLES / "fig_actuator_burden_benefit_final_source.csv")
+    df["动作时长减少率_pct"] = (
+        df["动作时长减少_min"] / df["无预测闭环反馈策略动作时长_min"] * 100.0
+    )
+    df["水泵启停频次减少率_pct"] = (
+        df["启停频次减少"] / df["无预测闭环反馈策略启停频次"] * 100.0
+    )
+    df["累计目标水量变化减少率_pct"] = (
+        df["累计目标水量变化减少_t"] / df["无预测闭环反馈策略累计目标水量变化_t"] * 100.0
+    )
+    return df
+
+
+def v7_validate_inputs() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    per = v7_load_final_per_case()
+    ext = v7_load_extended_per_case()
+    actuator = v7_load_actuator_source()
+
+    role_counts = per["validation_role"].value_counts().to_dict()
+    expected_counts = {"positive_allow": 50, "negative_abstain": 31, "background_abstain": 20}
+    if role_counts != expected_counts:
+        raise ValueError(f"Unexpected validation-role counts: {role_counts}")
+
+    active = per.loc[per["validation_role"] == "positive_allow"]
+    total_saved = float(per["累计泵量降低_m3"].sum())
+    active_saved = float(active["累计泵量降低_m3"].sum())
+    total_saving_pct = total_saved / float(per["closed_pump_m3"].sum()) * 100.0
+    active_saving_pct = active_saved / float(active["closed_pump_m3"].sum()) * 100.0
+    total_switch_pct = (
+        (per["closed_latch_switches"].sum() - per["gated_latch_switches"].sum())
+        / per["closed_latch_switches"].sum()
+        * 100.0
+    )
+    active_switch_pct = (
+        (active["closed_latch_switches"].sum() - active["gated_latch_switches"].sum())
+        / active["closed_latch_switches"].sum()
+        * 100.0
+    )
+    checks = {
+        "具有调节空间窗口累计泵量降低率": (active_saving_pct, 34.35, 0.02),
+        "综合验证窗口累计泵量降低率": (total_saving_pct, 22.48, 0.02),
+        "具有调节空间窗口水泵启停频次降低率": (active_switch_pct, 39.93, 0.02),
+        "综合验证窗口水泵启停频次降低率": (total_switch_pct, 26.95, 0.02),
+        "T>5累计超阈时间变化": (float(ext["gated_d_time_over_5_s"].sum()), 26.0, 0.1),
+        "T>7.5累计超阈时间变化": (float(ext["gated_d_time_over_7p5_s"].sum()), 4.0, 0.1),
+        "T>10累计超阈时间变化": (float(ext["gated_d_time_over_10_s"].sum()), 0.0, 0.1),
+    }
+    for name, (value, expected, atol) in checks.items():
+        if not np.isclose(value, expected, atol=atol):
+            raise ValueError(f"{name} mismatch: {value:.4f}, expected {expected:.4f}")
+
+    if int((actuator["动作时长减少_min"] > 0).sum()) != 50:
+        raise ValueError("Expected 50/50 windows with reduced action duration")
+
+    return per, ext, actuator
+
+
+def v7_strip_points(
+    ax: plt.Axes,
+    values: pd.Series,
+    *,
+    title: str,
+    xlabel: str,
+    positive_label: str,
+    xlim: tuple[float, float] | None = None,
+    seed: int = 0,
+) -> None:
+    vals = values.to_numpy(dtype=float)
+    rng = np.random.default_rng(seed)
+    y = rng.normal(0.0, 0.035, len(vals))
+    colors = np.where(vals >= 0, V7_COLORS["predictive"], V7_COLORS["penalty"])
+    ax.axvline(0, color=V7_COLORS["muted"], linewidth=0.82, linestyle=(0, (3, 2)), zorder=1)
+    ax.scatter(vals, y, s=22, color=colors, alpha=0.72, edgecolor="white", linewidth=0.42, zorder=3)
+    q25, med, q75 = np.percentile(vals, [25, 50, 75])
+    ax.hlines(0.16, q25, q75, color=V7_COLORS["predictive_dark"], linewidth=3.2, alpha=0.34, zorder=2)
+    ax.scatter([med], [0.16], marker="D", s=28, color=V7_COLORS["neutral"], edgecolor="white", linewidth=0.4, zorder=4)
+    ax.set_ylim(-0.16, 0.31)
+    ax.set_yticks([])
+    ax.set_title(title, loc="left", fontsize=8.3, fontweight="bold", color=V7_COLORS["neutral"], pad=3.0)
+    ax.set_xlabel(xlabel)
+    if xlim is not None:
+        ax.set_xlim(*xlim)
+    ax.text(
+        0.99,
+        0.80,
+        f"{positive_label}\n中位数 {med:.1f}",
+        transform=ax.transAxes,
+        ha="right",
+        va="top",
+        fontsize=7.1,
+        color=V7_COLORS["muted"],
+    )
+    v7_style_axis(ax, xgrid=True, ygrid=False)
+
+
+def figure_v7_a_actuator_burden_distribution(actuator: pd.DataFrame) -> None:
+    source = actuator[
+        [
+            "窗口序号",
+            "时间",
+            "窗口类别",
+            "累计泵量降低率_pct",
+            "动作时长减少率_pct",
+            "启停频次减少",
+            "水泵启停频次减少率_pct",
+            "累计目标水量变化减少_t",
+            "累计目标水量变化减少率_pct",
+        ]
+    ].copy()
+    V7_TABLES.mkdir(parents=True, exist_ok=True)
+    source.to_csv(V7_TABLES / "fig_a_actuator_burden_distribution_source.csv", index=False)
+
+    fig, axes = plt.subplots(4, 1, figsize=(7.2, 5.45), constrained_layout=False)
+    fig.subplots_adjust(left=0.12, right=0.96, top=0.91, bottom=0.10, hspace=0.78)
+    fig.suptitle(
+        "具有调节空间窗口的执行器负担降低分布",
+        x=0.12,
+        y=0.98,
+        ha="left",
+        fontsize=10.2,
+        fontweight="bold",
+        color=V7_COLORS["neutral"],
+    )
+    specs = [
+        (
+            "a",
+            "累计泵量降低",
+            "累计泵量降低率_pct",
+            "累计泵量降低率（%）",
+            f"{int((source['累计泵量降低率_pct'] > 0).sum())}/50 降低",
+            (0, 56),
+        ),
+        (
+            "b",
+            "动作时长减少",
+            "动作时长减少率_pct",
+            "动作时长减少率（%）",
+            f"{int((source['动作时长减少率_pct'] > 0).sum())}/50 减少",
+            (0, 78),
+        ),
+        (
+            "c",
+            "水泵启停频次减少",
+            "启停频次减少",
+            "水泵启停频次减少（次）",
+            f"{int((source['启停频次减少'] > 0).sum())}/50 减少",
+            (-210, 850),
+        ),
+        (
+            "d",
+            "累计目标水量变化减少",
+            "累计目标水量变化减少率_pct",
+            "累计目标水量变化减少率（%）",
+            f"{int((source['累计目标水量变化减少率_pct'] > 0).sum())}/50 减少",
+            (-36, 46),
+        ),
+    ]
+    for i, (ax, (label, title, col, xlabel, positive_label, xlim)) in enumerate(zip(axes, specs, strict=True)):
+        v7_panel_label(ax, label)
+        v7_strip_points(
+            ax,
+            source[col],
+            title=title,
+            xlabel=xlabel,
+            positive_label=positive_label,
+            xlim=xlim,
+            seed=11 + i,
+        )
+
+    v7_save(fig, "fig_a_actuator_burden_distribution")
+
+
+def figure_v7_b_pump_duration_relation(actuator: pd.DataFrame) -> None:
+    source = actuator[
+        [
+            "窗口序号",
+            "时间",
+            "窗口类别",
+            "累计泵量降低率_pct",
+            "动作时长减少率_pct",
+            "启停频次减少",
+            "水泵启停频次减少率_pct",
+        ]
+    ].copy()
+    source.to_csv(V7_TABLES / "fig_b_pump_duration_switch_relation_source.csv", index=False)
+
+    x = source["累计泵量降低率_pct"].to_numpy(dtype=float)
+    y = source["动作时长减少率_pct"].to_numpy(dtype=float)
+    switches = source["启停频次减少"].to_numpy(dtype=float)
+    switch_vmin, switch_vmax = -210, 850
+    zero_position = (0 - switch_vmin) / (switch_vmax - switch_vmin)
+    cmap = mpl.colors.LinearSegmentedColormap.from_list(
+        "switch_reduction",
+        [
+            (0.0, V7_COLORS["penalty"]),
+            (zero_position, "#E8EEF2"),
+            (1.0, V7_COLORS["predictive_dark"]),
+        ],
+    )
+    norm = mpl.colors.Normalize(vmin=switch_vmin, vmax=switch_vmax)
+
+    fig, ax = plt.subplots(figsize=(7.35, 4.05), constrained_layout=True)
+    sc = ax.scatter(
+        x,
+        y,
+        c=switches,
+        cmap=cmap,
+        norm=norm,
+        s=52,
+        alpha=0.90,
+        edgecolor="white",
+        linewidth=0.62,
+        zorder=3,
+    )
+    coef = np.polyfit(x, y, deg=1)
+    xx = np.linspace(float(x.min()), float(x.max()), 100)
+    ax.plot(xx, coef[0] * xx + coef[1], color=V7_COLORS["neutral"], linewidth=1.12, linestyle=(0, (4, 2)))
+    ax.axhline(0, color=V7_COLORS["muted"], linewidth=0.92, linestyle=(0, (3, 2)))
+    ax.set_xlabel("累计泵量降低率（%）")
+    ax.set_ylabel("动作时长减少率（%）")
+    ax.set_xlim(8, 54)
+    ax.set_ylim(0, 100)
+    ax.yaxis.set_major_locator(mpl.ticker.MultipleLocator(20))
+    cbar = fig.colorbar(sc, ax=ax, pad=0.02, shrink=0.86)
+    cbar.set_ticks([-200, -100, 0, 200, 400, 600, 800])
+    cbar.set_label("水泵启停频次减少（次）", fontsize=11.2)
+    cbar.ax.tick_params(labelsize=9.8, length=2.8)
+    v7_style_axis(ax, xgrid=False, ygrid=True)
+    v7_save(fig, "fig_b_pump_duration_switch_relation")
+
+
+def v7_read_timeseries(path: Path, cols: list[str]) -> pd.DataFrame:
+    return pd.read_csv(path, usecols=cols)
+
+
+def v7_build_timeseries_products(per: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    positive = per.loc[per["validation_role"] == "positive_allow"].copy().reset_index(drop=True)
+    positive["调节空间窗口序号"] = np.arange(1, len(positive) + 1)
+    if len(positive) != 50:
+        raise ValueError(f"Expected 50 windows with regulation room, found {len(positive)}")
+    positive_window_no = dict(zip(positive["case_id"], positive["调节空间窗口序号"], strict=True))
+
+    duty_closed_sum: np.ndarray | None = None
+    duty_predictive_sum: np.ndarray | None = None
+    time_s: np.ndarray | None = None
+    cumulative_rows: list[dict[str, float | int]] = []
+    cumulative_matrix: list[np.ndarray] = []
+    threshold2_records: list[dict[str, float | int | str]] = []
+    sample_idx: np.ndarray | None = None
+
+    read_cols = ["t_s", "pump_total_rate_m3_min", "pitch_deg", "roll_deg"]
+    posture_cols = ["t_s", "pitch_deg", "roll_deg"]
+
+    for row in per.itertuples(index=False):
+        closed_path, predictive_path = v7_case_paths(row.case_id)
+        is_positive = row.validation_role == "positive_allow"
+        closed = v7_read_timeseries(closed_path, read_cols if is_positive else posture_cols)
+        t = closed["t_s"].to_numpy(dtype=float)
+        dt_s = float(np.median(np.diff(t)))
+        closed_max_axis = np.maximum(
+            np.abs(closed["pitch_deg"].to_numpy(dtype=float)),
+            np.abs(closed["roll_deg"].to_numpy(dtype=float)),
+        )
+        closed_over_2_s = float(np.sum(closed_max_axis > 2.0) * dt_s)
+
+        if is_positive:
+            predictive = v7_read_timeseries(predictive_path, read_cols)
+            predictive_max_axis = np.maximum(
+                np.abs(predictive["pitch_deg"].to_numpy(dtype=float)),
+                np.abs(predictive["roll_deg"].to_numpy(dtype=float)),
+            )
+            predictive_over_2_s = float(np.sum(predictive_max_axis > 2.0) * dt_s)
+
+            closed_rate = closed["pump_total_rate_m3_min"].to_numpy(dtype=float)
+            predictive_rate = predictive["pump_total_rate_m3_min"].to_numpy(dtype=float)
+            if time_s is None:
+                time_s = t
+                duty_closed_sum = np.zeros_like(t, dtype=float)
+                duty_predictive_sum = np.zeros_like(t, dtype=float)
+                sample_idx = np.r_[np.arange(59, len(t), 60), len(t) - 1]
+                sample_idx = np.unique(sample_idx)
+            elif len(t) != len(time_s):
+                raise ValueError(f"Unexpected timeseries length for {row.case_id}: {len(t)}")
+
+            duty_closed_sum += (closed_rate > 1e-9).astype(float)
+            duty_predictive_sum += (predictive_rate > 1e-9).astype(float)
+
+            dt_min = dt_s / 60.0
+            cumulative_extra = np.cumsum((closed_rate - predictive_rate) * dt_min)
+            sampled = cumulative_extra[sample_idx]
+            cumulative_matrix.append(sampled)
+            window_no = int(positive_window_no[row.case_id])
+            for idx, value in zip(sample_idx, sampled, strict=True):
+                cumulative_rows.append(
+                    {
+                        "调节空间窗口序号": window_no,
+                        "时间_min": float(t[idx] / 60.0),
+                        "无预测闭环反馈策略多出的累计泵量_m3": float(value),
+                    }
+                )
+        else:
+            predictive_over_2_s = closed_over_2_s
+
+        threshold2_records.append(
+            {
+                "窗口序号": int(row.窗口序号),
+                "时间": row.timestamp,
+                "窗口类别": row.窗口类别,
+                "阈值_deg": 2.0,
+                "无预测闭环反馈策略姿态超阈时间_s": closed_over_2_s,
+                "预测辅助闭环调节策略姿态超阈时间_s": predictive_over_2_s,
+                "姿态超阈时间变化_s": predictive_over_2_s - closed_over_2_s,
+            }
+        )
+
+    if time_s is None or duty_closed_sum is None or duty_predictive_sum is None or sample_idx is None:
+        raise ValueError("No timeseries products were built")
+
+    duty_raw = pd.DataFrame(
+        {
+            "时间_min": time_s / 60.0,
+            "minute": np.floor(time_s / 60.0).astype(int),
+            "无预测闭环反馈策略水泵动作占比_pct": duty_closed_sum / len(positive) * 100.0,
+            "预测辅助闭环调节策略水泵动作占比_pct": duty_predictive_sum / len(positive) * 100.0,
+        }
+    )
+    duty = (
+        duty_raw.groupby("minute", as_index=False)
+        .agg(
+            时间_min=("时间_min", "mean"),
+            无预测闭环反馈策略水泵动作占比_pct=("无预测闭环反馈策略水泵动作占比_pct", "mean"),
+            预测辅助闭环调节策略水泵动作占比_pct=("预测辅助闭环调节策略水泵动作占比_pct", "mean"),
+        )
+        .drop(columns=["minute"])
+    )
+    duty["动作占比降低_pct"] = (
+        duty["无预测闭环反馈策略水泵动作占比_pct"] - duty["预测辅助闭环调节策略水泵动作占比_pct"]
+    )
+
+    cumulative_long = pd.DataFrame(cumulative_rows)
+    cumulative_array = np.vstack(cumulative_matrix)
+    cumulative_summary = pd.DataFrame(
+        {
+            "时间_min": time_s[sample_idx] / 60.0,
+            "q25_m3": np.percentile(cumulative_array, 25, axis=0),
+            "中位数_m3": np.percentile(cumulative_array, 50, axis=0),
+            "q75_m3": np.percentile(cumulative_array, 75, axis=0),
+            "均值_m3": np.mean(cumulative_array, axis=0),
+        }
+    )
+    threshold2 = pd.DataFrame(threshold2_records)
+    return duty, cumulative_long, cumulative_summary, threshold2
+
+
+def figure_v7_c_actuator_duty_cycle(duty: pd.DataFrame) -> None:
+    duty.to_csv(V7_TABLES / "fig_c_actuator_duty_cycle_source.csv", index=False)
+
+    fig, ax = plt.subplots(figsize=(7.35, 3.75), constrained_layout=True)
+    x = duty["时间_min"].to_numpy(dtype=float) / 60.0
+    closed = duty["无预测闭环反馈策略水泵动作占比_pct"].to_numpy(dtype=float)
+    predictive = duty["预测辅助闭环调节策略水泵动作占比_pct"].to_numpy(dtype=float)
+    ax.plot(x, closed, color="#9A7F63", linewidth=0.96, label="无预测闭环反馈策略")
+    ax.plot(x, predictive, color="#2E7D68", linewidth=1.08, label="预测辅助闭环调节策略")
+    ax.set_xlabel("窗口内时间（h）")
+    ax.set_ylabel("水泵动作状态占比（%）")
+    ax.set_title("具有调节空间窗口内水泵动作占比随时间变化", loc="left", fontsize=13.0, fontweight="bold")
+    ax.legend(loc="upper right", ncols=2, frameon=False, fontsize=10.4, handlelength=2.6)
+    ax.set_xlim(0, 6)
+    ax.set_ylim(0, 105)
+    ax.yaxis.set_major_locator(mpl.ticker.MultipleLocator(20))
+    v7_style_axis(ax, xgrid=False, ygrid=True)
+    v7_save(fig, "fig_c_actuator_duty_cycle")
+
+
+def figure_v7_d_cumulative_benefit_process(
+    cumulative_long: pd.DataFrame, cumulative_summary: pd.DataFrame
+) -> None:
+    cumulative_long.to_csv(V7_TABLES / "fig_d_cumulative_pump_benefit_process_source.csv", index=False)
+    cumulative_summary.to_csv(V7_TABLES / "fig_d_cumulative_pump_benefit_process_summary.csv", index=False)
+
+    fig, ax = plt.subplots(figsize=(7.35, 3.95), constrained_layout=True)
+    original_blue = "#2D7FB8"
+    original_blue_dark = "#0F4D92"
+    for _, sub in cumulative_long.groupby("调节空间窗口序号"):
+        ax.plot(
+            sub["时间_min"].to_numpy(dtype=float) / 60.0,
+            sub["无预测闭环反馈策略多出的累计泵量_m3"].to_numpy(dtype=float),
+            color=original_blue,
+            linewidth=0.38,
+            alpha=0.15,
+            zorder=1,
+        )
+    x = cumulative_summary["时间_min"].to_numpy(dtype=float) / 60.0
+    q25 = cumulative_summary["q25_m3"].to_numpy(dtype=float)
+    med = cumulative_summary["中位数_m3"].to_numpy(dtype=float)
+    q75 = cumulative_summary["q75_m3"].to_numpy(dtype=float)
+    ax.fill_between(x, q25, q75, color=original_blue, alpha=0.17, linewidth=0, label="IQR")
+    ax.plot(x, med, color=original_blue_dark, linewidth=1.55, label="中位数", zorder=4)
+    ax.axhline(0, color=V7_COLORS["muted"], linewidth=0.92, linestyle=(0, (3, 2)))
+    ax.set_xlabel("窗口内时间（h）")
+    ax.set_ylabel("累计泵量降低量（m³）")
+    ax.legend(
+        loc="upper left",
+        frameon=False,
+        fontsize=13.0,
+        handlelength=2.7,
+    )
+    ax.set_xlim(0, 6)
+    ax.set_ylim(-100, 1050)
+    ax.set_yticks([-100, 0, 200, 400, 600, 800, 1000])
+    v7_style_axis(ax, xgrid=False, ygrid=True)
+    v7_save(fig, "fig_d_cumulative_pump_benefit_process")
+
+
+def v7_threshold_profile_source(ext: pd.DataFrame, threshold2: pd.DataFrame) -> pd.DataFrame:
+    rows: list[dict[str, float | int | str]] = []
+    for row in ext.itertuples(index=False):
+        for threshold, col_key in [(3.0, "3"), (4.0, "4"), (5.0, "5"), (7.5, "7p5"), (10.0, "10")]:
+            rows.append(
+                {
+                    "窗口序号": int(row.窗口序号),
+                    "时间": row.timestamp,
+                    "窗口类别": row.窗口类别,
+                    "阈值_deg": threshold,
+                    "无预测闭环反馈策略姿态超阈时间_s": float(getattr(row, f"closed_time_over_{col_key}_s")),
+                    "预测辅助闭环调节策略姿态超阈时间_s": float(getattr(row, f"gated_time_over_{col_key}_s")),
+                    "姿态超阈时间变化_s": float(getattr(row, f"gated_d_time_over_{col_key}_s")),
+                }
+            )
+    df = pd.concat([threshold2, pd.DataFrame(rows)], ignore_index=True)
+    order = {2.0: 0, 3.0: 1, 4.0: 2, 5.0: 3, 7.5: 4, 10.0: 5}
+    df["_order"] = df["阈值_deg"].map(order)
+    df = df.sort_values(["_order", "窗口序号"]).drop(columns=["_order"]).reset_index(drop=True)
+    return df
+
+
+def figure_v7_e_attitude_threshold_risk_curve(threshold_source: pd.DataFrame) -> None:
+    threshold_source.to_csv(V7_TABLES / "fig_e_attitude_threshold_risk_curve_source.csv", index=False)
+    total_seconds = 101 * 6 * 3600
+    summary = (
+        threshold_source.groupby("阈值_deg", as_index=False)
+        .agg(
+            无预测闭环反馈策略姿态超阈时间_s=("无预测闭环反馈策略姿态超阈时间_s", "sum"),
+            预测辅助闭环调节策略姿态超阈时间_s=("预测辅助闭环调节策略姿态超阈时间_s", "sum"),
+            姿态超阈时间变化_s=("姿态超阈时间变化_s", "sum"),
+        )
+        .sort_values("阈值_deg")
+    )
+    summary["姿态超阈时间变化占总验证时长_pct"] = summary["姿态超阈时间变化_s"] / total_seconds * 100.0
+    summary["相对无预测闭环反馈策略变化_pct"] = (
+        summary["预测辅助闭环调节策略姿态超阈时间_s"]
+        / summary["无预测闭环反馈策略姿态超阈时间_s"]
+        - 1.0
+    ) * 100.0
+    summary.to_csv(V7_TABLES / "fig_e_attitude_threshold_risk_curve_summary.csv", index=False)
+
+    labels = [f"{v:g}°" for v in summary["阈值_deg"]]
+    x = np.arange(len(summary))
+    y = summary["姿态超阈时间变化占总验证时长_pct"].to_numpy(dtype=float)
+    delta_s = summary["姿态超阈时间变化_s"].to_numpy(dtype=float)
+    colors = [V7_COLORS["benefit"] if val < 0 else V7_COLORS["penalty"] if val > 0 else V7_COLORS["neutral"] for val in delta_s]
+
+    fig, ax = plt.subplots(figsize=(6.6, 3.45), constrained_layout=True)
+    ax.axhline(0, color=V7_COLORS["muted"], linewidth=0.78, linestyle=(0, (3, 2)))
+    ax.vlines(x, 0, y, color=colors, linewidth=2.0, alpha=0.55)
+    ax.scatter(x, y, s=48, color=colors, edgecolor="white", linewidth=0.55, zorder=3)
+    for xi, yi, ds in zip(x, y, delta_s, strict=True):
+        ax.text(
+            xi,
+            yi + (0.010 if yi >= 0 else -0.010),
+            f"{ds:+.0f} s",
+            ha="center",
+            va="bottom" if yi >= 0 else "top",
+            fontsize=7.1,
+            color=V7_COLORS["neutral"],
+        )
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels)
+    ax.set_ylabel("姿态超阈时间变化占总验证时长（%）")
+    ax.set_xlabel("姿态阈值")
+    ax.set_title("综合验证窗口的姿态超阈风险剖面", loc="left", fontsize=10.0, fontweight="bold")
+    ax.text(
+        0.98,
+        0.92,
+        "阈值越接近风险边界，增量越小；10°为0",
+        transform=ax.transAxes,
+        ha="right",
+        va="top",
+        fontsize=7.4,
+        color=V7_COLORS["neutral"],
+        bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.86, "pad": 1.8},
+    )
+    ymax = max(0.02, float(np.nanmax(np.abs(y))) * 1.30)
+    ax.set_ylim(-ymax * 0.12, ymax)
+    v7_style_axis(ax, xgrid=False, ygrid=True)
+    v7_save(fig, "fig_e_attitude_threshold_risk_curve")
+
+
+def figure_v7_f_attitude_severity_decomposition(ext: pd.DataFrame) -> None:
+    active = ext.loc[ext["validation_role"] == "positive_allow"].copy().reset_index(drop=True)
+    active["调节空间窗口序号"] = np.arange(1, len(active) + 1)
+    source = pd.DataFrame(
+        {
+            "调节空间窗口序号": active["调节空间窗口序号"],
+            "时间": active["timestamp"],
+            "窗口类别": active["窗口类别"],
+            "累计泵量降低率_pct": active["gated_saving_pct"],
+            "T大于5度累计超阈时间变化_s": active["gated_d_time_over_5_s"],
+            "T大于5度最长连续超阈时间变化_s": active["gated_d_max_cont_over_5_s"],
+            "T大于5度超阈面积变化_deg_s": active["gated_d_area_over_5_deg_s"],
+        }
+    )
+    source.to_csv(V7_TABLES / "fig_f_attitude_severity_decomposition_source.csv", index=False)
+
+    fig, axes = plt.subplots(1, 3, figsize=(7.2, 3.15), constrained_layout=False)
+    fig.subplots_adjust(left=0.07, right=0.985, top=0.82, bottom=0.18, wspace=0.34)
+    fig.suptitle(
+        "T>5°姿态事件严重度分解",
+        x=0.07,
+        y=0.96,
+        ha="left",
+        fontsize=10.0,
+        fontweight="bold",
+        color=V7_COLORS["neutral"],
+    )
+    specs = [
+        ("a", "累计超阈时间", "T大于5度累计超阈时间变化_s", "变化（s）", (-20, 45)),
+        ("b", "最长连续超阈时间", "T大于5度最长连续超阈时间变化_s", "变化（s）", (-20, 45)),
+        ("c", "超阈面积", "T大于5度超阈面积变化_deg_s", "变化（deg·s）", (-20, 45)),
+    ]
+    for i, (ax, (label, title, col, xlabel, xlim)) in enumerate(zip(axes, specs, strict=True)):
+        vals = source[col]
+        v7_panel_label(ax, label)
+        v7_strip_points(
+            ax,
+            vals,
+            title=title,
+            xlabel=xlabel,
+            positive_label=f"{int((vals > 0).sum())}/50 增加",
+            xlim=xlim,
+            seed=41 + i,
+        )
+    v7_save(fig, "fig_f_attitude_severity_decomposition")
+
+
+def v7_write_readme(
+    per: pd.DataFrame,
+    ext: pd.DataFrame,
+    actuator: pd.DataFrame,
+    duty: pd.DataFrame,
+    threshold_source: pd.DataFrame,
+) -> None:
+    V7_OUT.mkdir(parents=True, exist_ok=True)
+    active = per.loc[per["validation_role"] == "positive_allow"]
+    active_saved = float(active["累计泵量降低_m3"].sum())
+    active_saving_pct = active_saved / float(active["closed_pump_m3"].sum()) * 100.0
+    active_switch_pct = (
+        (active["closed_latch_switches"].sum() - active["gated_latch_switches"].sum())
+        / active["closed_latch_switches"].sum()
+        * 100.0
+    )
+    total_saving_pct = float(per["累计泵量降低_m3"].sum() / per["closed_pump_m3"].sum() * 100.0)
+    total_switch_pct = (
+        (per["closed_latch_switches"].sum() - per["gated_latch_switches"].sum())
+        / per["closed_latch_switches"].sum()
+        * 100.0
+    )
+    action_duration_reduced = int((actuator["动作时长减少_min"] > 0).sum())
+    target_reduced = int((actuator["累计目标水量变化减少_t"] > 0).sum())
+    duty_closed = float(duty["无预测闭环反馈策略水泵动作占比_pct"].mean())
+    duty_predictive = float(duty["预测辅助闭环调节策略水泵动作占比_pct"].mean())
+    d5 = float(ext["gated_d_time_over_5_s"].sum())
+    d75 = float(ext["gated_d_time_over_7p5_s"].sum())
+    d10 = float(ext["gated_d_time_over_10_s"].sum())
+
+    threshold_summary = (
+        threshold_source.groupby("阈值_deg")["姿态超阈时间变化_s"].sum().reset_index().sort_values("阈值_deg")
+    )
+    threshold_line = "，".join(
+        f"{row['阈值_deg']:g}°: {row['姿态超阈时间变化_s']:+.0f} s"
+        for _, row in threshold_summary.iterrows()
+    )
+
+    readme = f"""# validation_expansion_v7
+
+本包围绕一个结论筛图：在具有调节空间的窗口内，预测辅助闭环调节策略相对无预测闭环反馈策略降低累计泵量和执行器负担，同时不放大高阈值姿态风险。
+
+## 统计口径
+
+- 101个综合验证窗口：50个具有调节空间的窗口、31个风险边界窗口、20个低扰动背景窗口。
+- 具有调节空间的窗口：累计泵量降低 {active_saving_pct:.2f}%，水泵启停频次降低 {active_switch_pct:.2f}%。
+- 综合验证窗口总计：累计泵量降低 {total_saving_pct:.2f}%，水泵启停频次降低 {total_switch_pct:.2f}%。
+- 最终判别口径下姿态变化：θ_d>5°累计时间 {d5:+.0f} s，θ_d>7.5°累计时间 {d75:+.0f} s，θ_d>10°累计时间 {d10:.0f}。
+- 时序图 C/D 使用1 Hz水泵状态和流量积分；图 E 的2°阈值由1 Hz姿态时序补算，其余阈值来自最终逐案扩展统计。
+- 本包 A-F 不展示风速/风向时序。若后续增加风速/风向曲线，展示曲线必须做滑动平均；平滑仅用于显示，不参与任何统计计算。
+
+## 候选图与筛选意见
+
+| 图 | 文件 | source csv | 核心结论 | 建议 |
+|---|---|---|---|---|
+| A | `figures/fig_a_actuator_burden_distribution.*` | `tables/fig_a_actuator_burden_distribution_source.csv` | 累计泵量与动作时长均为50/50降低，水泵启停频次46/50减少，累计目标水量变化38/50减少。 | 信息密度较高，可作为备选或附录。 |
+| B | `figures/fig_b_pump_duration_switch_relation.*` | `tables/fig_b_pump_duration_switch_relation_source.csv` | 累计泵量降低率与动作时长减少率呈正相关，且所有点位于动作时长减少区间。 | 建议正文。用于说明累计泵量降低并非以更长动作时长为代价。 |
+| C | `figures/fig_c_actuator_duty_cycle.*` | `tables/fig_c_actuator_duty_cycle_source.csv` | 50个窗口汇总后，水泵动作占比从 {duty_closed:.1f}% 降至 {duty_predictive:.1f}%，不是单窗口故事。 | 建议正文或正文备选。用于展示执行器动作占比的时间过程。 |
+| D | `figures/fig_d_cumulative_pump_benefit_process.*` | `tables/fig_d_cumulative_pump_benefit_process_source.csv`; `tables/fig_d_cumulative_pump_benefit_process_summary.csv` | 多数窗口的累计收益随时间形成稳定正值，粗线中位数和IQR显示收益不是少数离群窗口造成。 | 建议正文。它补足“收益何时形成”的动态证据。 |
+| E | `figures/fig_e_attitude_threshold_risk_curve.*` | `tables/fig_e_attitude_threshold_risk_curve_source.csv`; `tables/fig_e_attitude_threshold_risk_curve_summary.csv` | 阈值剖面为 {threshold_line}，越接近风险边界增量越小，10°为0。 | 建议正文。它直接服务“不放大姿态风险”的主张。 |
+| F | `figures/fig_f_attitude_severity_decomposition.*` | `tables/fig_f_attitude_severity_decomposition_source.csv` | T>5°的累计时间、最长连续时间和超阈面积多数窗口为0附近变化，未形成普遍持续性事件尾部。 | 建议附录。正文可引用其结论，除非审稿人要求事件严重度分解。 |
+
+## 弃用判断
+
+本轮 A-F 均有可辨识证据。若正文需要增加执行器与过程证据，优先采用 B、C、D；A 信息密度较高，可作为备选或附录。不要把这些图表述为真实能耗、功率、疲劳载荷或结构损伤改善。
+
+## 主代理需审查的风险点
+
+- 图 E 的2°阈值由1 Hz姿态时序补算，不来自最终逐案扩展表；请确认正文是否需要2°这个低阈值。
+- 图 C/D 使用水泵动作状态和流量积分，不等价于真实泵功率或电能消耗。
+- 图 F 中 θ_d>5° 最长连续超阈时间变化存在单窗口正向尾部，正文措辞应写“没有形成普遍持续性高姿态风险”，不要写“所有事件都缩短”。
+- 若主文只能放一张执行器关系图，优先B；若需要展示时间过程，再补C或D。
+"""
+    (V7_OUT / "README.md").write_text(readme, encoding="utf-8")
+
+
+def make_validation_expansion_v7() -> None:
+    V7_FIGURES.mkdir(parents=True, exist_ok=True)
+    V7_TABLES.mkdir(parents=True, exist_ok=True)
+    per, ext, actuator = v7_validate_inputs()
+
+    figure_v7_a_actuator_burden_distribution(actuator)
+    figure_v7_b_pump_duration_relation(actuator)
+
+    duty, cumulative_long, cumulative_summary, threshold2 = v7_build_timeseries_products(per)
+    threshold_source = v7_threshold_profile_source(ext, threshold2)
+    figure_v7_c_actuator_duty_cycle(duty)
+    figure_v7_d_cumulative_benefit_process(cumulative_long, cumulative_summary)
+    figure_v7_e_attitude_threshold_risk_curve(threshold_source)
+    figure_v7_f_attitude_severity_decomposition(ext)
+    v7_write_readme(per, ext, actuator, duty, threshold_source)
+    print(f"saved validation expansion figures to {V7_OUT}")
+
+
 def main() -> None:
+    if os.environ.get("FOWT_RESULT_FIGURE_SET") == "v7":
+        make_validation_expansion_v7()
+        return
+
     figure_mixed_contribution()
     figure_case_distribution()
     figure_positive_tradeoff()
@@ -780,6 +1629,7 @@ def main() -> None:
     figure_positive_latch_switch_comparison()
     figure_selected_attitude_curves()
     figure_compact_table6_only()
+    make_validation_expansion_v7()
     print(f"saved figures to {OUT}")
     for p in sorted(OUT.glob("fig_*.png")):
         print(p.relative_to(ROOT))

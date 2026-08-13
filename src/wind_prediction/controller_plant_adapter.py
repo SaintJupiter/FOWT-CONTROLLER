@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -46,6 +47,123 @@ def _strict_three(name: str, values: Any) -> np.ndarray:
     return array.copy()
 
 
+def _json_payload_sha256(document: Mapping[str, Any]) -> str:
+    payload = json.dumps(
+        dict(document),
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _json_numeric_vector(values: Any) -> list[float | str]:
+    result: list[float | str] = []
+    for value in np.asarray(values, dtype=float).reshape(-1):
+        number = float(value)
+        if number == math.inf:
+            result.append("positive_infinity")
+        elif number == -math.inf:
+            result.append("negative_infinity")
+        elif math.isnan(number):
+            raise ValueError("decision state contains NaN")
+        else:
+            result.append(number)
+    return result
+
+
+def forecast_payload_sha256(forecast: ForecastEvidence | None) -> str | None:
+    if forecast is None:
+        return None
+    document = {
+        "source": forecast.source,
+        "model_version": forecast.model_version,
+        "origin_time": forecast.origin_time,
+        "sample_period_s": float(forecast.sample_period_s),
+        "uv_ms": np.asarray(forecast.uv_ms, dtype=float).tolist(),
+        "event_probs": {
+            str(key): float(value)
+            for key, value in sorted(forecast.event_probs.items())
+        },
+        "lead_reliability": np.asarray(
+            forecast.lead_reliability,
+            dtype=float,
+        ).tolist(),
+        "provides_future_preview": bool(forecast.provides_future_preview),
+        "metadata": dict(forecast.metadata),
+    }
+    return _json_payload_sha256(document)
+
+
+def decision_state_sha256(
+    *,
+    state: Any,
+    wind_observation: Mapping[str, Any],
+    runtime_state: ControllerRuntimeState,
+) -> str:
+    execution = runtime_state.execution
+    document = {
+        "platform_state": _json_numeric_vector(state),
+        "wind_observation": {
+            "speed_ms": float(wind_observation["ws"]),
+            "direction_deg": float(wind_observation["wd_deg"]),
+        },
+        "controller_runtime": {
+            "cycle_index": int(runtime_state.cycle_index),
+            "target_revision": int(runtime_state.target_revision),
+            "last_action": runtime_state.last_action,
+            "last_decision_time_s": runtime_state.last_decision_time_s,
+        },
+        "execution": {
+            "masses_kg": _json_numeric_vector(execution.masses_kg),
+            "target_masses_kg": _json_numeric_vector(execution.target_masses_kg),
+            "primary_target_kg": _json_numeric_vector(execution.primary_target_kg),
+            "pump_rates_m3_min": _json_numeric_vector(
+                execution.pump_rates_m3_min
+            ),
+            "pump_latched": np.asarray(
+                execution.pump_latched, dtype=bool
+            ).astype(int).tolist(),
+            "pump_on_elapsed_s": _json_numeric_vector(
+                execution.pump_on_elapsed_s
+            ),
+            "pump_off_elapsed_s": _json_numeric_vector(
+                execution.pump_off_elapsed_s
+            ),
+            "pump_near_target_s": _json_numeric_vector(
+                execution.pump_near_target_s
+            ),
+            "pump_command_rates_m3_min": _json_numeric_vector(
+                execution.pump_command_rates_m3_min
+            ),
+            "last_flow_directions": _json_numeric_vector(
+                execution.last_flow_directions
+            ),
+        },
+    }
+    return _json_payload_sha256(document)
+
+
+def candidate_ranking_sha256(decision) -> str:
+    ranking = [
+        {
+            "sequence": [action.value for action in candidate.sequence],
+            "score": candidate.score,
+            "residual_cost": candidate.residual_cost,
+            "terminal_residual_cost": candidate.terminal_residual_cost,
+            "pump_volume_m3": candidate.transferred_volume_m3,
+            "active_time_s": candidate.active_time_s,
+            "starts": candidate.starts,
+            "direction_switches": candidate.direction_switches,
+            "first_action_vector_deg": list(candidate.first_action_vector_deg),
+            "first_target_masses_kg": list(candidate.first_target_masses_kg),
+        }
+        for candidate in decision.ranked_candidates
+    ]
+    return _json_payload_sha256({"ranked_candidates": ranking})
+
+
 class CompactControllerPlantAdapter:
     """Expose the V2 controller through the legacy plant preview interface.
 
@@ -61,7 +179,14 @@ class CompactControllerPlantAdapter:
         forecast_source: ForecastEvidenceSource | None,
         config: ControlCoreConfig | None = None,
     ) -> None:
-        self.controller = ForecastAssistedBallastController(config)
+        resolved_config = ControlCoreConfig() if config is None else config
+        if resolved_config.execution.target_slew_enabled:
+            raise ValueError(
+                "CompactControllerPlantAdapter does not support target slew; "
+                "disable it until the connected command path owns the same "
+                "rate limiter used by candidate execution rollout"
+            )
+        self.controller = ForecastAssistedBallastController(resolved_config)
         self.forecast_source = forecast_source
         self._initial_masses_kg = _strict_three(
             "initial_tank_masses_kg",
@@ -73,6 +198,10 @@ class CompactControllerPlantAdapter:
     @property
     def update_interval_s(self) -> float:
         return float(self.controller.config.stage_duration_s)
+
+    @property
+    def target_revision(self) -> int:
+        return int(self._runtime_state.target_revision)
 
     def reset(self) -> None:
         self._last_bucket: int | None = None
@@ -125,6 +254,11 @@ class CompactControllerPlantAdapter:
             posture_rate_deg_s=posture_rate,
             current_wind_uv_ms=current_uv,
         )
+        input_state_sha256 = decision_state_sha256(
+            state=state,
+            wind_observation=wind_obs,
+            runtime_state=runtime_state,
+        )
         decision = self.controller.decide(measurements, runtime_state, forecast)
         target = np.asarray(decision.target_masses_kg, dtype=float)
         changed = not np.array_equal(target, self._active_target_kg)
@@ -146,6 +280,21 @@ class CompactControllerPlantAdapter:
                 "selected_action": decision.action.value,
                 "target_operation": decision.target_operation.value,
                 "forecast_available": int(decision.context.forecast_available),
+                "forecast_source": None if forecast is None else forecast.source,
+                "forecast_model_version": (
+                    None if forecast is None else forecast.model_version
+                ),
+                "forecast_origin_time": (
+                    None if forecast is None else forecast.origin_time
+                ),
+                "forecast_payload_sha256": forecast_payload_sha256(forecast),
+                "forecast_input_window_sha256": (
+                    None
+                    if forecast is None
+                    else forecast.metadata.get("input_window_sha256")
+                ),
+                "decision_state_sha256": input_state_sha256,
+                "candidate_ranking_sha256": candidate_ranking_sha256(decision),
                 "target_revision": self._runtime_state.target_revision,
                 "target_masses_kg": target.tolist(),
                 "trace": decision.as_trace(),
@@ -225,5 +374,8 @@ class CompactControllerPlantAdapter:
 __all__ = [
     "CompactControllerPlantAdapter",
     "ForecastEvidenceSource",
+    "candidate_ranking_sha256",
+    "decision_state_sha256",
+    "forecast_payload_sha256",
     "wind_observation_to_uv_ms",
 ]

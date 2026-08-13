@@ -179,6 +179,70 @@ For our paper, use module framing:
 - 执行层: baseline feedback controller and pump constraints.
 - 评价模块: posture, pump work, fallback, prediction-vs-current comparison.
 
+## Method Prose From Strong Prediction-Control Papers
+
+This section records writing lessons from a live review of prediction-assisted control and wind-control papers, including LSTM-MPC irrigation scheduling, LIDAR-assisted wind turbine regulation, FOWT actuated-platform control, MPC with preview, disturbance-forecast MPC, scenario-based NMPC, SODA-MPC, wind-speed LSTM forecasting, wind-ramp event prediction, and risk-aware BLSTM-MPC vehicle planning.
+
+Core observation: good method prose does not open with a generic module statement. It starts from the controlled system's specific need, then introduces the prediction quantity, then states how that quantity changes the controller. The prediction model is usually framed as an information source or process model, not as a tutorial topic.
+
+### What To Learn
+
+- Start from the actuator or control bottleneck. Good papers write from the system constraint: slow irrigation decisions, wind preview for load rejection, dynamic pedestrians for vehicle planning, disturbance forecasts for MPC, or platform tilt control. For this paper, start from ballast transfer delay and target-water updating, not from "LSTM module".
+- Attach prediction to a downstream control consequence in the same paragraph. The sentence should answer: after prediction is obtained, what changes in the controller? For this paper: future wind vectors and wind-condition event probabilities enter equivalent attitude demand, candidate-action screening, and target ballast-water generation.
+- Use concrete verbs instead of explanatory scaffolding. Prefer "得到、估计、整理、映射、参与、筛选、生成" over "用于为...提供..." repeated across sentences.
+- Keep neural-network scope short. If LSTM is only an upstream predictor, state its input, output, and training-determined readout parameters. Do not expand LSTM gates unless the prediction model itself is a contribution.
+- Avoid defensive contrast sentences. Do not write "本文不对 LSTM 单元结构本身作改进，预测模块的作用是..." in the main prose. If scope must be clarified, put it in one compact sentence after the formula: "LSTM 在本文中承担风况预瞄量生成作用，后续控制律由预测输出与姿态反馈共同确定。"
+- Let formulas carry definitions, not prose. Avoid prose that merely repeats symbols. After a formula, explain why the output matters physically: future wind vector gives direction and magnitude; wind-condition event probability gates whether the prediction should participate in active ballast target generation.
+- Use parameterized time language in the method section. Write "历史风况序列" and "预测时域" in methods; move "120 min、60 min、6 个预测步" to validation settings.
+- Event recognition belongs to tables unless it changes a control variable directly. Event names, thresholds, and probability gates should be introduced as criteria; the formula section should show the control consequence, such as \(g_k\mathbf q_k\).
+
+### Sentences To Avoid
+
+Avoid this style:
+
+```text
+短时风况预测模块用于为主动压载目标水量生成提供未来风况输入。由于压载调节过程受水泵流量和舱内水量变化速度限制，其执行效果往往滞后于外部风况变化。因此，在目标压载水量更新前引入未来短时风况信息，可为后续姿态需求融合和候选动作判别提供预瞄依据。
+```
+
+Problems: "用于为...提供" is empty; "由于...因此..." reads like a template; "可为...提供预瞄依据" stops before saying how the control law changes.
+
+Avoid this defensive style:
+
+```text
+本文不对 LSTM 单元结构本身作改进，预测模块的作用是...
+```
+
+Problems: it leads with what the paper does not do; it sounds like a response to a reviewer rather than a method description.
+
+### Preferred 1.2 Opening Pattern
+
+Use this style when drafting the prediction subsection:
+
+```text
+压载水转移具有执行滞后，目标水量更新需要在当前姿态反馈之外获得短时风况预瞄量。本文以历史风况序列为输入，由 LSTM 提取风速、风向变化中的时序特征，并输出预测时域内的水平风矢量和风况事件概率。前者给出后续等效姿态需求的方向和强度来源，后者用于判断预测信息是否参与当前目标水量生成。
+```
+
+This paragraph is better because it moves in one line from physical bottleneck to prediction output to control consequence. It avoids a tutorial tone and does not apologize for using a standard LSTM.
+
+After the prediction-output formula, use:
+
+```text
+式中，\(\mathbf h_t\) 为历史风况序列的时序特征，\(\widehat{\mathbf y}_{t+j}\) 为第 \(j\) 个预测步的水平风矢量，\(\widehat p_{k,t}\) 为第 \(k\) 个预测时段的风况事件概率。读出矩阵和偏置由训练数据确定，不作为主动压载控制参数。预测风矢量随后用于构造等效姿态调节需求，风况事件概率用于确定该预测信息是否进入目标水量生成。
+```
+
+### Reference Papers Checked For This Rule
+
+- [Agyeman et al., LSTM-based model predictive control with discrete inputs for irrigation scheduling](https://arxiv.org/abs/2112.06352): prediction model introduced through the scheduler objective and discrete actuator problem.
+- [Stockhouse et al., Control of a Floating Wind Turbine on a Novel Actuated Platform](https://arxiv.org/abs/2110.14169): actuator types are explained through platform tilt/heave control consequences.
+- [Mahdizadeh et al., LIDAR-Assisted Exact Output Regulation for Load Mitigation in Wind Turbines](https://arxiv.org/abs/1906.07550): preview wind information is tied immediately to the feedforward gain and disturbance rejection.
+- [Fang and Chen, Model Predictive Control with Preview](https://arxiv.org/abs/2202.12585): preview disturbance is introduced by how it modifies the prediction horizon and cost.
+- [McCloy et al., Contraction-constrained MPC using Disturbance Forecasts](https://arxiv.org/abs/2205.04033): disturbance forecasts are justified by closed-loop performance and stabilisation under nonlinear processes.
+- [Pippia et al., Scenario-based NMPC for Building Heating Systems](https://arxiv.org/abs/2012.02011): forecasts/scenarios are motivated by disturbance uncertainty and control robustness.
+- [Contreras et al., SODA-MPC](https://arxiv.org/abs/2406.02436): learned prediction is paired with a runtime reliability monitor and fallback action.
+- [Liang et al., Multi-variable stacked LSTM wind speed forecasting](https://arxiv.org/abs/1811.09735): LSTM details are appropriate when prediction itself is the main contribution.
+- [Gupta et al., Wind ramp event prediction](https://arxiv.org/abs/1610.05009): event prediction is introduced through threshold-defined ramp classes and reliability needs.
+- [Huang and Jafari, Risk-aware BLSTM-MPC vehicle motion planning](https://arxiv.org/abs/2301.06201): trajectory prediction is described through conflict-risk estimation and MPC planning.
+
 ## Result Writing Habits
 
 Results are figure/table anchored and trend-first.
@@ -266,6 +330,40 @@ Do not:
 - Use long philosophical framing around causality; keep the falsifier/oracle logic as a methodology contribution.
 - Make unsupported broad market claims without citation.
 
+## Figure And Result Plotting Requirements
+
+This section records the plotting rules learned from engineering-control, floating-wind, wind-forecasting, and prediction-assisted-control papers. Use it as a hard writing requirement for later figure design.
+
+Core principle:
+
+- A paper figure must answer a specific evidence question. Tables carry exact values; figures carry trends, mechanisms, distributions, and boundary behavior.
+- Representative time-series figures explain how the strategy works, but aggregate tables or distribution/sorted plots prove whether the strategy works across samples.
+- Any figure showing 累计泵量降低 must be paired with attitude-threshold exposure evidence. Do not present actuator benefit without posture-side guardrails.
+- Do not hide cost or side effects. High-level control papers usually report main benefit, actuator effort, motion/load response, and constraint satisfaction together.
+
+For this paper:
+
+- Use the current case name: 预测可作用工况.
+- Use the current algorithm names: 姿态反馈算法 and 预测辅助算法.
+- Do not use internal or old expressions in figures or captions: 窗口、闭环、节泵、节水、补泵、监督策略、gated、casebook、profile、gain.
+- Statistical values must come from the raw simulation outputs. Smoothed curves may be used only for visual clarity and must not define metrics.
+- The figure caption must state the sorting basis when cases are sorted by cumulative pump volume, pump-volume reduction, or attitude exposure.
+
+Recommended figure logic for Chapter 3:
+
+- Table 11 should show the 170-case overall comparison: cumulative pump volume, start-stop count, and attitude-threshold exposure.
+- The main cumulative-pump figure should focus on the 170 预测可作用工况. Do not reintroduce old low-disturbance or boundary groups as the main evidence chain.
+- For per-case pump-volume figures, use two vertically aligned panels when needed: the upper panel shows per-case difference or paired cumulative-pump-volume curves; the lower panel shows the cumulative difference. Positive values should consistently mean lower cumulative pump volume under the prediction-assisted strategy.
+- Attitude results should use threshold-exposure time and percentage change rather than average attitude change as the main presentation. The cell format can combine both values, such as `+26 s (+0.0024%)`.
+- Representative time-series figures should place wind condition, target water amount or pump action, pitch/roll response, and cumulative pump volume on a shared time axis.
+
+Visual style:
+
+- Prefer restrained line plots, paired bars, sorted contribution plots, small multiples, and heatmaps only when the matrix itself carries meaning.
+- Use grey for the baseline and blue for the proposed strategy. Use light fill only to show paired differences; avoid decorative gradients and heavy shadows.
+- Draw threshold/reference lines directly in the plot when discussing `T>2°`, `T>3°`, `T>4°`, `T>5°`, `T>7.5°`, or `T>10°`.
+- Avoid three-dimensional bars, rainbow palettes, dense gridlines, long text inside plots, and titles that look like internal experiment logs.
+
 ## Drafting Directive
 
 When drafting future sections for this project, imitate the samples by default:
@@ -276,3 +374,230 @@ When drafting future sections for this project, imitate the samples by default:
 - "需求-不足-方法-验证-结果" progression.
 - Quantified claims tied to "图/表/结果表明".
 - Final practical value sentence: "可为浮式风机主动压载控制系统提供..."
+
+## Context-First Drafting Rule
+
+Before drafting any new subsection, first review the preceding narrative and identify what the new subsection must inherit. Do not write a section as a standalone module description.
+
+For this paper, every method subsection must explicitly connect to:
+
+- The introduction's problem statement: traditional active ballast relies on current attitude feedback and responds slowly to short-term wind-condition changes.
+- The previous subsection's flow: the method proceeds through wind prediction, risk identification, attitude-demand fusion, target-water generation, constraint screening, and pump execution.
+- The next subsection's role: each subsection should hand over a concrete variable or decision quantity to the following subsection.
+
+For `1.2`, this means the section should not begin with a generic sentence such as "短时风况预测模块用于...". It should inherit the introduction and `1.1`: the original posture-feedback process lacks future wind information, so `1.2` defines the two prediction outputs that enter the later target-water calculation, namely future wind vectors and wind-condition event probabilities.
+
+## 50+ Related Papers: Writing Lessons To Reuse
+
+This section records a writing-oriented reading pass over related high-level papers and technical reports. The purpose is not to import their claims, formulas, or figures. The purpose is to extract how strong papers structure methods, validate prediction-control links, and write results without sounding like code or a lab report.
+
+Use these lessons as a checklist before drafting any future section.
+
+| # | Paper or source | Area | Writing lesson for this paper |
+|---:|---|---|---|
+| 1 | Agyeman et al., LSTM-based MPC with discrete inputs for irrigation scheduling | Prediction-assisted MPC | Introduce the LSTM through the downstream actuator scheduling problem; do not make network internals the narrative center. |
+| 2 | Stockhouse et al., Control of a Floating Wind Turbine on a Novel Actuated Platform | FOWT active platform/ballast control | Present actuators by their effect on platform tilt and heave, then compare control outcomes across operating conditions. |
+| 3 | Mahdizadeh et al., LIDAR-assisted exact output regulation for wind turbines | Wind preview control | Treat preview wind as a feedforward disturbance source; write the control consequence immediately after the preview quantity. |
+| 4 | Fang and Chen, MPC with Preview | Preview control theory | Explain preview information by how it changes the current control decision, not by a standalone prediction block. |
+| 5 | McCloy et al., disturbance-forecast MPC for nonlinear processes | Disturbance forecast control | Acknowledge forecast uncertainty through weighting or conservative use instead of claiming future information is always reliable. |
+| 6 | Pippia et al., scenario-based NMPC for building heating | Scenario forecast MPC | Use scenarios or forecast groups to explain robustness, but keep the result claim tied to cost and constraint metrics. |
+| 7 | Contreras et al., SODA-MPC | Prediction reliability and MPC | If prediction information is conditionally used, write the acceptance mechanism through the action it enables or disables. |
+| 8 | Liang et al., multivariable stacked LSTM wind speed forecasting | Wind forecasting | Gate equations are appropriate only when the prediction network is the paper's main contribution. |
+| 9 | Gupta et al., wind ramp event prediction with gradient boosted trees | Wind event classification | Use F1/precision/recall for rare wind-event judgment; do not rely on accuracy alone. |
+| 10 | Morales-Hernandez et al., direct classification for wind ramp forecasting under imbalance | Ramp event classification | When events are imbalanced, state the event frequency or imbalance problem before presenting F1. |
+| 11 | Sharp et al., wind ramp event prediction | Ramp event prediction | Define event thresholds in words or tables; avoid turning every threshold into a numbered formula. |
+| 12 | Huang and Jafari, risk-aware BLSTM-MPC vehicle planning | Prediction-risk-assisted planning | Prediction output should become a planning quantity, such as conflict risk or admission result, before it enters a controller. |
+| 13 | Zheng et al., lane-change MPC with LSTM trajectory prediction | Trajectory prediction and MPC | The prediction module can be described by input-output variables when the controller is the paper's real contribution. |
+| 14 | Satir et al., NMPC with LSTM target prediction | Prediction-assisted guidance | Put the emphasis on how predicted trajectory changes the control objective, not on model architecture. |
+| 15 | Vo et al., ANN-based adaptive NMPC | Learning-assisted NMPC | Learned models in control papers are often justified by the variables they provide to the controller. |
+| 16 | Bahwal et al., forecast and MPC of DER aggregators | Forecast-assisted scheduling | Forecast baselines belong in validation; the method section should stay focused on the scheduling/control mapping. |
+| 17 | Hannula et al., Bayesian LSTM for heating MPC | Uncertainty-aware prediction control | If uncertainty or probability appears, write how the controller becomes more cautious, not just the probability formula. |
+| 18 | Saviolo et al., PI-TCN for quadrotor MPC | Physics-informed prediction control | Physical consistency matters only when it changes the control model; otherwise keep it out of main formulas. |
+| 19 | Wang et al., PI-WAN for wind-adaptive quadrotor prediction | Wind-adaptive prediction | Wind-vector variables should be tied to the actual force or motion channel they influence. |
+| 20 | Jiang and Dong, ModNN vs LSTM for building control | Control-oriented prediction | Prediction accuracy alone is insufficient; control-oriented papers must show downstream cost or constraint effects. |
+| 21 | Jonkman, Dynamics Modeling and Loads Analysis of an Offshore Floating Wind Turbine | FOWT dynamics | Start model sections from degrees of freedom and load sources, then expand only the terms central to the paper. |
+| 22 | Jonkman, Dynamics of Offshore Floating Wind Turbines | FOWT model verification | Separate engineering model verification from algorithm comparison; do not overclaim absolute platform fidelity. |
+| 23 | Jonkman, OC3-Hywind floating system definition | FOWT benchmark definition | Put platform parameters and geometry in tables; reserve equations for relationships that explain motion or control. |
+| 24 | Robertson et al., OC4 semisubmersible floating system definition | Semisubmersible FOWT | A benchmark paper can be parameter-heavy; an algorithm paper should only quote parameters needed for reproducibility. |
+| 25 | OpenFAST HydroDyn theory manual | Hydrodynamic modeling | Complex hydrodynamic submodels are best summarized by load categories unless they are the paper's contribution. |
+| 26 | Duarte et al., wave-radiation force realization within FAST | Radiation-force modeling | Use module-level descriptions for complex physics; do not translate every internal computation into equations. |
+| 27 | Lemmer et al., semisubmersible hull shape design | FOWT low-order modeling | Clarify the role of a simplified model before showing equations, especially when results rely on relative comparison. |
+| 28 | Sarker et al., hydrodynamic modeling improvements for FOWTs | Hydrodynamic validation | A formula should appear where a modeling improvement occurs; otherwise a concise load term is enough. |
+| 29 | Sakif et al., Morison equation with frequency-dependent coefficients | Hydrodynamic coefficients | Do not introduce coefficient complexity without parameter source and validation data. |
+| 30 | Cordle and Jonkman, state of the art in FOWT design tools | FOWT simulation tools | Use tool capability and model scope to frame simulation credibility; avoid claiming high-fidelity behavior from a reduced model. |
+| 31 | Skaare et al., Hywind Demo measurements and simulations | Full-scale FOWT measurements | Measured-vs-simulated comparisons should mention uncertainty and exceptions, not only agreement. |
+| 32 | Thiagarajan and Dagher, review of floating platform concepts | Floating platform review | Background should group platform/control ideas by function, not list every prototype chronologically. |
+| 33 | Capaldo and Mella, damping analysis of FOWT | FOWT platform damping control | Mechanism sections work well when they connect equations to platform pitch motion and fatigue metrics. |
+| 34 | Liu et al., fault-tolerant individual pitch control of FOWTs | FOWT predictive repetitive control | Control papers report both control input and structural/load response; actuator burden cannot be hidden. |
+| 35 | Liu et al., periodic load rejection for FOWTs | Constrained predictive repetitive control | Constraint satisfaction belongs beside performance improvement in result sections. |
+| 36 | Liu et al., fast adaptive fault accommodation for FOWTs | Fault diagnosis and control | Representative cases explain process timing; statistical or multi-case evidence carries the conclusion. |
+| 37 | Kheirabadi and Nagamune, dynamic parametric wind farm model | Time-varying wind and platform motion | Simulator papers validate components; algorithm papers should use simulators to support controlled comparisons. |
+| 38 | Kleine et al., stability of wakes of floating wind turbines | FOWT wakes and motion | If coupled motion affects downstream quantities, use mechanism diagrams or grouped panels rather than isolated curves. |
+| 39 | Stadtmann et al., FOWT digital twin | Digital twin and prediction | Prediction capability should be framed by its operational use: diagnosis, prediction, or prescriptive action. |
+| 40 | Ribeiro et al., FLOATBench | FOWT benchmark and surrogate evaluation | Split evaluation by regime when generalization is claimed; otherwise keep the scope bounded to selected cases. |
+| 41 | Didier et al., control strategies for floating wind turbines | FOWT control review | Results should report platform response, power/load implications, and control effort as a connected set. |
+| 42 | Zhang et al., turbulent wind thrust control for floating platforms | Wind-thrust control | Show physical effect channels, such as pitch response under turbulent wind, before claiming control benefit. |
+| 43 | Sundarrajan et al., open-loop control co-design of semisubmersible FOWTs | Control co-design | Co-design papers make tradeoffs explicit; adopt this habit for pump saving versus posture margin. |
+| 44 | Bayat et al., nested control co-design of spar-buoy FOWT | Control co-design | Separate design variables, control variables, and evaluation outputs; do not let them blur in prose. |
+| 45 | Mulders et al., quasi-LPV MPC for tower frequency excitation | Wind turbine MPC | Constraints and resonance avoidance need their own evidence, not a sentence buried after a performance table. |
+| 46 | Frederik et al., wake mixing with dynamic individual pitch control | Wind farm control | Extra actuator activity must be reported alongside output improvement, otherwise the result looks incomplete. |
+| 47 | Mark and Liu, distributionally robust MPC for wind farms | Wind farm robust MPC | Uncertainty-aware control papers state assumptions before results and keep robustness claims bounded. |
+| 48 | Yekun et al., hybrid LSSVM-SVMD-LSTM wind speed forecasting | Hybrid wind forecasting | Forecasting papers often compare many baselines; in this paper, such comparisons should stay short and serve the control narrative. |
+| 49 | Huang, attention-gated recurrent network with error correction | Short-term wind speed forecasting | Error-correction models show prediction gains by horizon/case; avoid borrowing that depth unless prediction becomes a contribution. |
+| 50 | Ehsan et al., wind speed prediction and visualization using LSTM | LSTM forecasting visualization | A single predicted-vs-observed curve is intuitive but weak as primary evidence; pair it with aggregate metrics. |
+| 51 | Perumpalot et al., cross-location wind speed forecasting | Cross-location prediction | Generalization claims need split logic; if this paper uses one data source, keep claims local to the test set. |
+| 52 | FLOATBench dataset and benchmark for FOWT fatigue | FOWT benchmark evaluation | Benchmark papers use clear protocol levels; for this paper, state the selected-case protocol and do not imply all-regime performance. |
+| 53 | Ampleman and Gayme, multi-region FOWF control | Wind farm control | Cross-condition control papers separate operating regions; this paper can separate only when data support that split. |
+| 54 | Fernandez Bravo et al., surrogate-based co-design coupling analysis | FOWT coupling analysis | Coupling matrices and heatmaps should answer a coupling question; do not add them as decoration. |
+| 55 | The local group papers on ship motion prediction and tow-body tracking | Chinese engineering writing | Chinese method sections value compact equations, clear variable definitions, and figure/table-anchored result paragraphs. |
+
+## Condensed Writing Rules From The 50+ Paper Pass
+
+### 1. Section openings should state the claim, not announce the topic
+
+Weak:
+
+```text
+本节对短时风况预测结果进行分析。
+```
+
+Better:
+
+```text
+短时风况预测结果为后续目标水量更新提供可量化输入。
+```
+
+The second sentence tells a reader why the section exists. Use this style for Chapter 3 and the conclusion.
+
+### 2. Prediction modules must be judged by downstream use
+
+For this paper, do not write the prediction result section as if it were a wind-forecasting paper. The right sequence is:
+
+1. Report wind-vector and wind-direction errors.
+2. Report wind-condition event judgment metrics.
+3. Explain that these outputs support prediction-information admission and target-water updating.
+4. Move quickly to active-ballast results.
+
+Do not add long LSTM architecture explanations in Chapter 3.
+
+### 3. Result chapters should move from total evidence to distribution to mechanism
+
+Use this order:
+
+1. Overall table: total cumulative pump volume, start-stop count, attitude-threshold exposure.
+2. Distribution figure: per-case pump reduction, start-stop change, posture statistic change.
+3. Tradeoff figure: pump reduction versus posture-side change.
+4. Representative case: explain how the process happens.
+
+Never start a result chapter with a single attractive time series.
+
+### 4. Tables carry exact numbers; figures carry patterns
+
+Put exact values such as `146843.96 m³`, `104193.99 m³`, `29.04%`, and `32.17%` in a table. Use figures for distributions, tradeoffs, and time processes. Avoid simple bar charts when a distribution or tradeoff is available.
+
+### 5. Every benefit claim needs a paired cost or boundary metric
+
+If a paragraph says the prediction-assisted algorithm reduces cumulative pump volume, the same paragraph or the next one must mention posture-threshold exposure, p95 posture change, start-stop count, or water-pump action burden. This avoids the appearance that savings are obtained by ignoring posture.
+
+### 6. Use bounded conclusion language
+
+Allowed:
+
+```text
+在170组预测可作用工况中，预测辅助算法降低了压载执行代价。
+```
+
+Not allowed:
+
+```text
+预测辅助算法在所有海况下均能降低泵量。
+```
+
+The current evidence supports selected real-wind cases with prediction-actionable characteristics, not all possible offshore conditions.
+
+### 7. Avoid defensive prose
+
+Do not write:
+
+```text
+本文不作为完整六自由度水动力模型的工程级验证。
+```
+
+Write the positive scope instead:
+
+```text
+平台运动仿真模型用于在相同外部风况和执行约束下比较两种目标水量生成方法。
+```
+
+If a limitation must be stated, put it in the final discussion or conclusion.
+
+### 8. Replace code-like actions with physical/control actions
+
+Use:
+
+- 整理、映射、判别、更新、筛选、执行、反馈
+- 姿态调节需求、目标水量、实际舱内水量、累计泵量、水泵启停次数
+
+Avoid:
+
+- reshape、wrap、clip、profile、casebook、gated、pipeline object、strategy version
+
+### 9. Formula writing must pass the “does it move the method?” test
+
+Keep equations that move the reader from one physical/control quantity to another:
+
+- predicted wind vector to equivalent posture demand;
+- posture feedback to feedback demand;
+- combined demand to candidate action;
+- ballast mass to restoring moment;
+- pump flow to water-volume update;
+- pump flow to cumulative pump volume.
+
+Do not number equations that only define a vector, recover a scalar, or list a threshold.
+
+### 10. Figure captions should state the conclusion
+
+Weak:
+
+```text
+图3 累计泵量降低率分布。
+```
+
+Better:
+
+```text
+图3 170组预测可作用工况中的压载执行代价分布。累计泵量降低率整体位于正值区间，说明预测辅助算法的执行代价降低并非由少数工况拉动。
+```
+
+Use the second style unless the journal format forces very short captions.
+
+## Chapter-Specific Drafting Rules For The Current Manuscript
+
+### Chapter 1: method
+
+- Begin with the ballast-control bottleneck, not the neural network.
+- Keep LSTM formulas limited to the outputs needed by the controller.
+- Define prediction-information admission in prose and tables unless its result enters a control formula.
+- Keep target-water generation continuous from feedback demand to candidate action to pump execution.
+
+### Chapter 2: validation setup
+
+- State the baseline and proposed algorithm once, then use their short names.
+- Explain FINO1 and 10 min wind data as the source of real wind-condition sequences.
+- Define 预测可作用工况 positively: future wind tendency can participate in current target-water generation and the process is not dominated by posture-boundary protection.
+- Mention the 33.77% proportion and 170 cases as validation scope, not as all-regime representativeness.
+
+### Chapter 3: results
+
+- 3.1 should first validate short-term wind prediction outputs with a compact table and one figure.
+- 3.2 should present overall active-ballast results and per-case distributions.
+- 3.3 should explain process mechanisms through target water, actual water, pump action, and posture response.
+- Do not reintroduce old 100/101-case evidence unless the advisor explicitly asks for supplementary analysis.
+
+### Conclusion
+
+- Use 3 numbered conclusions.
+- First conclusion: cumulative pump volume and start-stop reduction.
+- Second conclusion: posture-side changes and bounded attitude exposure.
+- Third conclusion: prediction information changes target-water generation and pump execution.
+- Final paragraph: mention wider validation under more complete hydrodynamic, wave, and mooring conditions as future work.

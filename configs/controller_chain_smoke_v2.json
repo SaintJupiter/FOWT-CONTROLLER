@@ -1,0 +1,34 @@
+{
+  "schema_version": "controller_chain_smoke.v1",
+  "controller_config": "configs/controller_core_v2.json",
+  "dataset_dir": "data/processed/wind_ml_10min/ballast_decision_fino1_meteo_aux_v1",
+  "model_dir": "outputs/wind_prediction/lstm_segmented_fino1_meteo_aux_v1",
+  "stiffness_file": "archive/legacy_fowt_control/data/副本水平刚度曲线.xlsx",
+  "platform_profile": "research_incremental_v1",
+  "forecast_content_probe_case_id": "v2_stage10_enh_05",
+  "duration_s": 21600.0,
+  "dt_s": 0.1,
+  "sample_interval_s": 10.0,
+  "cases": [
+    {
+      "case_id": "v2_stage10_low_01",
+      "timestamp": "2021-10-07 12:00:00",
+      "category": "low_disturbance"
+    },
+    {
+      "case_id": "v2_stage10_rev_02",
+      "timestamp": "2022-05-19 12:00:00",
+      "category": "future_relief_or_reversal"
+    },
+    {
+      "case_id": "v2_stage10_osc_03",
+      "timestamp": "2022-09-15 00:00:00",
+      "category": "oscillation"
+    },
+    {
+      "case_id": "v2_stage10_enh_05",
+      "timestamp": "2022-12-21 12:00:00",
+      "category": "strengthening"
+    }
+  ]
+}

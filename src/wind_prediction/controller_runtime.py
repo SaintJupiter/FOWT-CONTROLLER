@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping
 
@@ -142,7 +143,10 @@ class ForecastAssistedBallastController:
         self.config_sha256 = str(config_sha256 or "in-memory-default")
 
     @classmethod
-    def from_config_file(cls, path: str) -> "ForecastAssistedBallastController":
+    def from_config_file(
+        cls,
+        path: str | Path,
+    ) -> "ForecastAssistedBallastController":
         from .controller_configuration import load_controller_config
 
         loaded = load_controller_config(path)

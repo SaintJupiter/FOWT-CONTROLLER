@@ -1,10 +1,29 @@
 # Codex Handoff
 
-Last updated: 2026-05-18
+Last updated: 2026-07-11
 
 This is the first file a new Codex session should read in this repository.
 It records the active project line, the current dataset and model state, what
 has already been tried, and what should be done next.
+
+## 2026-07-11 Journal Submission Freeze
+
+The active Chinese-journal target is now `《海洋工程》`. The former
+`《舰船科学技术》` template and all format rules derived from it are
+superseded. Before any manuscript, figure, table, equation, reference, or Word
+layout task, read `docs/ocean_engineering_submission_requirements.md` and then
+`风预测规划/任务日志.md`.
+
+The retained authority template is:
+
+```text
+/Users/saintyoung/Downloads/《海洋工程》论文模板-2022-3-23.docx
+SHA-256: 0b82d858849f0ac0e40cc7181baac7c6173c3821ee1d46d2777514aae6e2a7d3
+```
+
+Do not overwrite the template. Build future submission copies from it. The
+journal requires an unnumbered, untitled introduction, so the first numbered
+chapter is 1 rather than 0.
 
 ## Current Project Direction
 
@@ -65,8 +84,9 @@ When starting a new Codex session in this repo, read in this order:
 
 1. `README.md`
 2. `CODEX_HANDOFF.md`
-3. `风预测规划/任务日志.md`
-4. `4080_TRAINING_HANDOFF.md`
+3. `docs/ocean_engineering_submission_requirements.md`
+4. `风预测规划/任务日志.md`
+5. `4080_TRAINING_HANDOFF.md`
 
 If the task is specifically about control integration, also read:
 
@@ -114,18 +134,38 @@ When running tasks in this repository, follow this checklist before improvising:
    PyTorch import hangs, fix the environment first rather than silently training
    on CPU.
 
-7. Pause for user judgment at major decision points:
+7. Verify the run identity before plotting or interpreting results:
+   every casebook readout, diagnostic plot, or result interpretation must first
+   compare the expected controller identity against the actual `run_protocol.json`.
+   Check at least `identity.primary_control_profile`,
+   `configuration.primary_pump_profile`, smoothing/actuator settings, forecast
+   source, `hold_relief_debt`, `recovery_mode`, and `relief_medium_cap`. If the
+   user asks about the smoothed/smooth180 route, do not substitute a
+   `posture_debt`/non-smooth run. Treat missing time-series files as a blocker
+   for line plots, not as permission to plot a different run.
+
+   Preferred guard:
+
+   ```bash
+   ./.venv312/bin/python scripts/analysis/verify_casebook_protocol.py \
+     path/to/run_protocol.json \
+     --expect identity.primary_control_profile=<expected_profile> \
+     --expect configuration.primary_pump_profile=<expected_pump_profile> \
+     --require-timeseries
+   ```
+
+8. Pause for user judgment at major decision points:
    choosing or abandoning a main route, changing validation design, scaling up a
    run, or interpreting validation results as a direction change. Explain in
    plain language: what happened, why it matters, and what the proposed next
    step would change.
 
-8. Continue autonomously for routine work:
+9. Continue autonomously for routine work:
    reading files, small sanity checks, compiling, fixing obvious environment
    setup, and generating explicitly requested artifacts can proceed without
    interrupting the user.
 
-8. Control-result figures must expose action and ballast state:
+10. Control-result figures must expose action and ballast state:
    when plotting FOWT control comparisons, include bottom action/fallback bands
    and a cumulative pump-work / cumulative saved-ballast curve relative to the
    chosen baseline. Three-tank ballast mass curves are useful for diagnostics,
@@ -133,6 +173,18 @@ When running tasks in this repository, follow this checklist before improvising:
    been saved up to each time point. Do not rely on pitch/roll/pump-rate curves
    alone, because they hide whether savings come from prediction, coupled tank
    allocation, or safety fallback.
+
+11. Manuscript figures must follow the current drawing spec:
+   before creating or revising paper figures, read `画图.md` and
+   `docs/paper_figure_guidelines.md`, after first reading
+   `docs/ocean_engineering_submission_requirements.md`. For the current
+   `《海洋工程》` submission route,
+   use Python/matplotlib from `./.venv312`, export PNG/PDF/SVG, keep SVG text
+   editable, attach source data, and prefer black-and-white line/marker styles
+   over color coding. Use a complete rectangular axis box with inward ticks on
+   the left and bottom axes; keep the top and right borders visible but without
+   tick marks. Put units in axis labels only once, e.g. `事件时距 / min`, and use
+   numeric tick labels such as `20`, `40`, `60` when the x-axis is a time axis.
 
 ## Current Main Datasets
 

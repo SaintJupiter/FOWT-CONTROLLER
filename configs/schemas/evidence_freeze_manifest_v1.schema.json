@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "evidence_freeze_manifest_v1.schema.json",
+  "title": "Research evidence freeze manifest",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "manifest_id",
+    "created_at_utc",
+    "purpose",
+    "status_note",
+    "repository",
+    "environment",
+    "file_sets",
+    "test_run",
+    "evidence_assertions",
+    "validation"
+  ],
+  "properties": {
+    "schema_version": {"const": "evidence_freeze_manifest.v1"},
+    "manifest_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "created_at_utc": {"type": "string", "minLength": 1},
+    "purpose": {"type": "string", "minLength": 1},
+    "status_note": {"type": "string"},
+    "repository": {
+      "type": "object",
+      "required": ["branch", "head", "worktree_dirty", "declared_scope_clean"],
+      "properties": {
+        "branch": {"type": "string"},
+        "head": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "worktree_dirty": {"type": "boolean"},
+        "declared_scope_clean": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "environment": {"type": "object"},
+    "file_sets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "storage_class",
+          "storage_id",
+          "storage_locator",
+          "required",
+          "role",
+          "declared_paths",
+          "declared_globs",
+          "expected_count",
+          "expanded_paths",
+          "bundle_sha256",
+          "files"
+        ],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "storage_class": {"enum": ["git", "external"]},
+          "storage_id": {"type": "string", "minLength": 1},
+          "storage_locator": {"type": ["string", "null"]},
+          "required": {"type": "boolean"},
+          "role": {"type": "string", "minLength": 1},
+          "declared_paths": {"type": "array", "items": {"type": "string"}},
+          "declared_globs": {"type": "array", "items": {"type": "string"}},
+          "expected_count": {"type": ["integer", "null"], "minimum": 0},
+          "expanded_paths": {"type": "array", "items": {"type": "string"}},
+          "bundle_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "path",
+                "role",
+                "required",
+                "status",
+                "size_bytes",
+                "sha256",
+                "git_state",
+                "content_git_oid"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "test_run": {"type": ["object", "null"]},
+    "evidence_assertions": {"type": "array"},
+    "validation": {
+      "type": "object",
+      "required": [
+        "status",
+        "required_missing",
+        "optional_missing",
+        "unmatched_globs",
+        "optional_unmatched_globs",
+        "count_mismatches",
+        "dirty_git_paths",
+        "failed_assertions",
+        "unresolved_external_storage",
+        "test_run_status"
+      ],
+      "properties": {
+        "status": {"enum": ["passed", "complete_with_warnings", "incomplete", "failed"]},
+        "required_missing": {"type": "array", "items": {"type": "string"}},
+        "optional_missing": {"type": "array", "items": {"type": "string"}},
+        "unmatched_globs": {"type": "array", "items": {"type": "string"}},
+        "optional_unmatched_globs": {"type": "array", "items": {"type": "string"}},
+        "count_mismatches": {"type": "array", "items": {"type": "string"}},
+        "dirty_git_paths": {"type": "array", "items": {"type": "string"}},
+        "failed_assertions": {"type": "array", "items": {"type": "string"}},
+        "unresolved_external_storage": {"type": "array", "items": {"type": "string"}},
+        "test_run_status": {"type": ["string", "null"]}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,71 @@
+{
+  "schema_version": "planner_runtime.v2",
+  "pressure_sign_multiplier": -1.0,
+  "default_discount_blocks": [
+    1.0,
+    0.85,
+    0.7
+  ],
+  "forecast_evidence": {
+    "pressure_aggregation_mode": "mean_step_force",
+    "lead_reliability_enabled": true,
+    "intrastage_stepwise_enabled": false
+  },
+  "execution_rollout": {
+    "enabled": false,
+    "block_duration_s": 600.0,
+    "internal_step_s": 1.0,
+    "water_density_kg_m3": 1025.0,
+    "target_slew_enabled": true,
+    "target_slew_rate_m3_min": 10.0,
+    "stop_error_kg": 300.0,
+    "restart_error_kg": 500.0,
+    "min_on_s": 20.0,
+    "min_off_s": 12.0,
+    "near_target_hold_s": 10.0,
+    "ramp_up_m3_min_per_s": 2.0,
+    "ramp_down_m3_min_per_s": 3.0,
+    "max_pump_rate_m3_min": 15.0,
+    "tank_capacity_kg": 1896250.0,
+    "pump_rate_schedule_m3_min": [
+      {
+        "error_kg": 0.0,
+        "rate_m3_min": 0.0
+      },
+      {
+        "error_kg": 200.0,
+        "rate_m3_min": 4.0
+      },
+      {
+        "error_kg": 300.0,
+        "rate_m3_min": 6.0
+      },
+      {
+        "error_kg": 500.0,
+        "rate_m3_min": 8.0
+      },
+      {
+        "error_kg": 700.0,
+        "rate_m3_min": 10.0
+      },
+      {
+        "error_kg": 1000.0,
+        "rate_m3_min": 12.0
+      },
+      {
+        "error_kg": 2000.0,
+        "rate_m3_min": 14.0
+      },
+      {
+        "error_kg": 3000.0,
+        "rate_m3_min": 15.0
+      }
+    ]
+  },
+  "notes": {
+    "pressure_aggregation_mode": "Evaluate each forecast lead before block aggregation so wind peaks and direction reversals remain observable.",
+    "intrastage_stepwise": "Disabled by default. When enabled, both 10-minute leads in each 20-minute stage enter residual and safety evaluation while the planner retains three action stages.",
+    "lead_reliability_enabled": "Attenuate remote leads using held-out validation error from the active forecast model.",
+    "execution_rollout": "Disabled by default so execution-aware candidate evaluation can be enabled in a separate ablation without changing the v1 runtime."
+  }
+}

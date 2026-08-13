@@ -3,6 +3,7 @@ from pathlib import Path
 
 import numpy as np
 
+from target_execution import describe_target_path
 from trim_mapping import build_regime_cfg, compute_trim_setpoints as compute_trim_setpoints_shared
 
 
@@ -54,39 +55,6 @@ class SetpointShaper:
         return float(cmd[0]), float(cmd[1])
 
 
-
-
-class CommandRateLimiter:
-    def __init__(self, dt, rho, max_capacity, rate_limit_m3_min=12.0, enabled=True):
-        self.dt = float(dt)
-        self.rho = float(rho)
-        self.max_capacity = max_capacity
-        self.rate_limit_m3_min = float(rate_limit_m3_min)
-        self.enabled = bool(enabled)
-        self._target = None
-
-    def reset(self, initial_cmd):
-        self._target = np.array(initial_cmd, dtype=float)
-
-    def _clip_capacity(self, values):
-        return np.clip(values, 0.0, self.max_capacity)
-
-    def update(self, cmd_raw):
-        raw = np.array(cmd_raw, dtype=float)
-        if self._target is None:
-            self._target = self._clip_capacity(raw)
-
-        if not self.enabled:
-            applied = self._clip_capacity(raw)
-            self._target = applied.copy()
-            gap = float(np.mean(np.abs(raw - applied)))
-            return applied, gap
-
-        max_delta = (self.rate_limit_m3_min / 60.0) * self.rho * self.dt
-        delta = np.clip(raw - self._target, -max_delta, max_delta)
-        self._target = self._clip_capacity(self._target + delta)
-        gap = float(np.mean(np.abs(raw - self._target)))
-        return self._target.copy(), gap
 
 
 def _zero_preview_trim_debug(source="none"):
@@ -1042,7 +1010,7 @@ class ClosedLoopPolicy:
         controller,
         trim_governor=None,
         setpoint_shaper=None,
-        command_rate_limiter=None,
+        target_slew_limiter=None,
         heave_balancer=None,
         preview_trim_provider=None,
         primary_safety_cfg=None,
@@ -1050,7 +1018,7 @@ class ClosedLoopPolicy:
         self.controller = controller
         self.trim_governor = trim_governor
         self.setpoint_shaper = setpoint_shaper
-        self.command_rate_limiter = command_rate_limiter
+        self.target_slew_limiter = target_slew_limiter
         self.heave_balancer = heave_balancer
         self.preview_trim_provider = preview_trim_provider
         cfg = dict(primary_safety_cfg or {})
@@ -1347,8 +1315,8 @@ class ClosedLoopPolicy:
             self.setpoint_shaper.reset(
                 initial=(self.controller.setpoints["pitch"], self.controller.setpoints["roll"])
             )
-        if self.command_rate_limiter is not None:
-            self.command_rate_limiter.reset(initial_cmd=initial_cmd)
+        if self.target_slew_limiter is not None:
+            self.target_slew_limiter.reset(initial_target=initial_cmd)
         if self.heave_balancer is not None:
             self.heave_balancer.reset()
         if self.preview_trim_provider is not None and hasattr(self.preview_trim_provider, "reset"):
@@ -2198,8 +2166,8 @@ class ClosedLoopPolicy:
         released = masses + (1.0 - blend) * (cmd - masses)
         released = np.clip(released, 0.0, self.controller.max_mass)
         delta_mean = float(np.mean(np.abs(cmd - released)))
-        if self.deadband_target_release_reset_limiter and self.command_rate_limiter is not None:
-            self.command_rate_limiter.reset(initial_cmd=released)
+        if self.deadband_target_release_reset_limiter and self.target_slew_limiter is not None:
+            self.target_slew_limiter.reset(initial_target=released)
             reset_limiter = 1
         else:
             reset_limiter = 0
@@ -2350,6 +2318,166 @@ class ClosedLoopPolicy:
             "mask_t3": int(mask[2]) if mask.size > 2 else 0,
         }
 
+    def _commit_target_transaction(
+        self,
+        *,
+        state,
+        plant_info_prev,
+        ctrl_dbg,
+        preview_trim_bias,
+        primary_safety_dbg,
+        primary_applied,
+        primary_target,
+    ):
+        """Apply ordered target adjustments and return one committed target."""
+        preview = preview_trim_bias if isinstance(preview_trim_bias, dict) else {}
+
+        mass_ff_raw = preview.get("preview_mass_ff_kg")
+        if mass_ff_raw is not None:
+            mass_ff = np.asarray(mass_ff_raw, dtype=float).reshape(-1)
+            if mass_ff.size >= 3:
+                mass_ff = mass_ff[:3]
+                target_with_ff = np.clip(
+                    primary_target + mass_ff,
+                    0.0,
+                    self.controller.max_mass,
+                )
+            else:
+                mass_ff = np.zeros(3, dtype=float)
+                target_with_ff = primary_target
+        else:
+            mass_ff = np.zeros(3, dtype=float)
+            target_with_ff = primary_target
+        if primary_safety_dbg["fallback"]:
+            mass_ff = np.zeros(3, dtype=float)
+            target_with_ff = primary_target
+
+        suppression_active = int(preview.get("preview_pump_suppression_active", 0))
+        suppression_restart_err_kg = float(
+            preview.get("preview_pump_restart_err_kg", 0.0)
+        )
+        suppression_reason = str(preview.get("preview_pump_suppression_reason", ""))
+        suppression_blocked_tanks = 0
+        suppression_blocked_mass_kg = 0.0
+        suppression_mask = np.zeros(3, dtype=bool)
+        target_after_preview_suppression = target_with_ff
+        if (
+            suppression_active
+            and suppression_restart_err_kg > 0.0
+            and plant_info_prev is not None
+            and "tank_masses" in plant_info_prev
+        ):
+            current_masses = np.asarray(
+                plant_info_prev["tank_masses"], dtype=float
+            ).reshape(-1)
+            if current_masses.size >= 3:
+                current_masses = current_masses[:3]
+                latched_raw = plant_info_prev.get(
+                    "pump_latched", [False, False, False]
+                )
+                latched = np.asarray(latched_raw, dtype=bool).reshape(-1)
+                if latched.size < 3:
+                    latched = np.pad(
+                        latched,
+                        (0, 3 - latched.size),
+                        constant_values=False,
+                    )
+                latched = latched[:3]
+                err = target_with_ff - current_masses
+                abs_err = np.abs(err)
+                suppression_mask = (
+                    (~latched)
+                    & (abs_err > 1e-6)
+                    & (abs_err < suppression_restart_err_kg)
+                )
+                if np.any(suppression_mask):
+                    target_after_preview_suppression = target_with_ff.copy()
+                    suppression_blocked_mass_kg = float(
+                        np.sum(np.abs(err[suppression_mask]))
+                    )
+                    target_after_preview_suppression[suppression_mask] = current_masses[
+                        suppression_mask
+                    ]
+                    suppression_blocked_tanks = int(np.sum(suppression_mask))
+
+        target_pre_execution, reactive_suppression_dbg = (
+            self._reactive_pump_suppression_update(
+                state=state,
+                plant_info_prev=plant_info_prev,
+                m_cmd_reference=target_after_preview_suppression,
+                primary_applied=bool(primary_applied),
+            )
+        )
+
+        if self.target_slew_limiter is not None:
+            target_after_slew_limiter, cmd_gap = self.target_slew_limiter.update(
+                target_pre_execution
+            )
+        else:
+            target_after_slew_limiter = target_pre_execution
+            cmd_gap = 0.0
+        target_after_slew_limiter = np.asarray(
+            target_after_slew_limiter, dtype=float
+        ).copy()
+
+        final_target, release_dbg = self._deadband_target_release_update(
+            state=state,
+            plant_info_prev=plant_info_prev,
+            ctrl_dbg=ctrl_dbg,
+            m_cmd_applied=target_after_slew_limiter,
+            m_cmd_reference=target_pre_execution,
+        )
+        final_target = np.asarray(final_target, dtype=float)
+        if int(release_dbg.get("active", 0)):
+            cmd_gap = float(np.mean(np.abs(target_pre_execution - final_target)))
+
+        feedforward_delta_mean = float(np.mean(np.abs(mass_ff)))
+        preview_suppression_delta_mean = float(
+            np.mean(np.abs(target_after_preview_suppression - target_with_ff))
+        )
+        reactive_suppression_delta_mean = float(
+            reactive_suppression_dbg.get("delta_mean_kg", 0.0)
+        )
+        suppression_delta_mean = float(
+            np.mean(np.abs(target_pre_execution - target_with_ff))
+        )
+        target_slew_delta_mean = float(
+            np.mean(np.abs(target_after_slew_limiter - target_pre_execution))
+        )
+        trace = describe_target_path(
+            primary_applied=bool(primary_applied),
+            primary_safety_fallback=bool(primary_safety_dbg["fallback"]),
+            feedforward_delta_kg=feedforward_delta_mean,
+            preview_suppression_delta_kg=preview_suppression_delta_mean,
+            reactive_suppression_delta_kg=reactive_suppression_delta_mean,
+            target_slew_delta_kg=target_slew_delta_mean,
+            deadband_release_active=bool(release_dbg.get("active", 0)),
+        )
+
+        return {
+            "final_target": final_target,
+            "target_pre_execution": np.asarray(
+                target_pre_execution, dtype=float
+            ).copy(),
+            "target_after_slew_limiter": target_after_slew_limiter,
+            "mass_ff": mass_ff,
+            "cmd_gap": float(cmd_gap),
+            "suppression_active": suppression_active,
+            "suppression_restart_err_kg": suppression_restart_err_kg,
+            "suppression_reason": suppression_reason,
+            "suppression_blocked_tanks": suppression_blocked_tanks,
+            "suppression_blocked_mass_kg": suppression_blocked_mass_kg,
+            "suppression_mask": suppression_mask,
+            "reactive_suppression_dbg": reactive_suppression_dbg,
+            "release_dbg": release_dbg,
+            "feedforward_delta_mean_kg": feedforward_delta_mean,
+            "suppression_delta_mean_kg": suppression_delta_mean,
+            "preview_suppression_delta_mean_kg": preview_suppression_delta_mean,
+            "reactive_suppression_delta_mean_kg": reactive_suppression_delta_mean,
+            "target_slew_delta_mean_kg": target_slew_delta_mean,
+            "trace": trace,
+        }
+
     def _preview_trim_bias(self, state, wind_obs, plant_info_prev, current_time):
         if self.preview_trim_provider is None:
             return None
@@ -2368,7 +2496,14 @@ class ClosedLoopPolicy:
             current_time=current_time,
         )
 
-    def compute(self, state, wind_obs, plant_info_prev, current_time):
+    def _resolve_cycle_setpoints(
+        self,
+        *,
+        state,
+        wind_obs,
+        plant_info_prev,
+        current_time,
+    ):
         preview_trim_bias = self._preview_trim_bias(
             state=state,
             wind_obs=wind_obs,
@@ -2454,6 +2589,27 @@ class ClosedLoopPolicy:
         self.controller.setpoints["pitch"] = float(pitch_sp)
         self.controller.setpoints["roll"] = float(roll_sp)
 
+        return {
+            "preview": preview_trim_bias,
+            "forecast_safe_deadband": forecast_safe_deadband_dbg,
+            "trim_debug": trim_dbg,
+            "pitch_sp_raw": float(pitch_sp_raw),
+            "roll_sp_raw": float(roll_sp_raw),
+            "pitch_sp": float(pitch_sp),
+            "roll_sp": float(roll_sp),
+        }
+
+    def _compute_feedback_target(
+        self,
+        *,
+        state,
+        wind_obs,
+        plant_info_prev,
+        current_time,
+    ):
+        # The posture controller remains warm while prediction owns the target,
+        # so safety fallback always has a current feedback command available.
+
         env_info = {
             "wind_speed": float(wind_obs.get("ws", 0.0)) if wind_obs is not None else 0.0,
             "wind_dir_deg": float(wind_obs.get("wd_deg", 0.0)) if wind_obs is not None else 0.0,
@@ -2485,6 +2641,24 @@ class ClosedLoopPolicy:
                 "heave_balancer_active": 0,
             }
 
+        return {
+            "raw_target": m_cmd_raw,
+            "feedback_target": m_cmd_heave,
+            "controller_debug": ctrl_dbg,
+            "heave_debug": hm_dbg,
+        }
+
+    def _select_primary_target(
+        self,
+        *,
+        state,
+        plant_info_prev,
+        current_time,
+        preview_trim_bias,
+        forecast_safe_deadband_dbg,
+        feedback_target,
+    ):
+
         primary_enabled = int(
             preview_trim_bias.get("preview_primary_enabled", 0)
             if isinstance(preview_trim_bias, dict)
@@ -2509,7 +2683,9 @@ class ClosedLoopPolicy:
         primary_delta = np.zeros(3, dtype=float)
         primary_applied = 0
         primary_candidate_applied = 0
-        m_cmd_primary_candidate = m_cmd_heave
+        m_cmd_primary_candidate = feedback_target
+        # enabled means the provider owns a valid target, including a zero-change
+        # hold. active is diagnostic only and must not decide target ownership.
         if primary_enabled and primary_target_raw is not None:
             arr = np.asarray(primary_target_raw, dtype=float).reshape(-1)
             if arr.size >= 3:
@@ -2517,9 +2693,9 @@ class ClosedLoopPolicy:
                 m_cmd_primary_candidate = primary_target
                 primary_candidate_applied = 1
             else:
-                m_cmd_primary_candidate = m_cmd_heave
+                m_cmd_primary_candidate = feedback_target
         else:
-            m_cmd_primary_candidate = m_cmd_heave
+            m_cmd_primary_candidate = feedback_target
         if primary_delta_raw is not None:
             arr_delta = np.asarray(primary_delta_raw, dtype=float).reshape(-1)
             if arr_delta.size >= 3:
@@ -2556,7 +2732,7 @@ class ClosedLoopPolicy:
             and not forecast_safe_deadband_dbg["active"]
         )
         if forecast_safe_deadband_hold_rejected:
-            m_cmd_primary_candidate = m_cmd_heave
+            m_cmd_primary_candidate = feedback_target
             primary_candidate_applied = 0
 
         primary_safety_dbg = self._primary_safety_update(
@@ -2569,111 +2745,114 @@ class ClosedLoopPolicy:
             ),
         )
         if primary_safety_dbg["fallback"]:
-            m_cmd_primary = m_cmd_heave
+            m_cmd_primary = feedback_target
             primary_applied = 0
         else:
             m_cmd_primary = m_cmd_primary_candidate
             primary_applied = int(primary_candidate_applied)
 
-        # Preview FF channel: per-tank mass delta direct from the planner,
-        # injected AFTER the PI deadband and the heave balancer, BEFORE the
-        # rate limiter so it still respects the pump rate envelope. This
-        # bypasses the structural ceiling of the setpoint-shift channel
-        # (PI deadband). See configs/planner_sign_contract.json.
-        mass_ff_raw = preview_trim_bias.get("preview_mass_ff_kg") if isinstance(preview_trim_bias, dict) else None
-        if mass_ff_raw is not None:
-            mass_ff = np.asarray(mass_ff_raw, dtype=float).reshape(-1)
-            if mass_ff.size >= 3:
-                mass_ff = mass_ff[:3]
-                # Clip into capacity bounds before rate limiting.
-                m_cmd_with_ff = np.clip(m_cmd_primary + mass_ff, 0.0, self.controller.max_mass)
-            else:
-                mass_ff = np.zeros(3, dtype=float)
-                m_cmd_with_ff = m_cmd_primary
-        else:
-            mass_ff = np.zeros(3, dtype=float)
-            m_cmd_with_ff = m_cmd_primary
-        if primary_safety_dbg["fallback"]:
-            mass_ff = np.zeros(3, dtype=float)
-            m_cmd_with_ff = m_cmd_primary
+        return {
+            "enabled": primary_enabled,
+            "active": primary_active,
+            "target": primary_target,
+            "delta": primary_delta,
+            "action": primary_action,
+            "candidate_target": m_cmd_primary_candidate,
+            "candidate_applied": primary_candidate_applied,
+            "selected_target": m_cmd_primary,
+            "applied": primary_applied,
+            "safety_debug": primary_safety_dbg,
+            "deadband_target_released": forecast_safe_deadband_target_released,
+            "deadband_hold_rejected": forecast_safe_deadband_hold_rejected,
+        }
 
-        suppression_active = int(
-            preview_trim_bias.get("preview_pump_suppression_active", 0)
-            if isinstance(preview_trim_bias, dict)
-            else 0
+    def compute(self, state, wind_obs, plant_info_prev, current_time):
+        setpoint_cycle = self._resolve_cycle_setpoints(
+            state=state,
+            wind_obs=wind_obs,
+            plant_info_prev=plant_info_prev,
+            current_time=current_time,
         )
-        suppression_restart_err_kg = float(
-            preview_trim_bias.get("preview_pump_restart_err_kg", 0.0)
-            if isinstance(preview_trim_bias, dict)
-            else 0.0
-        )
-        suppression_reason = str(
-            preview_trim_bias.get("preview_pump_suppression_reason", "")
-            if isinstance(preview_trim_bias, dict)
-            else ""
-        )
-        suppression_blocked_tanks = 0
-        suppression_blocked_mass_kg = 0.0
-        suppression_mask = np.zeros(3, dtype=bool)
-        m_cmd_suppressed = m_cmd_with_ff
-        if (
-            suppression_active
-            and suppression_restart_err_kg > 0.0
-            and plant_info_prev is not None
-            and "tank_masses" in plant_info_prev
-        ):
-            current_masses = np.asarray(plant_info_prev["tank_masses"], dtype=float).reshape(-1)
-            if current_masses.size >= 3:
-                current_masses = current_masses[:3]
-                latched_raw = plant_info_prev.get("pump_latched", [False, False, False])
-                latched = np.asarray(latched_raw, dtype=bool).reshape(-1)
-                if latched.size < 3:
-                    latched = np.pad(latched, (0, 3 - latched.size), constant_values=False)
-                latched = latched[:3]
-                err = m_cmd_with_ff - current_masses
-                abs_err = np.abs(err)
-                suppression_mask = (~latched) & (abs_err > 1e-6) & (abs_err < suppression_restart_err_kg)
-                if np.any(suppression_mask):
-                    m_cmd_suppressed = m_cmd_with_ff.copy()
-                    suppression_blocked_mass_kg = float(np.sum(np.abs(err[suppression_mask])))
-                    m_cmd_suppressed[suppression_mask] = current_masses[suppression_mask]
-                    suppression_blocked_tanks = int(np.sum(suppression_mask))
+        preview_trim_bias = setpoint_cycle["preview"]
+        forecast_safe_deadband_dbg = setpoint_cycle["forecast_safe_deadband"]
+        trim_dbg = setpoint_cycle["trim_debug"]
+        pitch_sp_raw = setpoint_cycle["pitch_sp_raw"]
+        roll_sp_raw = setpoint_cycle["roll_sp_raw"]
+        pitch_sp = setpoint_cycle["pitch_sp"]
+        roll_sp = setpoint_cycle["roll_sp"]
 
-        m_cmd_after_preview_suppression = m_cmd_suppressed
-        m_cmd_suppressed, reactive_suppression_dbg = self._reactive_pump_suppression_update(
+        feedback_cycle = self._compute_feedback_target(
+            state=state,
+            wind_obs=wind_obs,
+            plant_info_prev=plant_info_prev,
+            current_time=current_time,
+        )
+        m_cmd_raw = feedback_cycle["raw_target"]
+        m_cmd_heave = feedback_cycle["feedback_target"]
+        ctrl_dbg = feedback_cycle["controller_debug"]
+        hm_dbg = feedback_cycle["heave_debug"]
+
+        primary_cycle = self._select_primary_target(
             state=state,
             plant_info_prev=plant_info_prev,
-            m_cmd_reference=m_cmd_suppressed,
-            primary_applied=bool(primary_applied),
+            current_time=current_time,
+            preview_trim_bias=preview_trim_bias,
+            forecast_safe_deadband_dbg=forecast_safe_deadband_dbg,
+            feedback_target=m_cmd_heave,
         )
+        primary_enabled = primary_cycle["enabled"]
+        primary_active = primary_cycle["active"]
+        primary_target = primary_cycle["target"]
+        primary_delta = primary_cycle["delta"]
+        primary_action = primary_cycle["action"]
+        m_cmd_primary_candidate = primary_cycle["candidate_target"]
+        primary_candidate_applied = primary_cycle["candidate_applied"]
+        m_cmd_primary = primary_cycle["selected_target"]
+        primary_applied = primary_cycle["applied"]
+        primary_safety_dbg = primary_cycle["safety_debug"]
+        forecast_safe_deadband_target_released = primary_cycle[
+            "deadband_target_released"
+        ]
+        forecast_safe_deadband_hold_rejected = primary_cycle[
+            "deadband_hold_rejected"
+        ]
 
-        if self.command_rate_limiter is not None:
-            m_cmd_applied, cmd_gap = self.command_rate_limiter.update(m_cmd_suppressed)
-        else:
-            m_cmd_applied = m_cmd_suppressed
-            cmd_gap = 0.0
-        m_cmd_applied, release_dbg = self._deadband_target_release_update(
+        target_tx = self._commit_target_transaction(
             state=state,
             plant_info_prev=plant_info_prev,
             ctrl_dbg=ctrl_dbg,
-            m_cmd_applied=m_cmd_applied,
-            m_cmd_reference=m_cmd_suppressed,
+            preview_trim_bias=preview_trim_bias,
+            primary_safety_dbg=primary_safety_dbg,
+            primary_applied=bool(primary_applied),
+            primary_target=m_cmd_primary,
         )
-        if int(release_dbg.get("active", 0)):
-            cmd_gap = float(np.mean(np.abs(np.asarray(m_cmd_suppressed, dtype=float) - np.asarray(m_cmd_applied, dtype=float))))
+        m_cmd_applied = target_tx["final_target"]
+        m_cmd_suppressed = target_tx["target_pre_execution"]
+        m_cmd_after_slew_limiter = target_tx["target_after_slew_limiter"]
+        mass_ff = target_tx["mass_ff"]
+        cmd_gap = target_tx["cmd_gap"]
+        suppression_active = target_tx["suppression_active"]
+        suppression_restart_err_kg = target_tx["suppression_restart_err_kg"]
+        suppression_reason = target_tx["suppression_reason"]
+        suppression_blocked_tanks = target_tx["suppression_blocked_tanks"]
+        suppression_blocked_mass_kg = target_tx["suppression_blocked_mass_kg"]
+        suppression_mask = target_tx["suppression_mask"]
+        reactive_suppression_dbg = target_tx["reactive_suppression_dbg"]
+        release_dbg = target_tx["release_dbg"]
+        ff_delta_mean = target_tx["feedforward_delta_mean_kg"]
+        suppression_delta_mean = target_tx["suppression_delta_mean_kg"]
+        preview_suppression_delta_mean = target_tx[
+            "preview_suppression_delta_mean_kg"
+        ]
+        reactive_suppression_delta_mean = target_tx[
+            "reactive_suppression_delta_mean_kg"
+        ]
+        target_slew_delta_mean = target_tx["target_slew_delta_mean_kg"]
+        target_trace = target_tx["trace"]
 
-        ff_delta_mean = float(np.mean(np.abs(mass_ff)))
         heave_bias_delta_mean = float(np.mean(np.abs(m_cmd_heave - m_cmd_raw)))
         primary_delta_mean = float(np.mean(np.abs(m_cmd_primary - m_cmd_heave)))
         primary_candidate_delta_mean = float(np.mean(np.abs(m_cmd_primary_candidate - m_cmd_heave)))
-        suppression_delta_mean = float(np.mean(np.abs(m_cmd_suppressed - m_cmd_with_ff)))
-        preview_suppression_delta_mean = float(
-            np.mean(np.abs(m_cmd_after_preview_suppression - m_cmd_with_ff))
-        )
-        reactive_suppression_delta_mean = float(
-            reactive_suppression_dbg.get("delta_mean_kg", 0.0)
-        )
-        limiter_delta_mean = float(np.mean(np.abs(m_cmd_applied - m_cmd_suppressed)))
         post_chain_delta_mean = float(np.mean(np.abs(m_cmd_applied - m_cmd_raw)))
         post_chain_adjusted = int(post_chain_delta_mean > 1e-6)
         ctrl_base_clipped = int(ctrl_dbg.get("clipped", 0))
@@ -2694,6 +2873,17 @@ class ClosedLoopPolicy:
             alloc_clip_any = int(ctrl_base_clipped)
 
         dbg = {
+            **target_trace,
+            "target_feedback_kg": np.asarray(m_cmd_heave, dtype=float).copy(),
+            "target_prediction_candidate_kg": np.asarray(
+                m_cmd_primary_candidate, dtype=float
+            ).copy(),
+            "target_intent_kg": np.asarray(m_cmd_primary, dtype=float).copy(),
+            "target_pre_execution_kg": np.asarray(m_cmd_suppressed, dtype=float).copy(),
+            "target_after_slew_limiter_kg": m_cmd_after_slew_limiter.copy(),
+            # Retained for readers of historical time-series files.
+            "target_after_rate_limiter_kg": m_cmd_after_slew_limiter.copy(),
+            "target_final_kg": np.asarray(m_cmd_applied, dtype=float).copy(),
             "pitch_sp_deg": float(pitch_sp),
             "roll_sp_deg": float(roll_sp),
             "pitch_sp_raw_deg": float(pitch_sp_raw),
@@ -2892,7 +3082,8 @@ class ClosedLoopPolicy:
                 self.controller.deadband_enter.get("roll", 0.0)
             ),
             "heave_bias_delta_mean_kg": float(heave_bias_delta_mean),
-            "limiter_delta_mean_kg": float(limiter_delta_mean),
+            "target_slew_delta_mean_kg": float(target_slew_delta_mean),
+            "limiter_delta_mean_kg": float(target_slew_delta_mean),
             "post_chain_delta_mean_kg": float(post_chain_delta_mean),
             "post_chain_adjusted": int(post_chain_adjusted),
             "deadband_target_release_active": int(release_dbg.get("active", 0)),

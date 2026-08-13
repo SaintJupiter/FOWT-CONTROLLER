@@ -1,0 +1,13 @@
+{
+  "schema_version": "planner_runtime.v1",
+  "pressure_sign_multiplier": -1.0,
+  "default_discount_blocks": [
+    1.0,
+    0.85,
+    0.7
+  ],
+  "notes": {
+    "pressure_sign_multiplier": "Compensation-direction convention calibrated for the ballast planner.",
+    "default_discount_blocks": "Near-to-far forecast weighting used by the submitted controller configuration."
+  }
+}

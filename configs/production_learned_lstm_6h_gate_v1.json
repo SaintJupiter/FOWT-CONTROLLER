@@ -1,0 +1,106 @@
+{
+  "schema_version": "production_learned_lstm_6h_gate.v1",
+  "created_at": "2026-08-11",
+  "purpose": "Minimal reproducible six-hour gate for the production controller with a learned LSTM forecast.",
+  "casebook_command": [
+    "python3",
+    "scripts/analysis/run_prediction_primary_casebook.py",
+    "--out-dir",
+    "outputs/wind_prediction/production_learned_lstm_6h_gate_v1",
+    "--cases-csv",
+    "configs/production_learned_lstm_6h_gate_cases_v1.csv",
+    "--case-ids",
+    "learned_lstm_6h_gate_001",
+    "--duration-s",
+    "21600",
+    "--primary-only",
+    "--skip-figures",
+    "--forecast-source",
+    "learned",
+    "--dataset-dir",
+    "data/processed/wind_ml_10min/ballast_decision_fino1_meteo_aux_v1",
+    "--model-dir",
+    "outputs/wind_prediction/lstm_segmented_fino1_meteo_aux_v1",
+    "--replay-split",
+    "test",
+    "--primary-control-profile",
+    "rawenv_holdpause_barrier_reliefcap_adaptive_v1",
+    "--primary-pump-profile",
+    "engineered_minimal",
+    "--primary-hold-target-mode",
+    "pause",
+    "--event-reset-mode",
+    "action",
+    "--planner-envelope-raw",
+    "--planner-envelope-barrier",
+    "--planner-posture-state-residual",
+    "--planner-posture-state-gain",
+    "0.4",
+    "--planner-posture-state-clip-norm",
+    "6.0",
+    "--planner-attitude-residual-weight",
+    "1.0",
+    "--planner-terminal-residual-weight",
+    "1.0",
+    "--planner-posture-hold-forecast-credit",
+    "0.0",
+    "--planner-runtime-config",
+    "configs/planner_runtime_v1.json",
+    "--stiffness-file",
+    "archive/legacy_fowt_control/data/副本水平刚度曲线.xlsx"
+  ],
+  "expected_cases": [
+    "learned_lstm_6h_gate_001"
+  ],
+  "gate_contract": {
+    "case_count": 1,
+    "duration_s": 21600,
+    "forecast_source": "learned",
+    "dataset_dir": "data/processed/wind_ml_10min/ballast_decision_fino1_meteo_aux_v1",
+    "model_dir": "outputs/wind_prediction/lstm_segmented_fino1_meteo_aux_v1",
+    "primary_control_profile": "rawenv_holdpause_barrier_reliefcap_adaptive_v1",
+    "planner_runtime_config": "configs/planner_runtime_v1.json",
+    "planner_runtime_schema": "planner_runtime.v1",
+    "replay_split": "test",
+    "require_primary_only": true,
+    "forbidden_forecast_sources": [
+      "oracle",
+      "persistence_mean",
+      "current_only"
+    ],
+    "forbidden_control_profiles": [
+      "manual"
+    ]
+  },
+  "required_assets": {
+    "dataset": [
+      "metadata.json",
+      "sample_index.csv.gz",
+      "X_test.npy",
+      "y_uv_raw_test.npy"
+    ],
+    "model": [
+      "lstm_best.pt",
+      "lstm_config.json",
+      "lstm_event_thresholds.json",
+      "lstm_run_summary.json"
+    ]
+  },
+  "run_identity_contract": {
+    "required": true,
+    "schema_version": "run_identity.v1",
+    "forecast_model_version": "lstm_dual_head_preview",
+    "path": "outputs/wind_prediction/production_learned_lstm_6h_gate_v1/run_identity.json",
+    "required_fields": [
+      "run_id",
+      "git_commit",
+      "git_dirty",
+      "control_profile",
+      "forecast_source",
+      "forecast_model_version",
+      "input_files",
+      "effective_config_sha256",
+      "output_directory"
+    ]
+  }
+}

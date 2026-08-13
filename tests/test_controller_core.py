@@ -203,6 +203,21 @@ class ControllerCoreTests(unittest.TestCase):
         self.assertEqual(trace["candidate_count"], len(decision.ranked_candidates))
         self.assertIn("forecast", trace)
         self.assertIn("first_execution", trace)
+        self.assertEqual(len(trace["stages"]), 3)
+
+    def test_small_forecast_only_demand_does_not_create_a_pump_target(self):
+        decision = decide_control_cycle(
+            _observation(posture_deg=(0.0, 0.0)),
+            _evidence([(0.0, -10.5)] * 6),
+            _config(minimum_action_demand_ratio=0.20),
+        )
+
+        self.assertEqual(decision.action, ControlAction.CONTINUE_TARGET)
+        self.assertEqual(decision.target_operation, TargetOperation.CONTINUE)
+        np.testing.assert_allclose(
+            decision.target_masses_kg,
+            _observation().execution_state.actual_masses_kg,
+        )
 
 
 if __name__ == "__main__":

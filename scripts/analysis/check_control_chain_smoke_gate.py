@@ -12,7 +12,7 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_CONFIG = REPO_ROOT / "configs" / "control_chain_smoke_gate_v1.json"
+DEFAULT_CONFIG = REPO_ROOT / "configs" / "control_chain_smoke_gate_v2.json"
 
 
 def _resolve(path: str | Path) -> Path:
@@ -52,6 +52,94 @@ def _equal_config(actual: str, expected: Any) -> bool:
 
 def _row_by_case(rows: list[dict[str, str]]) -> dict[str, dict[str, str]]:
     return {str(row.get("case_id", "")): row for row in rows}
+
+
+def _timeseries_contract_failures(
+    directory: Path,
+    expected_cases: list[str],
+    contract: dict[str, Any],
+) -> list[str]:
+    failures: list[str] = []
+    required_columns = [str(name) for name in contract.get("required_columns", [])]
+    target_tol = float(contract.get("target_abs_max", 1e-6))
+    mass_tol = float(contract.get("mass_balance_abs_max", 1e-6))
+    rate_tol = float(contract.get("pump_rate_abs_max", 1e-6))
+
+    for case in expected_cases:
+        matches = sorted(directory.glob(f"{case}_*_timeseries.csv"))
+        if len(matches) != 1:
+            failures.append(
+                f"{case}: expected one timeseries file in {directory}, found {len(matches)}"
+            )
+            continue
+        path = matches[0]
+        rows = _read_rows(path)
+        if not rows:
+            failures.append(f"{case}: empty timeseries file {path}")
+            continue
+        missing = [name for name in required_columns if name not in rows[0]]
+        if missing:
+            failures.append(f"{case}: missing timeseries columns {missing}")
+            continue
+
+        max_target_gap = 0.0
+        max_total_mass_gap = 0.0
+        max_delta_mass_gap = 0.0
+        max_rate_excess = 0.0
+        nonfinite: set[str] = set()
+        for row in rows:
+            for name in required_columns:
+                if not math.isfinite(_to_float(row.get(name))):
+                    nonfinite.add(name)
+
+            for tank in (1, 2, 3):
+                max_target_gap = max(
+                    max_target_gap,
+                    abs(
+                        _to_float(row.get(f"target_final_tank{tank}_kg"))
+                        - _to_float(row.get(f"target_tank{tank}_kg"))
+                    ),
+                )
+                max_rate_excess = max(
+                    max_rate_excess,
+                    abs(_to_float(row.get(f"pump_net_rate{tank}_m3min")))
+                    - _to_float(row.get(f"pump_rate{tank}_m3min")),
+                )
+
+            total_mass = sum(_to_float(row.get(f"tank{tank}_kg")) for tank in (1, 2, 3))
+            max_total_mass_gap = max(
+                max_total_mass_gap,
+                abs(_to_float(row.get("ballast_total_kg")) - total_mass),
+            )
+            total_delta = sum(
+                _to_float(row.get(f"tank{tank}_mass_delta_kg"))
+                for tank in (1, 2, 3)
+            )
+            max_delta_mass_gap = max(
+                max_delta_mass_gap,
+                abs(_to_float(row.get("ballast_total_delta_kg")) - total_delta),
+            )
+
+        if nonfinite:
+            failures.append(f"{case}: non-finite timeseries columns {sorted(nonfinite)}")
+        if max_target_gap > target_tol:
+            failures.append(
+                f"{case}: final target/plant target gap {max_target_gap:g} exceeds {target_tol:g}"
+            )
+        if max_total_mass_gap > mass_tol:
+            failures.append(
+                f"{case}: total/per-tank mass gap {max_total_mass_gap:g} exceeds {mass_tol:g}"
+            )
+        if max_delta_mass_gap > mass_tol:
+            failures.append(
+                f"{case}: total/per-tank mass-delta gap {max_delta_mass_gap:g} exceeds {mass_tol:g}"
+            )
+        if max_rate_excess > rate_tol:
+            failures.append(
+                f"{case}: physical pump rate exceeds command by {max_rate_excess:g}"
+            )
+
+    return failures
 
 
 def evaluate(summary_csv: Path, config: dict[str, Any]) -> dict[str, Any]:
@@ -134,6 +222,17 @@ def evaluate(summary_csv: Path, config: dict[str, Any]) -> dict[str, Any]:
                             f"{case}: |delta {column}|={delta:g} exceeds {float(limit):g}"
                         )
 
+    timeseries_contract = config.get("timeseries_contract", {})
+    if timeseries_contract.get("enabled", False):
+        directory = _resolve(str(timeseries_contract["directory"]))
+        failures.extend(
+            _timeseries_contract_failures(
+                directory,
+                expected_cases,
+                timeseries_contract,
+            )
+        )
+
     return {
         "ok": not failures,
         "summary_csv": str(summary_csv),
@@ -149,7 +248,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", default=str(DEFAULT_CONFIG))
     parser.add_argument(
         "--summary-csv",
-        default="outputs/wind_prediction/phase2b_3case_clean_defaults_no_overlay/casebook_summary.csv",
+        default="outputs/wind_prediction/control_chain_smoke_gate_v2/casebook_summary.csv",
     )
     parser.add_argument("--json", action="store_true")
     return parser.parse_args()
@@ -173,4 +272,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

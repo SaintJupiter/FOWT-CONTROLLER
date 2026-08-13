@@ -86,6 +86,39 @@ def primary_target_from_delta(
     )
 
 
+def primary_target_from_absolute(
+    masses_kg: Any,
+    requested_target_kg: Any,
+    *,
+    tank_capacity_kg: float,
+    current_time_s: float,
+) -> PrimaryTargetTransition:
+    """Return the exact target already evaluated by the planner.
+
+    Planner-authoritative execution must not reconstruct a target from the
+    action name after candidate ranking.  The requested target is therefore
+    committed verbatim, apart from the same physical capacity clipping used by
+    the plant.
+    """
+
+    masses = _three(masses_kg)
+    target = np.clip(
+        _three(requested_target_kg),
+        0.0,
+        float(tank_capacity_kg),
+    )
+    return PrimaryTargetTransition(
+        anchor_masses_kg=masses.copy(),
+        delta_kg=(target - masses).copy(),
+        target_kg=target.copy(),
+        initialized=True,
+        refreshed=True,
+        reused=False,
+        resumed=False,
+        last_reset_s=float(current_time_s),
+    )
+
+
 def primary_target_at_current(
     masses_kg: Any,
     *,
@@ -126,6 +159,36 @@ def primary_target_from_paused(
     masses = _three(masses_kg)
     target = np.clip(
         _three(paused_target_kg),
+        0.0,
+        float(tank_capacity_kg),
+    )
+    return PrimaryTargetTransition(
+        anchor_masses_kg=masses.copy(),
+        delta_kg=(target - masses).copy(),
+        target_kg=target.copy(),
+        initialized=True,
+        refreshed=False,
+        reused=True,
+        resumed=True,
+        last_reset_s=float(current_time_s),
+    )
+
+
+def primary_target_blended_to_current(
+    masses_kg: Any,
+    pending_target_kg: Any,
+    *,
+    blend: float,
+    tank_capacity_kg: float,
+    current_time_s: float,
+) -> PrimaryTargetTransition:
+    """Blend a pending target toward current tank masses."""
+
+    masses = _three(masses_kg)
+    pending = _three(pending_target_kg)
+    weight = float(np.clip(blend, 0.0, 1.0))
+    target = np.clip(
+        pending + weight * (masses - pending),
         0.0,
         float(tank_capacity_kg),
     )
@@ -234,6 +297,59 @@ def apply_primary_target_transition(
     target._primary_target_reused = bool(transition.reused)
     target._primary_target_resumed = bool(transition.resumed)
     target._primary_target_last_reset_s = float(transition.last_reset_s)
+
+
+def apply_planner_authoritative_target(
+    target: Any,
+    *,
+    operation: str,
+    current_masses_kg: Any,
+    requested_target_kg: Any | None,
+    tank_capacity_kg: float,
+    current_time_s: float,
+    refresh_owner: str = "planner_authoritative",
+) -> PrimaryTargetTransition:
+    """Atomically commit the target operation evaluated by the v2 planner.
+
+    The clean v2 lifecycle deliberately supports only two semantics:
+    ``set_delta`` tracks the exact evaluated target and ``hold_current`` (or
+    ``release``) releases the outstanding target to the measured tank masses.
+    Pause/resume/reuse remain available to the frozen legacy adapter only.
+    """
+
+    normalized = str(operation)
+    if normalized == "set_delta":
+        if requested_target_kg is None:
+            raise ValueError(
+                "planner-authoritative set_delta requires evaluated target masses"
+            )
+        transition = primary_target_from_absolute(
+            current_masses_kg,
+            requested_target_kg,
+            tank_capacity_kg=tank_capacity_kg,
+            current_time_s=current_time_s,
+        )
+    elif normalized in {"hold_current", "release"}:
+        transition = primary_target_at_current(
+            current_masses_kg,
+            tank_capacity_kg=tank_capacity_kg,
+            current_time_s=current_time_s,
+            initialized=True,
+            clip_target=True,
+        )
+    else:
+        raise ValueError(
+            "planner-authoritative lifecycle does not support operation "
+            f"{normalized!r}"
+        )
+
+    apply_primary_target_transition(target, transition)
+    target._primary_refresh_owner_pending = str(refresh_owner)
+    consume_primary_refresh_owner(target, default=str(refresh_owner))
+    # A new authoritative decision starts a new target epoch.  A paused legacy
+    # target must never reappear after a hold, reverse, or fresh active action.
+    target._paused_primary_valid = False
+    return transition
 
 
 def mark_primary_target_reused(

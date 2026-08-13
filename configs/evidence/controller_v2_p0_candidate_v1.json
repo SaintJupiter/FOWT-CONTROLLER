@@ -1,0 +1,216 @@
+{
+  "schema_version": "evidence_freeze_declaration.v1",
+  "purpose": "controller_v2_p0_candidate",
+  "status_note": "Candidate inventory only. It is not a clean baseline or controller-performance claim.",
+  "dependency_names": [
+    "joblib",
+    "lightgbm",
+    "numpy",
+    "openpyxl",
+    "pandas",
+    "scikit-learn",
+    "scipy",
+    "torch"
+  ],
+  "file_sets": [
+    {
+      "id": "v2_control_core",
+      "storage_class": "git",
+      "storage_id": "repository",
+      "role": "source",
+      "expected_count": 21,
+      "paths": [
+        "configs/controller_core_v2.json",
+        "configs/controller_chain_smoke_v2.json",
+        "scripts/validation/run_controller_core_smoke.py",
+        "scripts/validation/run_controller_v2_chain_smoke.py",
+        "src/wind_prediction/__init__.py",
+        "src/wind_prediction/action_plan.py",
+        "src/wind_prediction/ballast_allocation.py",
+        "src/wind_prediction/controller.py",
+        "src/wind_prediction/controller_chain_runner.py",
+        "src/wind_prediction/controller_configuration.py",
+        "src/wind_prediction/controller_core.py",
+        "src/wind_prediction/controller_plant_adapter.py",
+        "src/wind_prediction/controller_replay_adapter.py",
+        "src/wind_prediction/controller_runtime.py",
+        "src/wind_prediction/dataset_manifest.py",
+        "src/wind_prediction/execution_rollout.py",
+        "src/wind_prediction/forecast_action_policy.py",
+        "src/wind_prediction/forecast_adapter.py",
+        "src/wind_prediction/forecast_contract.py",
+        "src/wind_prediction/forecast_evidence.py",
+        "src/wind_prediction/replay_dataset.py"
+      ]
+    },
+    {
+      "id": "platform_bridge",
+      "storage_class": "git",
+      "storage_id": "repository",
+      "role": "source",
+      "expected_count": 6,
+      "paths": [
+        "archive/legacy_fowt_control/core_model.py",
+        "archive/legacy_fowt_control/defaults.py",
+        "archive/legacy_fowt_control/wind_env.py",
+        "scripts/validation/run_platform_open_loop_audit.py",
+        "src/wind_prediction/ballast_mass_properties.py",
+        "src/wind_prediction/input_files.py"
+      ]
+    },
+    {
+      "id": "repository_regression_tests",
+      "storage_class": "git",
+      "storage_id": "repository",
+      "role": "test",
+      "expected_count": 59,
+      "globs": [
+        "tests/test_*.py",
+        "tests/fixtures/**/*"
+      ]
+    },
+    {
+      "id": "evidence_infrastructure",
+      "storage_class": "git",
+      "storage_id": "repository",
+      "role": "source",
+      "expected_count": 6,
+      "paths": [
+        "configs/evidence/controller_v2_p0_candidate_v1.json",
+        "configs/schemas/evidence_freeze_manifest_v1.schema.json",
+        "manifests/p0/controller_v2_p0_candidate_v1/test_result.json",
+        "manifests/p0/controller_v2_p0_candidate_v1/unittest_full.log",
+        "scripts/validation/manage_evidence_manifest.py",
+        "src/wind_prediction/evidence_manifest.py"
+      ]
+    },
+    {
+      "id": "p0_documents",
+      "storage_class": "git",
+      "storage_id": "repository",
+      "role": "documentation",
+      "expected_count": 7,
+      "paths": [
+        "README.md",
+        "requirements.txt",
+        "docs/controller_v2_framework.md",
+        "docs/controller_v2_pause_20260812.md",
+        "docs/platform_open_loop_audit.md",
+        "docs/research_v2_execution_governance.md",
+        "docs/controller_v2_p0_freeze_candidate_20260813.md"
+      ]
+    },
+    {
+      "id": "physical_inputs",
+      "storage_class": "external",
+      "storage_id": "p0_external_archive",
+      "storage_locator": "pending://p0-external-archive-location",
+      "role": "physical_input",
+      "expected_count": 2,
+      "paths": [
+        "archive/legacy_fowt_control/data/副本水平刚度曲线.xlsx",
+        "archive/legacy_fowt_control/data/Thrust force at hub height 风机叶片及轮毂相关数据.xlsx"
+      ]
+    },
+    {
+      "id": "forecast_runtime_model",
+      "storage_class": "external",
+      "storage_id": "p0_external_archive",
+      "storage_locator": "pending://p0-external-archive-location",
+      "role": "model",
+      "expected_count": 3,
+      "paths": [
+        "outputs/wind_prediction/lstm_segmented_fino1_meteo_aux_v1/lstm_best.pt",
+        "outputs/wind_prediction/lstm_segmented_fino1_meteo_aux_v1/lstm_config.json",
+        "outputs/wind_prediction/lstm_segmented_fino1_meteo_aux_v1/lstm_event_thresholds.json"
+      ]
+    },
+    {
+      "id": "forecast_model_provenance",
+      "storage_class": "external",
+      "storage_id": "p0_external_archive",
+      "storage_locator": "pending://p0-external-archive-location",
+      "role": "model_provenance",
+      "expected_count": 4,
+      "paths": [
+        "outputs/wind_prediction/lstm_segmented_fino1_meteo_aux_v1/lstm_event_metrics.csv",
+        "outputs/wind_prediction/lstm_segmented_fino1_meteo_aux_v1/lstm_regression_metrics.csv",
+        "outputs/wind_prediction/lstm_segmented_fino1_meteo_aux_v1/lstm_run_summary.json",
+        "outputs/wind_prediction/lstm_segmented_fino1_meteo_aux_v1/lstm_training_history.csv"
+      ]
+    },
+    {
+      "id": "forecast_dataset",
+      "storage_class": "external",
+      "storage_id": "p0_external_archive",
+      "storage_locator": "pending://p0-external-archive-location",
+      "role": "dataset",
+      "expected_count": 7,
+      "paths": [
+        "data/processed/wind_ml_10min/ballast_decision_fino1_meteo_aux_v1/metadata.json",
+        "data/processed/wind_ml_10min/ballast_decision_fino1_meteo_aux_v1/scaler_train.json",
+        "data/processed/wind_ml_10min/ballast_decision_fino1_meteo_aux_v1/sample_index.csv.gz",
+        "data/processed/wind_ml_10min/ballast_decision_fino1_meteo_aux_v1/X_test.npy",
+        "data/processed/wind_ml_10min/ballast_decision_fino1_meteo_aux_v1/y_uv_raw_test.npy",
+        "data/processed/wind_ml_10min/ballast_decision_fino1_meteo_aux_v1/y_event_test.npy",
+        "data/processed/wind_ml_10min/fino1_platform_10min/canonical_observations_10min.csv.gz"
+      ]
+    },
+    {
+      "id": "chain_evidence",
+      "storage_class": "external",
+      "storage_id": "p0_external_archive",
+      "storage_locator": "pending://p0-external-archive-location",
+      "role": "result",
+      "expected_count": 21,
+      "globs": [
+        "outputs/controller_v2_chain_smoke_reference_incremental_v9_20260813/**/*"
+      ]
+    },
+    {
+      "id": "open_loop_evidence",
+      "storage_class": "external",
+      "storage_id": "p0_external_archive",
+      "storage_locator": "pending://p0-external-archive-location",
+      "role": "result",
+      "expected_count": 6,
+      "globs": [
+        "outputs/platform_open_loop_audit_reference_incremental_v6_20260813/**/*"
+      ]
+    }
+  ],
+  "test_run": {
+    "result_path": "manifests/p0/controller_v2_p0_candidate_v1/test_result.json",
+    "log_path": "manifests/p0/controller_v2_p0_candidate_v1/unittest_full.log",
+    "required": true
+  },
+  "evidence_assertions": [
+    {
+      "id": "controller_chain_v9",
+      "path": "outputs/controller_v2_chain_smoke_reference_incremental_v9_20260813/manifest.json",
+      "json_checks": [
+        {"pointer": "/formal_suite_complete", "equals": true},
+        {"pointer": "/all_checks_passed", "equals": true}
+      ]
+    },
+    {
+      "id": "platform_open_loop_v6",
+      "path": "outputs/platform_open_loop_audit_reference_incremental_v6_20260813/audit_summary.json",
+      "json_checks": [
+        {"pointer": "/evidence_level", "equals": "open_loop_physics_audit_not_controller_performance"},
+        {"pointer": "/checks/wind_cardinal_direction_signs", "equals": true},
+        {"pointer": "/checks/mooring_restores_surge_sway", "equals": true},
+        {"pointer": "/checks/hydrostatic_restores_heave_roll_pitch", "equals": true},
+        {"pointer": "/checks/yaw_restoring_opposes_yaw", "equals": true},
+        {"pointer": "/checks/load_components_sum_to_total", "equals": true},
+        {"pointer": "/checks/ballast_signed_mass_and_first_moment", "equals": true},
+        {"pointer": "/checks/ballast_signed_inertia", "equals": true},
+        {"pointer": "/checks/ballast_incremental_gravity_load", "equals": true},
+        {"pointer": "/checks/ballast_fixed_added_mass_is_not_rescaled", "equals": true},
+        {"pointer": "/checks/ballast_inflow_outflow_are_opposite", "equals": true},
+        {"pointer": "/checks/ballast_balanced_exchange_preserves_total_mass", "equals": true},
+        {"pointer": "/checks/ballast_balanced_exchange_moment_direction", "equals": true}
+      ]
+    }
+  ]
+}

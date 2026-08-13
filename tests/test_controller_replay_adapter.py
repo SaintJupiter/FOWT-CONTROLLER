@@ -49,7 +49,9 @@ class ReplayForecastEvidenceSourceTests(unittest.TestCase):
     def test_source_uses_model_output_and_never_oracle_future(self):
         origin = datetime(2026, 8, 12, 0, 0, 0)
         sample = SimpleNamespace(
+            series_id="synthetic-series",
             x_window=np.zeros((12, 4), dtype=np.float32),
+            history_start=origin - timedelta(minutes=110),
             history_end=origin,
             y_uv_raw=np.full((6, 2), 999.0, dtype=np.float32),
         )
@@ -68,6 +70,8 @@ class ReplayForecastEvidenceSourceTests(unittest.TestCase):
         np.testing.assert_allclose(evidence.uv_ms[:, 1], -10.0)
         self.assertNotEqual(float(evidence.uv_ms[0, 0]), 999.0)
         self.assertEqual(evidence.metadata["event_thresholds"]["attention_event"], 0.6)
+        self.assertEqual(evidence.metadata["series_id"], "synthetic-series")
+        self.assertEqual(len(evidence.metadata["input_window_sha256"]), 64)
 
     def test_missing_replay_sample_returns_no_evidence(self):
         origin = datetime(2026, 8, 12, 0, 0, 0)

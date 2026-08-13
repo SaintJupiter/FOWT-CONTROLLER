@@ -86,6 +86,7 @@ class ControlCoreConfig:
     normal_ratio: float = 0.15
     strengthen_ratio: float = 0.35
     reverse_ratio: float = 0.12
+    minimum_action_demand_ratio: float = 0.20
     compensation_retention: float = 0.90
     w_residual: float = 10.0
     w_terminal_residual: float = 20.0
@@ -145,6 +146,7 @@ class ControlCoreConfig:
             "normal_ratio": self.normal_ratio,
             "strengthen_ratio": self.strengthen_ratio,
             "reverse_ratio": self.reverse_ratio,
+            "minimum_action_demand_ratio": self.minimum_action_demand_ratio,
             "w_residual": self.w_residual,
             "w_terminal_residual": self.w_terminal_residual,
             "w_pump_volume": self.w_pump_volume,
@@ -159,6 +161,8 @@ class ControlCoreConfig:
             raise ValueError(
                 "action ratios must satisfy reduced <= normal <= strengthen"
             )
+        if not 0.0 <= float(self.minimum_action_demand_ratio) <= 1.0:
+            raise ValueError("minimum_action_demand_ratio must lie in [0, 1]")
         if float(self.pressure_sign_multiplier) not in {-1.0, 1.0}:
             raise ValueError("pressure_sign_multiplier must be -1 or 1")
         if not math.isclose(
@@ -309,6 +313,18 @@ class ControlDecision:
                 "feedback_demand_deg": list(self.context.feedback_demand_deg),
                 "priority_active": self.context.posture_priority,
             },
+            "stages": [
+                {
+                    "index": stage.index,
+                    "lead_start_s": stage.lead_start_s,
+                    "lead_end_s": stage.lead_end_s,
+                    "feedback_demand_deg": list(stage.feedback_demand_deg),
+                    "forecast_increment_deg": list(stage.forecast_increment_deg),
+                    "combined_demand_deg": list(stage.combined_demand_deg),
+                    "mean_reliability": stage.mean_reliability,
+                }
+                for stage in self.context.stages
+            ],
             "cost": {
                 "residual": first.residual_cost,
                 "terminal_residual": first.terminal_residual_cost,
@@ -317,6 +333,29 @@ class ControlDecision:
                 "starts": first.starts,
                 "direction_switches": first.direction_switches,
             },
+            "candidate_ranking_top": [
+                {
+                    "rank": rank,
+                    "sequence": [action.value for action in candidate.sequence],
+                    "score": candidate.score,
+                    "residual_cost": candidate.residual_cost,
+                    "terminal_residual_cost": candidate.terminal_residual_cost,
+                    "pump_volume_m3": candidate.transferred_volume_m3,
+                    "active_time_s": candidate.active_time_s,
+                    "starts": candidate.starts,
+                    "direction_switches": candidate.direction_switches,
+                    "first_action_vector_deg": list(
+                        candidate.first_action_vector_deg
+                    ),
+                    "first_target_masses_kg": list(
+                        candidate.first_target_masses_kg
+                    ),
+                }
+                for rank, candidate in enumerate(
+                    self.ranked_candidates[:10],
+                    start=1,
+                )
+            ],
             "first_execution": {
                 "requested_target_kg": self.first_execution.requested_target_kg.tolist(),
                 "mass_delta_kg": self.first_execution.mass_delta_kg.tolist(),
@@ -645,6 +684,18 @@ def _evaluate_candidate(
     for index, (action, stage) in enumerate(zip(sequence, context.stages)):
         demand = np.asarray(stage.combined_demand_deg, dtype=float)
         residual_before = demand - compensation
+        residual_demand_ratio = float(np.linalg.norm(residual_before / deadband))
+        if (
+            action
+            in {
+                ControlAction.STRENGTHEN,
+                ControlAction.NORMAL,
+                ControlAction.REDUCED,
+                ControlAction.REVERSE,
+            }
+            and residual_demand_ratio < float(config.minimum_action_demand_ratio)
+        ):
+            return _rejected_candidate(sequence, "demand_below_action_threshold")
         action_vector = _action_vector(
             action,
             residual_before,

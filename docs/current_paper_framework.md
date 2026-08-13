@@ -1,10 +1,15 @@
 # 当前小论文框架记忆
 
-Last updated: 2026-06-11
+Last updated: 2026-07-11
 
 Purpose: this file records the currently locked paper structure for the FOWT
 active-ballast short paper. Detailed revision policy is frozen in
 `docs/paper_revision_master_plan_20260611.md`.
+
+Current venue: `《海洋工程》` Chinese edition. Formatting, front matter,
+figures, tables, equations, references, and Word layout must follow
+`docs/ocean_engineering_submission_requirements.md`. The former
+`《舰船科学技术》` template is superseded and has no current authority.
 
 ## Writing Positioning
 
@@ -32,7 +37,8 @@ Core positioning:
 - Use a compact engineering-journal style.
 - Do not expand beyond the locked 0-4 body structure.
 - Do not use third-level headings unless absolutely necessary.
-- Start the body from Chapter 0.
+- Do not print an introduction heading or number. The introduction begins
+  directly after the English keywords, and the first numbered chapter is 1.
 - After the introduction, Chapter 1 should directly enter the author's own
   control method, not a broad background or literature chapter.
 - Avoid repeatedly using internal implementation names such as `closed-only`;
@@ -72,21 +78,41 @@ guardrails:
 - Avoid any wording that reintroduces the advisor-banned term through English
   roots or translations.
 
+## Results Presentation Alignment
+
+Use the results presentation plan as an evidence-display guide, not as a new
+chapter structure and not as a mandatory figure list. The useful part is its
+control-paper logic: paired statistics for main results, representative curves
+for mechanism, and posture-tail metrics for safety cost.
+
+```text
+P0: closed-loop data/control/feedback flow
+P0: paired 6 h pump-work result
+P0: posture p95 and threshold-exposure cost
+P1: representative 6 h episode showing the full control chain
+P1: decision-state and target-lifecycle differences
+P2: forecast/risk visualization, boundary/low-opportunity behavior, 12 h figure
+```
+
+12 h robustness, boundary/low-opportunity behavior, and historical/specialist
+evidence can be handled with tables or appendix material. Every pump-saving
+result must be paired with posture-cost metrics.
+
 ## Locked Chapter Framework
 
 ```text
 摘要
 关键词
 
-0 引言
+引言正文（不设标题、不编号）
 
-1 短时风况预测辅助的主动压载上层协调调节算法
+1 预测辅助主动压载目标生成与调节判别方法
 
 2 仿真验证方案
 
 3 仿真结果与分析
 
-4 结论
+4 结语
 ```
 
 ## Section Responsibilities
@@ -107,7 +133,7 @@ The abstract must use the frozen production-near headline unless the evidence
 map is explicitly updated. Do not use historical, selector-only, or
 positive-only numbers as the headline.
 
-### 0 引言
+### 引言（不设标题、不编号）
 
 Keep short and task-driven. The introduction should cover:
 
@@ -126,7 +152,7 @@ Keep short and task-driven. The introduction should cover:
 
 No standalone literature-review chapter.
 
-### 1 短时风况预测辅助的主动压载上层协调调节算法
+### 1 预测辅助主动压载目标生成与调节判别方法
 
 This chapter presents the paper's own algorithm and absorbs the former standalone
 prediction/risk chapter where those contents define algorithm inputs.
@@ -134,10 +160,11 @@ prediction/risk chapter where those contents define algorithm inputs.
 Recommended second-level sections:
 
 ```text
-1.1 算法总体链路与上层决策接口
-1.2 短时风况预测、风险识别与压力代理
-1.3 决策状态、风险门控与有限候选动作评价
-1.4 目标生命周期管理与水泵执行约束
+1.1 方法总体框架与闭环信息流
+1.2 短时风况趋势预测
+1.3 风险窗口表征与压力代理构造
+1.4 姿态响应与预测风况融合的压载目标生成
+1.5 安全约束下的调节判别与水泵受限执行
 ```
 
 Present the complete information flow:
@@ -188,23 +215,39 @@ repeat the algorithm details already placed in Chapter 1.
 Recommended second-level sections:
 
 ```text
-2.1 仿真平台、数据窗口与回放协议
-2.2 对比策略与执行一致性
-2.3 评价指标与阈值语义
-2.4 casebook 冻结与证据角色
+2.1 浮式平台与主动压载闭环仿真模型
+2.2 对比策略与风况窗口设置
+2.3 性能评价指标
 ```
 
 Include:
 
-- Same platform model, execution layer, safety layer, data window, and replay
-  protocol for baseline and candidate.
-- Raw 1 Hz metrics; smoothing is display-only.
-- Pump work, pump starts/stops, pitch/roll p95, threshold exposure time, fallback,
-  and target/latch behavior.
-- Threshold semantics: 5 deg as service-pressure band; 7.5 deg and 10 deg as
-  larger/severe tail exposure.
-- Evidence roles: 6 h headline, 12 h disclosure, historical/specialist support,
-  and 24 h future work.
+- 2.1 only establishes the common simulation object: semi-submersible platform,
+  pitch/roll response, three-tank active ballast layout, target ballast mass,
+  constrained pump execution, tank-capacity limits, pump-rate limits, hysteresis,
+  minimum on/off time, and near-target holding. Do not load strategy comparison,
+  casebook roles, or metric semantics into this section.
+- 2.2 defines how validation is performed on the common model: no-prediction
+  closed-loop feedback strategy versus prediction-assisted regulation strategy,
+  the requirement that both share the same platform model, execution layer,
+  safety boundaries, and wind replay windows, and the role of 101 comprehensive
+  6 h validation windows, 170 6 h regulation-opportunity windows, and 40
+  comprehensive 12 h check windows. The sample logic should read as overall
+  effect validation -> cumulative-pump-volume difference explanation ->
+  long-window continuity and boundary check.
+- 2.3 defines the performance metrics: cumulative pump volume,
+  cumulative pump-volume reduction percentage relative to the no-prediction
+  closed-loop strategy, pump start/stop frequency, mean dominant attitude, and
+  threshold exposure times at 5, 7.5, and 10 deg. In Chinese drafting, avoid
+  shorthand such as "节泵", "补泵",
+  and "节水"; use "累计泵量降低", "水泵动作减少", "后续集中泵送动作",
+  or "泵送代价变化" as appropriate. State that 5 deg is a service-pressure band
+  rather than a failure line, while 7.5 and 10 deg describe larger/severe tail
+  exposure. Raw 1 Hz simulation traces are used for all statistics; smoothed
+  curves are display-only.
+- Evidence roles, execution consistency, and claim boundaries should be embedded
+  in the relevant paragraphs rather than split into separate report-style
+  subsections.
 
 ### 3 仿真结果与分析
 
@@ -243,7 +286,7 @@ If reporting the gain 0.45 12 h robustness result, describe it as:
 
 Do not describe it as a universal 30% long-duration saving.
 
-### 4 结论
+### 4 结语
 
 Conclusion must remain tied to the frozen evidence map.
 
@@ -252,7 +295,7 @@ Future conclusion opening:
 ```text
 本文针对浮式风机主动压载系统缺少未来风载预判与危险工况提前预警的问题，
 提出了短时风况预测辅助的主动压载上层协调调节算法，并通过冻结工况窗口
-下的成对仿真对其节泵效果和姿态边界进行了验证，主要结论如下：
+下的成对仿真对其累计泵量降低效果和姿态边界进行了验证，主要结论如下：
 （1）……
 （2）……
 （3）……
@@ -270,11 +313,11 @@ Conclusion claims must distinguish:
 
 ```text
 摘要：300-400 字
-0 引言：650-800 字
+引言正文：650-800 字
 1 上层协调调节算法：1700-2100 字
 2 仿真验证方案：700-900 字
 3 仿真结果与分析：1500-1800 字
-4 结论：300-450 字
+4 结语：300-450 字
 ```
 
 Expected total: about 4700-5600 Chinese characters excluding references,

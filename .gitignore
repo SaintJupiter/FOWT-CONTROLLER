@@ -20,6 +20,14 @@ env/
 .idea/
 .DS_Store
 Thumbs.db
+.claude/
+.omx/
+.taskmaster/
+artifacts/
+audit_output/
+backups/
+cleanup_archive/
+recovery/
 Desktop.ini
 data/processed/wind_ml_10min/supervised_learning_table_10min.csv
 data/processed/wind_ml_10min/sequences/

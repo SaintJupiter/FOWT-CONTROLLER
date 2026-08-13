@@ -11,7 +11,7 @@
   ],
   "casebook_profile_registry": "configs/casebook_profile_registry_v1.json",
   "overlay_freeze_registry": "configs/overlay_freeze_registry_v1.json",
-  "control_chain_smoke_gate": "configs/control_chain_smoke_gate_v1.json",
+  "control_chain_smoke_gate": "configs/control_chain_smoke_gate_v2.json",
   "production_profile": {
     "primary_control_profile": "rawenv_holdpause_barrier_reliefcap_adaptive_v1",
     "forecast_source_policy": "advisory_unless_promoted",
@@ -105,7 +105,10 @@
     "broad_casebook_requires_three_case_smoke": true,
     "default_off_gate_must_have_go_no_go_report": true,
     "failed_experiment_must_not_remain_in_production_profile": true,
-    "telemetry_only_change_is_not_promotion_evidence": true
+    "telemetry_only_change_is_not_promotion_evidence": true,
+    "result_interpretation_requires_run_protocol_identity_match": true,
+    "smoothed_claim_requires_smoothed_protocol_and_timeseries": true,
+    "do_not_substitute_historical_non_smooth_runs_for_smoothed_analysis": true
   },
   "static_audit_thresholds": {
     "provider_line_count_warn": 8000,
