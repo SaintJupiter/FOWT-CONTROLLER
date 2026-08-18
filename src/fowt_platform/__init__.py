@@ -10,6 +10,7 @@ from .ballast import (
 )
 from .coordinates import (
     enu_wind_to_platform,
+    downwind_normal_relative_wind_component,
     meteorological_wind_to_enu,
     meteorological_wind_to_platform,
     relative_air_velocity_at_platform_point,
@@ -56,6 +57,7 @@ __all__ = [
     "BallastModelSnapshot",
     "compute_ballast_mass_properties",
     "compute_incremental_ballast_mass_properties",
+    "downwind_normal_relative_wind_component",
     "enu_wind_to_platform",
     "IncrementalLoads",
     "IncrementalPlatformModel",

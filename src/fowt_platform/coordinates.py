@@ -32,6 +32,13 @@ def _three_vector(name: str, value: Any) -> np.ndarray:
     return np.array(vector, dtype=float, copy=True)
 
 
+def _unit_three_vector(name: str, value: Any) -> np.ndarray:
+    vector = _three_vector(name, value)
+    if not np.isclose(np.linalg.norm(vector), 1.0, rtol=0.0, atol=1e-12):
+        raise ValueError(f"{name} must be a unit vector")
+    return vector
+
+
 def meteorological_wind_to_enu(
     speed: Any,
     direction_from_rad: Any,
@@ -121,6 +128,27 @@ def relative_air_velocity_at_platform_point(
     result = np.array(ambient - point_velocity, dtype=float, copy=True)
     result.setflags(write=False)
     return result
+
+
+def downwind_normal_relative_wind_component(
+    relative_air_velocity_platform_mps: Any,
+    downwind_rotor_normal_platform: Any,
+) -> float:
+    """Project relative air velocity onto a supplied downwind rotor normal.
+
+    The returned component is signed. A negative value is intentionally not
+    clipped or converted to a magnitude: the caller must decide whether the
+    rotor orientation and operating state permit a positive-thrust load model.
+    Both vectors use the same frozen equilibrium platform axes.
+    """
+
+    relative_air_velocity = _three_vector(
+        "relative_air_velocity_platform_mps", relative_air_velocity_platform_mps
+    )
+    normal = _unit_three_vector(
+        "downwind_rotor_normal_platform", downwind_rotor_normal_platform
+    )
+    return float(relative_air_velocity @ normal)
 
 
 def true_heading_from_yaw(nominal_heading_rad: Any, yaw_rad: Any) -> float:

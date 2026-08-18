@@ -3,6 +3,7 @@ import unittest
 import numpy as np
 
 from fowt_platform import (
+    downwind_normal_relative_wind_component,
     enu_wind_to_platform,
     meteorological_wind_to_enu,
     meteorological_wind_to_platform,
@@ -123,6 +124,29 @@ class PlatformCoordinateTests(unittest.TestCase):
                 platform_reference_velocity_platform_mps=[0.0, 0.0, 0.0],
                 platform_angular_velocity_platform_radps=[0.0, 0.0, 0.0],
                 point_from_platform_reference_m=[0.0, 0.0, 100.0],
+            )
+
+    def test_downwind_normal_projection_preserves_the_sign(self):
+        self.assertAlmostEqual(
+            downwind_normal_relative_wind_component(
+                relative_air_velocity_platform_mps=[12.0, 3.0, 0.0],
+                downwind_rotor_normal_platform=[1.0, 0.0, 0.0],
+            ),
+            12.0,
+        )
+        self.assertAlmostEqual(
+            downwind_normal_relative_wind_component(
+                relative_air_velocity_platform_mps=[-2.0, 0.0, 0.0],
+                downwind_rotor_normal_platform=[1.0, 0.0, 0.0],
+            ),
+            -2.0,
+        )
+
+    def test_downwind_normal_projection_rejects_nonunit_normal(self):
+        with self.assertRaisesRegex(ValueError, "unit vector"):
+            downwind_normal_relative_wind_component(
+                relative_air_velocity_platform_mps=[12.0, 0.0, 0.0],
+                downwind_rotor_normal_platform=[2.0, 0.0, 0.0],
             )
 
     def test_negative_wind_speed_is_rejected(self):
