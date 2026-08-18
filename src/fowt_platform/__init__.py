@@ -12,6 +12,7 @@ from .coordinates import (
     enu_wind_to_platform,
     meteorological_wind_to_enu,
     meteorological_wind_to_platform,
+    relative_air_velocity_at_platform_point,
     true_heading_from_yaw,
 )
 from .ballast_state import tank_mass_deltas_from_actual_masses
@@ -66,6 +67,7 @@ __all__ = [
     "LinearFreeResponse",
     "meteorological_wind_to_enu",
     "meteorological_wind_to_platform",
+    "relative_air_velocity_at_platform_point",
     "openfast_hub_to_reference_rotation",
     "openfast_reference_vector_to_frozen_equilibrium_axes",
     "PlatformMatrices",

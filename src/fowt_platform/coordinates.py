@@ -23,6 +23,15 @@ def _horizontal_vector(name: str, value: Any) -> np.ndarray:
     return np.array(vector, dtype=float, copy=True)
 
 
+def _three_vector(name: str, value: Any) -> np.ndarray:
+    vector = np.asarray(value, dtype=float)
+    if vector.shape != (3,):
+        raise ValueError(f"{name} must have shape (3,), got {vector.shape}")
+    if not np.all(np.isfinite(vector)):
+        raise ValueError(f"{name} must contain only finite values")
+    return np.array(vector, dtype=float, copy=True)
+
+
 def meteorological_wind_to_enu(
     speed: Any,
     direction_from_rad: Any,
@@ -77,6 +86,41 @@ def meteorological_wind_to_platform(
         meteorological_wind_to_enu(speed, direction_from_rad),
         heading_rad,
     )
+
+
+def relative_air_velocity_at_platform_point(
+    ambient_air_velocity_platform_mps: Any,
+    platform_reference_velocity_platform_mps: Any,
+    platform_angular_velocity_platform_radps: Any,
+    point_from_platform_reference_m: Any,
+) -> np.ndarray:
+    """Return air velocity relative to a moving point on the platform.
+
+    All inputs use the same frozen equilibrium platform axes. The point
+    velocity is the reference-point velocity plus ``omega cross r``. In the
+    current small-angle model, ``omega`` is taken from incremental-state
+    ``velocity[3:6]``; it is not a general large-attitude body-rate mapping.
+    This function only establishes a kinematic relative-air vector. It neither
+    chooses a rotor-normal direction nor includes induction, yaw, shear, or
+    aerodynamic coefficients.
+    """
+
+    ambient = _three_vector(
+        "ambient_air_velocity_platform_mps", ambient_air_velocity_platform_mps
+    )
+    reference_velocity = _three_vector(
+        "platform_reference_velocity_platform_mps",
+        platform_reference_velocity_platform_mps,
+    )
+    angular_velocity = _three_vector(
+        "platform_angular_velocity_platform_radps",
+        platform_angular_velocity_platform_radps,
+    )
+    point = _three_vector("point_from_platform_reference_m", point_from_platform_reference_m)
+    point_velocity = reference_velocity + np.cross(angular_velocity, point)
+    result = np.array(ambient - point_velocity, dtype=float, copy=True)
+    result.setflags(write=False)
+    return result
 
 
 def true_heading_from_yaw(nominal_heading_rad: Any, yaw_rad: Any) -> float:

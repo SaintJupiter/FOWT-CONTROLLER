@@ -6,6 +6,7 @@ from fowt_platform import (
     enu_wind_to_platform,
     meteorological_wind_to_enu,
     meteorological_wind_to_platform,
+    relative_air_velocity_at_platform_point,
     true_heading_from_yaw,
 )
 
@@ -86,6 +87,43 @@ class PlatformCoordinateTests(unittest.TestCase):
         )
 
         self.assertAlmostEqual(heading, -0.05)
+
+    def test_relative_air_velocity_matches_ambient_for_stationary_platform(self):
+        relative = relative_air_velocity_at_platform_point(
+            ambient_air_velocity_platform_mps=[12.0, -3.0, 0.5],
+            platform_reference_velocity_platform_mps=[0.0, 0.0, 0.0],
+            platform_angular_velocity_platform_radps=[0.0, 0.0, 0.0],
+            point_from_platform_reference_m=[-8.0, 0.0, 150.0],
+        )
+
+        np.testing.assert_allclose(relative, [12.0, -3.0, 0.5])
+        self.assertFalse(relative.flags.writeable)
+
+    def test_pitch_rate_changes_relative_wind_at_an_elevated_point(self):
+        relative = relative_air_velocity_at_platform_point(
+            ambient_air_velocity_platform_mps=[15.0, 0.0, 0.0],
+            platform_reference_velocity_platform_mps=[1.0, 0.0, 0.0],
+            platform_angular_velocity_platform_radps=[0.0, 0.1, 0.0],
+            point_from_platform_reference_m=[0.0, 0.0, 100.0],
+        )
+
+        np.testing.assert_allclose(relative, [4.0, 0.0, 0.0])
+
+    def test_relative_air_velocity_rejects_invalid_three_vectors(self):
+        with self.assertRaisesRegex(ValueError, "shape"):
+            relative_air_velocity_at_platform_point(
+                ambient_air_velocity_platform_mps=[10.0, 0.0],
+                platform_reference_velocity_platform_mps=[0.0, 0.0, 0.0],
+                platform_angular_velocity_platform_radps=[0.0, 0.0, 0.0],
+                point_from_platform_reference_m=[0.0, 0.0, 100.0],
+            )
+        with self.assertRaisesRegex(ValueError, "finite"):
+            relative_air_velocity_at_platform_point(
+                ambient_air_velocity_platform_mps=[10.0, 0.0, np.nan],
+                platform_reference_velocity_platform_mps=[0.0, 0.0, 0.0],
+                platform_angular_velocity_platform_radps=[0.0, 0.0, 0.0],
+                point_from_platform_reference_m=[0.0, 0.0, 100.0],
+            )
 
     def test_negative_wind_speed_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "speed must be non-negative"):
