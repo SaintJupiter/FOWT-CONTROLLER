@@ -44,6 +44,9 @@ SEA_NAME = "IEA-15-240-RWT-UMaineSemi_SeaState.dat"
 INFLOW_NAME = "IEA-15-240-RWT_InflowFile.dat"
 PRESCRIBED_ROTOR_SPEED_RPM = 7.55
 PRESCRIBED_BLADE_PITCH_DEG = 1.0
+REFERENCE_STATE_JSON = ROOT / (
+    "configs/reference_platforms/volturnus_s_openfast_nominal_reference_state_v1.json"
+)
 
 
 def _sha256(path: Path) -> str:
@@ -52,6 +55,58 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _load_candidate_reference_state(
+    reference_state_path: Path,
+    *,
+    model_zip: Path = MODEL_ZIP,
+) -> dict[str, float]:
+    """Load the audited OpenFAST initial state and bind it to its source archive."""
+    try:
+        payload = json.loads(reference_state_path.read_text(encoding="utf-8"))
+    except FileNotFoundError as error:
+        raise FileNotFoundError(
+            f"OpenFAST reference-state artifact not found: {reference_state_path}"
+        ) from error
+    except json.JSONDecodeError as error:
+        raise ValueError(
+            f"invalid OpenFAST reference-state JSON: {reference_state_path}"
+        ) from error
+
+    if payload.get("schema_version") != 1:
+        raise ValueError("unsupported OpenFAST reference-state schema version")
+    source_model = payload.get("source_model")
+    if not isinstance(source_model, dict):
+        raise ValueError("reference-state artifact must define source_model")
+    expected_archive_sha256 = source_model.get("archive_sha256")
+    if not isinstance(expected_archive_sha256, str) or len(expected_archive_sha256) != 64:
+        raise ValueError("reference-state artifact must define a SHA-256 archive identity")
+    actual_archive_sha256 = _sha256(model_zip)
+    if actual_archive_sha256 != expected_archive_sha256:
+        raise ValueError(
+            "reference-state archive SHA-256 does not match the OpenFAST model archive"
+        )
+
+    state = payload.get("state")
+    if not isinstance(state, dict):
+        raise ValueError("reference-state artifact must define state")
+    values: dict[str, float] = {}
+    for field in ("surge_m", "heave_m", "pitch_deg"):
+        value = state.get(field)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"reference-state field {field} must be numeric")
+        if not np.isfinite(value):
+            raise ValueError(f"reference-state field {field} must be finite")
+        values[field] = float(value)
+    return values
+
+
+def _display_path(path: Path) -> str:
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
 
 
 def _replace_field(text: str, field: str, value: str) -> str:
@@ -466,6 +521,7 @@ def run_audit(
     output_step_s: float,
     wind_speed_mps: float,
     baseline_wind_speed_mps: float = 0.1,
+    reference_state_path: Path = REFERENCE_STATE_JSON,
 ) -> dict[str, object]:
     if duration_s <= 0.0 or output_step_s <= 0.0:
         raise ValueError("duration_s and output_step_s must be positive")
@@ -476,11 +532,7 @@ def run_audit(
     if not openfast_binary.is_file():
         raise FileNotFoundError(f"OpenFAST binary not found: {openfast_binary}")
 
-    equilibrium = {
-        "surge_m": 0.4198,
-        "heave_m": -0.3503,
-        "pitch_deg": -1.452,
-    }
+    equilibrium = _load_candidate_reference_state(reference_state_path)
     still = _run_case(
         case_root=work_dir / "low_wind_reference",
         openfast_binary=openfast_binary,
@@ -525,7 +577,12 @@ def run_audit(
             "model_zip_sha256": _sha256(MODEL_ZIP),
             "openfast_binary": str(openfast_binary),
             "openfast_binary_sha256": _sha256(openfast_binary),
-            "equilibrium_initialization": equilibrium,
+            "reference_state_artifact": {
+                "path": _display_path(reference_state_path),
+                "sha256": _sha256(reference_state_path),
+            },
+            "candidate_reference_initialization": equilibrium,
+            "other_platform_initial_conditions": "source-file defaults (zero)",
             "prescribed_rotor_speed_rpm": PRESCRIBED_ROTOR_SPEED_RPM,
             "prescribed_blade_pitch_deg": PRESCRIBED_BLADE_PITCH_DEG,
             "wave_and_current": "disabled",
@@ -569,6 +626,12 @@ def main() -> None:
     parser.add_argument("--output-step-s", type=float, default=0.5)
     parser.add_argument("--wind-speed-mps", type=float, default=5.0)
     parser.add_argument("--baseline-wind-speed-mps", type=float, default=0.1)
+    parser.add_argument(
+        "--reference-state-json",
+        type=Path,
+        default=REFERENCE_STATE_JSON,
+        help="audited candidate initial state, bound to the frozen model archive by SHA-256",
+    )
     parser.add_argument("--output-json", type=Path, required=True)
     args = parser.parse_args()
 
@@ -579,6 +642,7 @@ def main() -> None:
         output_step_s=args.output_step_s,
         wind_speed_mps=args.wind_speed_mps,
         baseline_wind_speed_mps=args.baseline_wind_speed_mps,
+        reference_state_path=args.reference_state_json,
     )
     args.output_json.parent.mkdir(parents=True, exist_ok=True)
     args.output_json.write_text(

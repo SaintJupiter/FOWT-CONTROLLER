@@ -105,6 +105,33 @@ def _openfast_platform_to_inertial_rotation(
     )
 
 
+def openfast_reference_vector_to_frozen_equilibrium_axes(
+    vector_openfast_reference: Any,
+    *,
+    equilibrium_platform_roll_deg: Any = 0.0,
+    equilibrium_platform_pitch_deg: Any = 0.0,
+    equilibrium_platform_yaw_deg: Any = 0.0,
+) -> np.ndarray:
+    """Express a zero-attitude OpenFAST reference vector in frozen axes.
+
+    ``vector_openfast_reference`` is expressed in the OpenFAST platform
+    reference axes before platform attitude is applied. The result uses the
+    axes frozen at the supplied equilibrium attitude. This narrow conversion
+    is used to map published OpenFAST geometry into the small-angle model; it
+    does not transform positions between distinct reference points.
+    """
+
+    vector = _three_vector("vector_openfast_reference", vector_openfast_reference)
+    equilibrium_rotation = _openfast_platform_to_inertial_rotation(
+        platform_roll_deg=equilibrium_platform_roll_deg,
+        platform_pitch_deg=equilibrium_platform_pitch_deg,
+        platform_yaw_deg=equilibrium_platform_yaw_deg,
+    )
+    result = np.array(equilibrium_rotation.T @ vector, dtype=float, copy=True)
+    result.setflags(write=False)
+    return result
+
+
 def openfast_hub_to_reference_rotation(
     *,
     shaft_tilt_deg: Any,

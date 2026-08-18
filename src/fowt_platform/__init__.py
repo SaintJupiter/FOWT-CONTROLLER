@@ -25,6 +25,7 @@ from .incremental import (
     generalized_load_from_openfast_hub_wrench,
     generalized_load_from_point_force,
     openfast_hub_to_reference_rotation,
+    openfast_reference_vector_to_frozen_equilibrium_axes,
     solve_incremental_static_offset,
 )
 from .reference import (
@@ -39,6 +40,7 @@ from .rotor_performance import (
     load_rosco_rotor_performance_table_from_zip,
     parse_rosco_rotor_performance_table,
 )
+from .rotor_loads import RotorNormalLoad, quasi_steady_rotor_normal_load
 from .free_response import LinearFreeResponse, simulate_linear_free_response
 from .ballast_snapshot import (
     assemble_ballast_model_snapshot,
@@ -65,14 +67,17 @@ __all__ = [
     "meteorological_wind_to_enu",
     "meteorological_wind_to_platform",
     "openfast_hub_to_reference_rotation",
+    "openfast_reference_vector_to_frozen_equilibrium_axes",
     "PlatformMatrices",
     "rigid_body_mass_matrix_about_reference",
     "ReferenceVerticalBalanceEvidence",
     "RotorPerformanceTable",
+    "RotorNormalLoad",
     "load_volturnus_reference_components",
     "load_rosco_rotor_performance_table",
     "load_rosco_rotor_performance_table_from_zip",
     "parse_rosco_rotor_performance_table",
+    "quasi_steady_rotor_normal_load",
     "solve_incremental_static_offset",
     "simulate_linear_free_response",
     "tank_mass_deltas_from_actual_masses",

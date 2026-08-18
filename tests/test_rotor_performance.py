@@ -35,6 +35,9 @@ REFERENCE_ARCHIVE = REPOSITORY_ROOT / (
     "IEAWindSystems_IEA-15-240-RWT_v1.1.16.zip"
 )
 REFERENCE_MEMBER = "IEA-15-240-RWT-1.1.16/OpenFAST/IEA-15-240-RWT/Cp_Ct_Cq.IEA15MW.txt"
+REFERENCE_ARCHIVE_SHA256 = (
+    "c96c6be345abf9440170764e2d9a2c201b5da6191192cef66537c5bc16805b80"
+)
 
 
 class RotorPerformanceTests(unittest.TestCase):
@@ -61,24 +64,63 @@ class RotorPerformanceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Invalid matrix row"):
             parse_rosco_rotor_performance_table(malformed)
 
+    def test_parser_rejects_numeric_rows_beyond_the_declared_matrix_shape(self):
+        malformed = FIXTURE.replace(
+            "0.7 0.8\n\n# Torque coefficient",
+            "0.7 0.8\n0.9 1.0\n\n# Torque coefficient",
+        )
+        with self.assertRaisesRegex(ValueError, "more rows"):
+            parse_rosco_rotor_performance_table(malformed)
+
+    def test_parser_rejects_multiple_wind_speed_layers(self):
+        multilayer = FIXTURE.replace("10.0\n\n# Power coefficient", "10.0 12.0\n\n# Power coefficient")
+        with self.assertRaisesRegex(ValueError, "single-wind-speed"):
+            parse_rosco_rotor_performance_table(multilayer)
+
+    def test_parser_rejects_single_point_interpolation_axis(self):
+        single_pitch = (
+            FIXTURE.replace("0.0  10.0", "0.0", 1)
+            .replace("0.1 0.2", "0.1")
+            .replace("0.3 0.4", "0.3")
+            .replace("0.5 0.6", "0.5")
+            .replace("0.7 0.8", "0.7")
+            .replace("0.01 0.02", "0.01")
+            .replace("0.03 0.04", "0.03")
+        )
+        with self.assertRaisesRegex(ValueError, "at least 2 entries"):
+            parse_rosco_rotor_performance_table(single_pitch)
+
     def test_frozen_public_table_preserves_documented_axis_order(self):
         table = load_rosco_rotor_performance_table_from_zip(
-            REFERENCE_ARCHIVE, REFERENCE_MEMBER
+            REFERENCE_ARCHIVE,
+            REFERENCE_MEMBER,
+            expected_archive_sha256=REFERENCE_ARCHIVE_SHA256,
         )
         self.assertEqual(table.ct.shape, (26, 36))
         self.assertEqual(table.pitch_deg[0], -5.0)
         self.assertEqual(table.pitch_deg[-1], 30.0)
         self.assertEqual(table.tip_speed_ratio[0], 2.0)
         self.assertEqual(table.tip_speed_ratio[-1], 14.5)
+        self.assertEqual(table.source_archive_sha256, REFERENCE_ARCHIVE_SHA256)
         self.assertAlmostEqual(table.ct_at(pitch_deg=0.0, tip_speed_ratio=7.0), 0.614890)
 
     def test_frozen_public_table_uses_the_four_neighboring_entries(self):
         table = load_rosco_rotor_performance_table_from_zip(
-            REFERENCE_ARCHIVE, REFERENCE_MEMBER
+            REFERENCE_ARCHIVE,
+            REFERENCE_MEMBER,
+            expected_archive_sha256=REFERENCE_ARCHIVE_SHA256,
         )
         self.assertAlmostEqual(
             table.ct_at(pitch_deg=0.5, tip_speed_ratio=7.25), 0.624166, places=6
         )
+
+    def test_frozen_public_table_rejects_unexpected_archive_identity(self):
+        with self.assertRaisesRegex(ValueError, "SHA-256"):
+            load_rosco_rotor_performance_table_from_zip(
+                REFERENCE_ARCHIVE,
+                REFERENCE_MEMBER,
+                expected_archive_sha256="0" * 64,
+            )
 
 
 if __name__ == "__main__":

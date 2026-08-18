@@ -1,4 +1,6 @@
 import importlib.util
+import hashlib
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,6 +17,88 @@ SPEC.loader.exec_module(MODULE)
 
 
 class OpenFastPrescribedWindNodeTests(unittest.TestCase):
+    def test_loads_candidate_reference_state_only_when_source_archive_matches(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive = root / "model.zip"
+            archive.write_bytes(b"frozen model fixture")
+            state_path = root / "reference_state.json"
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "source_model": {
+                            "archive_sha256": hashlib.sha256(
+                                archive.read_bytes()
+                            ).hexdigest()
+                        },
+                        "state": {
+                            "surge_m": 0.4198,
+                            "heave_m": -0.3503,
+                            "pitch_deg": -1.452,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            state = MODULE._load_candidate_reference_state(
+                state_path, model_zip=archive
+            )
+
+        self.assertEqual(
+            state,
+            {"surge_m": 0.4198, "heave_m": -0.3503, "pitch_deg": -1.452},
+        )
+
+    def test_rejects_candidate_reference_state_from_another_archive(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive = root / "model.zip"
+            archive.write_bytes(b"frozen model fixture")
+            state_path = root / "reference_state.json"
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "source_model": {"archive_sha256": "0" * 64},
+                        "state": {
+                            "surge_m": 0.4198,
+                            "heave_m": -0.3503,
+                            "pitch_deg": -1.452,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "archive SHA-256"):
+                MODULE._load_candidate_reference_state(state_path, model_zip=archive)
+
+    def test_rejects_incomplete_candidate_reference_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive = root / "model.zip"
+            archive.write_bytes(b"frozen model fixture")
+            state_path = root / "reference_state.json"
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "source_model": {
+                            "archive_sha256": hashlib.sha256(
+                                archive.read_bytes()
+                            ).hexdigest()
+                        },
+                        "state": {"surge_m": 0.4198, "heave_m": -0.3503},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "pitch_deg must be numeric"):
+                MODULE._load_candidate_reference_state(state_path, model_zip=archive)
+
     def test_replaces_only_the_value_before_a_named_openfast_field(self):
         source = "0                      NumCrctn    - control corrections\n"
 

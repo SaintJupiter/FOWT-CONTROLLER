@@ -27,6 +27,7 @@ class RotorPerformanceTable:
     cq: np.ndarray
     source_name: str
     source_sha256: str
+    source_archive_sha256: str | None = None
 
     def ct_at(self, *, pitch_deg: float, tip_speed_ratio: float) -> float:
         """Return bilinearly interpolated ``C_T`` within the published grid.
@@ -47,7 +48,10 @@ class RotorPerformanceTable:
 
 
 def parse_rosco_rotor_performance_table(
-    text: str, *, source_name: str = "<text>"
+    text: str,
+    *,
+    source_name: str = "<text>",
+    source_archive_sha256: str | None = None,
 ) -> RotorPerformanceTable:
     """Parse ROSCO's Cp/Ct/Cq text layout without relying on line numbers."""
 
@@ -58,12 +62,17 @@ def parse_rosco_rotor_performance_table(
     shape = (len(tip_speed_ratio), len(pitch_deg))
     if not shape[0] or not shape[1] or not len(wind_speed_mps):
         raise ValueError("ROSCO table axes must all contain at least one value")
+    if len(wind_speed_mps) != 1:
+        raise ValueError(
+            "Only single-wind-speed ROSCO tables are supported; "
+            "multi-layer tables require an explicit wind-speed lookup"
+        )
 
     cp = _matrix_after_header(lines, "# Power coefficient", shape)
     ct = _matrix_after_header(lines, "# Thrust coefficient", shape)
     cq = _matrix_after_header(lines, "# Torque coefficient", shape)
-    _validate_axis(pitch_deg, "pitch_deg")
-    _validate_axis(tip_speed_ratio, "tip_speed_ratio")
+    _validate_axis(pitch_deg, "pitch_deg", minimum_length=2)
+    _validate_axis(tip_speed_ratio, "tip_speed_ratio", minimum_length=2)
     _validate_axis(wind_speed_mps, "wind_speed_mps")
 
     return RotorPerformanceTable(
@@ -75,6 +84,7 @@ def parse_rosco_rotor_performance_table(
         cq=cq,
         source_name=source_name,
         source_sha256=sha256(text.encode("utf-8")).hexdigest(),
+        source_archive_sha256=source_archive_sha256,
     )
 
 
@@ -88,18 +98,28 @@ def load_rosco_rotor_performance_table(path: str | Path) -> RotorPerformanceTabl
 
 
 def load_rosco_rotor_performance_table_from_zip(
-    archive_path: str | Path, member_name: str
+    archive_path: str | Path,
+    member_name: str,
+    *,
+    expected_archive_sha256: str,
 ) -> RotorPerformanceTable:
-    """Load a table directly from a frozen public-model archive."""
+    """Load a table from a frozen archive after verifying its identity."""
 
     archive_path = Path(archive_path)
+    actual_archive_sha256 = _file_sha256(archive_path)
+    if actual_archive_sha256.lower() != expected_archive_sha256.lower():
+        raise ValueError(
+            "Rotor-performance archive SHA-256 does not match the expected source"
+        )
     try:
         with ZipFile(archive_path) as archive:
             raw = archive.read(member_name)
     except KeyError as error:
         raise ValueError(f"Rotor-performance member not found: {member_name}") from error
     return parse_rosco_rotor_performance_table(
-        raw.decode("utf-8"), source_name=f"{archive_path}!{member_name}"
+        raw.decode("utf-8"),
+        source_name=f"{archive_path}!{member_name}",
+        source_archive_sha256=actual_archive_sha256,
     )
 
 
@@ -137,8 +157,10 @@ def _matrix_after_header(
         if len(row) != shape[1] or not np.isfinite(row).all():
             raise ValueError(f"Invalid matrix row in {header!r}")
         rows.append(row)
-        if len(rows) == shape[0]:
-            break
+        if len(rows) > shape[0]:
+            raise ValueError(
+                f"{header!r} has more rows than expected from its axes"
+            )
     matrix = np.asarray(rows, dtype=float)
     if matrix.shape != shape:
         raise ValueError(
@@ -155,9 +177,19 @@ def _header_index(lines: list[str], header: str) -> int:
     raise ValueError(f"ROSCO table header not found: {header!r}")
 
 
-def _validate_axis(axis: np.ndarray, name: str) -> None:
+def _validate_axis(axis: np.ndarray, name: str, *, minimum_length: int = 1) -> None:
+    if len(axis) < minimum_length:
+        raise ValueError(f"{name} must contain at least {minimum_length} entries")
     if not np.isfinite(axis).all() or np.any(np.diff(axis) <= 0.0):
         raise ValueError(f"{name} must be finite and strictly increasing")
+
+
+def _file_sha256(path: Path) -> str:
+    digest = sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _bilinear_lookup(
@@ -172,6 +204,8 @@ def _bilinear_lookup(
 ) -> float:
     if not np.isfinite([x, y]).all():
         raise ValueError(f"{x_name} and {y_name} must be finite")
+    if len(x_axis) < 2 or len(y_axis) < 2:
+        raise ValueError("Bilinear lookup requires at least two entries per axis")
     if not x_axis[0] <= x <= x_axis[-1]:
         raise ValueError(f"{x_name}={x} lies outside [{x_axis[0]}, {x_axis[-1]}]")
     if not y_axis[0] <= y <= y_axis[-1]:
