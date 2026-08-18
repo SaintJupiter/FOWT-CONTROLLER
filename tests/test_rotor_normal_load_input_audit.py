@@ -16,7 +16,7 @@ SPEC.loader.exec_module(MODULE)
 
 class RotorNormalLoadInputAuditTests(unittest.TestCase):
     def test_frozen_table_lookup_node_has_traceable_source_and_positive_pitch_load(self):
-        result = MODULE.run_audit()
+        result = MODULE.run_audit(wind_speed_mps=10.74)
 
         self.assertEqual(
             result["evidence_level"],
@@ -33,6 +33,10 @@ class RotorNormalLoadInputAuditTests(unittest.TestCase):
             10.74,
         )
         self.assertEqual(
+            result["table_lookup_node"]["ambient_wind_source"],
+            "explicit audit input",
+        )
+        self.assertEqual(
             result["table_lookup_node"]["pitch_source"], "ElastoDyn initial value"
         )
         self.assertEqual(
@@ -47,7 +51,9 @@ class RotorNormalLoadInputAuditTests(unittest.TestCase):
             result["fixed_reference_relative_air"][
                 "relative_normal_wind_speed_mps"
             ],
-            result["table_lookup_node"]["table_wind_speed_mps"],
+            result["table_lookup_node"][
+                "prescribed_aligned_ambient_wind_speed_mps"
+            ],
         )
         np.testing.assert_allclose(
             result["fixed_reference_relative_air"][
@@ -61,7 +67,7 @@ class RotorNormalLoadInputAuditTests(unittest.TestCase):
             result["fixed_reference_relative_air"][
                 "ambient_air_velocity_platform_mps"
             ],
-            result["table_lookup_node"]["table_wind_speed_mps"]
+            result["table_lookup_node"]["prescribed_aligned_ambient_wind_speed_mps"]
             * np.asarray(
                 result["source_parameters"][
                     "downwind_rotor_normal_frozen_equilibrium"
@@ -69,7 +75,9 @@ class RotorNormalLoadInputAuditTests(unittest.TestCase):
             ),
         )
         self.assertTrue(
-            result["checks"]["relative_normal_wind_speed_matches_table_layer"]
+            result["checks"][
+                "relative_normal_wind_speed_matches_selected_ambient_wind"
+            ]
         )
         self.assertGreater(
             result["generalized_load_about_platform_reference"]["pitch_nm"],
@@ -109,16 +117,18 @@ class RotorNormalLoadInputAuditTests(unittest.TestCase):
             expected_normal,
         )
 
-    def test_rejects_wind_speed_not_represented_by_single_layer_table(self):
-        with self.assertRaisesRegex(ValueError, "sole wind-speed layer"):
+    def test_rejects_wind_speed_when_fixed_rotor_speed_leaves_ct_tsr_domain(self):
+        with self.assertRaisesRegex(ValueError, "tip_speed_ratio=.*outside"):
             MODULE.run_audit(wind_speed_mps=5.0)
 
     def test_rejects_rotor_state_outside_the_published_table_domain(self):
         with self.assertRaisesRegex(ValueError, "outside"):
-            MODULE.run_audit(pitch_deg=35.0)
+            MODULE.run_audit(pitch_deg=35.0, wind_speed_mps=10.74)
 
     def test_explicit_operating_state_override_is_labeled_as_an_override(self):
-        result = MODULE.run_audit(pitch_deg=1.5, rotor_speed_rpm=7.5)
+        result = MODULE.run_audit(
+            pitch_deg=1.5, rotor_speed_rpm=7.5, wind_speed_mps=10.0
+        )
 
         self.assertEqual(
             result["table_lookup_node"]["pitch_source"], "explicit audit override"
@@ -126,6 +136,10 @@ class RotorNormalLoadInputAuditTests(unittest.TestCase):
         self.assertEqual(
             result["table_lookup_node"]["rotor_speed_source"],
             "explicit audit override",
+        )
+        self.assertEqual(
+            result["table_lookup_node"]["ambient_wind_source"],
+            "explicit audit input",
         )
 
     def test_rejects_a_negative_ct_entry_from_the_published_table(self):
@@ -139,12 +153,16 @@ class RotorNormalLoadInputAuditTests(unittest.TestCase):
         target_pitch = table.pitch_deg[index[1]]
         rpm = (
             target_tsr
-            * table.wind_speed_mps[0]
+            * table.wind_speed_metadata_mps[0]
             * 60.0
             / (2.0 * np.pi * 120.97)
         )
         with self.assertRaisesRegex(ValueError, "non-negative"):
-            MODULE.run_audit(pitch_deg=target_pitch, rotor_speed_rpm=rpm)
+            MODULE.run_audit(
+                pitch_deg=target_pitch,
+                rotor_speed_rpm=rpm,
+                wind_speed_mps=10.74,
+            )
 
 
 if __name__ == "__main__":

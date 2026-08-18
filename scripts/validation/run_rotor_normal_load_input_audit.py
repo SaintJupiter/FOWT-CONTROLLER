@@ -177,7 +177,7 @@ def run_audit(
     *,
     pitch_deg: float | None = None,
     rotor_speed_rpm: float | None = None,
-    wind_speed_mps: float | None = None,
+    wind_speed_mps: float,
     model_zip: Path = MODEL_ZIP,
     reference_state_path: Path = REFERENCE_STATE_JSON,
 ) -> dict[str, Any]:
@@ -211,17 +211,10 @@ def run_audit(
         equilibrium_platform_pitch_deg=reference_state["pitch_deg"],
         equilibrium_platform_yaw_deg=0.0,
     )
-    table_wind_speed = float(table.wind_speed_mps[0])
-    selected_wind_speed = (
-        table_wind_speed if wind_speed_mps is None else float(wind_speed_mps)
-    )
+    table_wind_speed_metadata = float(table.wind_speed_metadata_mps[0])
+    selected_wind_speed = float(wind_speed_mps)
     if not np.isfinite(selected_wind_speed) or selected_wind_speed <= 0.0:
         raise ValueError("wind_speed_mps must be finite and positive")
-    if not np.isclose(selected_wind_speed, table_wind_speed, rtol=0.0, atol=1e-12):
-        raise ValueError(
-            "this audit is limited to the rotor table's sole wind-speed layer "
-            f"({table_wind_speed} m/s)"
-        )
     selected_pitch_deg = (
         float(source["initial_blade_pitch_deg"])
         if pitch_deg is None
@@ -280,16 +273,14 @@ def run_audit(
     )
     checks = {
         "archive_identity_matches": archive_sha256 == MODEL_ARCHIVE_SHA256,
-        "wind_speed_equals_table_layer": bool(
-            np.isclose(selected_wind_speed, table_wind_speed, atol=1e-12)
-        ),
+        "wind_speed_is_positive": bool(selected_wind_speed > 0.0),
         "rotor_normal_is_unit_length": bool(
             np.isclose(np.linalg.norm(frozen_normal), 1.0, atol=1e-12)
         ),
-        "relative_normal_wind_speed_matches_table_layer": bool(
+        "relative_normal_wind_speed_matches_selected_ambient_wind": bool(
             np.isclose(
                 relative_normal_wind_speed,
-                table_wind_speed,
+                selected_wind_speed,
                 atol=1e-12,
             )
         ),
@@ -334,7 +325,9 @@ def run_audit(
             "pitch_deg": selected_pitch_deg,
             "rotor_speed_rpm": selected_rotor_speed_rpm,
             "prescribed_aligned_ambient_wind_speed_mps": selected_wind_speed,
-            "table_wind_speed_mps": table_wind_speed,
+            "ambient_wind_source": "explicit audit input",
+            "performance_table_wind_speed_metadata_mps": table_wind_speed_metadata,
+            "coefficient_lookup_axes": ["pitch_deg", "tip_speed_ratio"],
             "tip_speed_ratio": tip_speed_ratio,
             "thrust_coefficient": thrust_coefficient,
             "pitch_source": (
@@ -405,7 +398,11 @@ def main() -> None:
     parser.add_argument(
         "--wind-speed-mps",
         type=float,
-        help="must equal the sole wind-speed layer in the frozen ROSCO table",
+        required=True,
+        help=(
+            "aligned ambient wind speed; the frozen C_T table is indexed by "
+            "pitch and tip-speed ratio"
+        ),
     )
     parser.add_argument("--output-json", type=Path)
     args = parser.parse_args()

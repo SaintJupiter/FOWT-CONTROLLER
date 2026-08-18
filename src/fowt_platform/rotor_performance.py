@@ -21,7 +21,7 @@ class RotorPerformanceTable:
 
     pitch_deg: np.ndarray
     tip_speed_ratio: np.ndarray
-    wind_speed_mps: np.ndarray
+    wind_speed_metadata_mps: np.ndarray
     cp: np.ndarray
     ct: np.ndarray
     cq: np.ndarray
@@ -58,14 +58,15 @@ def parse_rosco_rotor_performance_table(
     lines = text.splitlines()
     pitch_deg = _numbers_after_header(lines, "# Pitch angle vector")
     tip_speed_ratio = _numbers_after_header(lines, "# TSR vector")
-    wind_speed_mps = _numbers_after_header(lines, "# Wind speed vector")
+    wind_speed_metadata_mps = _numbers_after_header(lines, "# Wind speed vector")
     shape = (len(tip_speed_ratio), len(pitch_deg))
-    if not shape[0] or not shape[1] or not len(wind_speed_mps):
+    if not shape[0] or not shape[1] or not len(wind_speed_metadata_mps):
         raise ValueError("ROSCO table axes must all contain at least one value")
-    if len(wind_speed_mps) != 1:
+    if len(wind_speed_metadata_mps) != 1:
         raise ValueError(
-            "Only single-wind-speed ROSCO tables are supported; "
-            "multi-layer tables require an explicit wind-speed lookup"
+            "This two-dimensional ROSCO table must contain one informational "
+            "wind-speed entry; a multi-wind performance schema requires an "
+            "explicit reader"
         )
 
     cp = _matrix_after_header(lines, "# Power coefficient", shape)
@@ -73,12 +74,12 @@ def parse_rosco_rotor_performance_table(
     cq = _matrix_after_header(lines, "# Torque coefficient", shape)
     _validate_axis(pitch_deg, "pitch_deg", minimum_length=2)
     _validate_axis(tip_speed_ratio, "tip_speed_ratio", minimum_length=2)
-    _validate_axis(wind_speed_mps, "wind_speed_mps")
+    _validate_axis(wind_speed_metadata_mps, "wind_speed_metadata_mps")
 
     return RotorPerformanceTable(
         pitch_deg=pitch_deg,
         tip_speed_ratio=tip_speed_ratio,
-        wind_speed_mps=wind_speed_mps,
+        wind_speed_metadata_mps=wind_speed_metadata_mps,
         cp=cp,
         ct=ct,
         cq=cq,

@@ -72,9 +72,9 @@ class RotorPerformanceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "more rows"):
             parse_rosco_rotor_performance_table(malformed)
 
-    def test_parser_rejects_multiple_wind_speed_layers(self):
+    def test_parser_rejects_multiple_wind_speed_metadata_entries(self):
         multilayer = FIXTURE.replace("10.0\n\n# Power coefficient", "10.0 12.0\n\n# Power coefficient")
-        with self.assertRaisesRegex(ValueError, "single-wind-speed"):
+        with self.assertRaisesRegex(ValueError, "two-dimensional ROSCO table"):
             parse_rosco_rotor_performance_table(multilayer)
 
     def test_parser_rejects_single_point_interpolation_axis(self):
@@ -101,6 +101,7 @@ class RotorPerformanceTests(unittest.TestCase):
         self.assertEqual(table.pitch_deg[-1], 30.0)
         self.assertEqual(table.tip_speed_ratio[0], 2.0)
         self.assertEqual(table.tip_speed_ratio[-1], 14.5)
+        self.assertEqual(table.wind_speed_metadata_mps[0], 10.74)
         self.assertEqual(table.source_archive_sha256, REFERENCE_ARCHIVE_SHA256)
         self.assertAlmostEqual(table.ct_at(pitch_deg=0.0, tip_speed_ratio=7.0), 0.614890)
 
