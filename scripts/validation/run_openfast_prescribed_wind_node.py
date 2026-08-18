@@ -242,6 +242,23 @@ def _read_openfast_output(
     )
 
 
+def _assert_output_reaches_time_horizon(
+    columns: dict[str, np.ndarray], *, duration_s: float, output_step_s: float
+) -> None:
+    """Reject a partial OpenFAST output before it enters an audit summary."""
+    time = columns.get("Time")
+    if time is None or time.size == 0:
+        raise ValueError("OpenFAST output has no Time samples")
+    if np.any(np.diff(time) <= 0.0):
+        raise ValueError("OpenFAST output Time samples must be strictly increasing")
+    tolerance_s = max(1.0e-9, output_step_s + 1.0e-9)
+    if abs(float(time[-1]) - duration_s) > tolerance_s:
+        raise ValueError(
+            "OpenFAST output does not reach the requested time horizon: "
+            f"expected {duration_s:g} s, got {float(time[-1]):g} s"
+        )
+
+
 def _read_openfast_scalar_field(path: Path, field: str) -> float:
     for line in path.read_text(encoding="utf-8").splitlines():
         tokens = line.split()
@@ -421,6 +438,9 @@ def _run_case(
             f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
         )
     columns, units = _read_openfast_output(semi_dir / f"{fst_path.stem}.out")
+    _assert_output_reaches_time_horizon(
+        columns, duration_s=duration_s, output_step_s=output_step_s
+    )
     required = (
         "Time",
         "PtfmSurge",

@@ -144,6 +144,32 @@ class OpenFastPrescribedWindNodeTests(unittest.TestCase):
         np.testing.assert_allclose(columns["RtFldFxh"], [1.0])
         self.assertEqual(units["RtFldMxh"], "(kN-m)")
 
+    def test_rejects_partial_or_nonmonotonic_openfast_output_time_series(self):
+        with self.assertRaisesRegex(ValueError, "does not reach the requested time horizon"):
+            MODULE._assert_output_reaches_time_horizon(
+                {"Time": np.array([0.0, 1.0, 2.0])},
+                duration_s=5.0,
+                output_step_s=1.0,
+            )
+        with self.assertRaisesRegex(ValueError, "must be strictly increasing"):
+            MODULE._assert_output_reaches_time_horizon(
+                {"Time": np.array([0.0, 1.0, 1.0, 2.0])},
+                duration_s=2.0,
+                output_step_s=1.0,
+            )
+
+    def test_accepts_openfast_output_that_reaches_requested_time_horizon(self):
+        MODULE._assert_output_reaches_time_horizon(
+            {"Time": np.array([0.0, 1.0, 2.0, 3.0])},
+            duration_s=3.0,
+            output_step_s=1.0,
+        )
+        MODULE._assert_output_reaches_time_horizon(
+            {"Time": np.array([0.0, 1.0, 2.0, 3.0])},
+            duration_s=3.7,
+            output_step_s=1.0,
+        )
+
     def test_recognizes_explicit_aerodyn_hub_load_scales(self):
         self.assertEqual(
             MODULE._hub_wrench_unit_scales(
