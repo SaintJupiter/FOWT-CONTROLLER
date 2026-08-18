@@ -28,10 +28,12 @@ if str(SRC_DIRECTORY) not in sys.path:
     sys.path.insert(0, str(SRC_DIRECTORY))
 
 from fowt_platform import (
+    downwind_normal_relative_wind_component,
     generalized_load_from_point_force,
     load_rosco_rotor_performance_table_from_zip,
     openfast_reference_vector_to_frozen_equilibrium_axes,
-    quasi_steady_rotor_normal_load,
+    quasi_steady_rotor_normal_load_from_relative_air,
+    relative_air_velocity_at_platform_point,
 )
 
 
@@ -183,7 +185,8 @@ def run_audit(
 
     if not model_zip.is_file():
         raise FileNotFoundError(f"frozen model archive not found: {model_zip}")
-    if _sha256(model_zip) != MODEL_ARCHIVE_SHA256:
+    archive_sha256 = _sha256(model_zip)
+    if archive_sha256 != MODEL_ARCHIVE_SHA256:
         raise ValueError("frozen model archive SHA-256 does not match the audit source")
 
     table = load_rosco_rotor_performance_table_from_zip(
@@ -247,11 +250,25 @@ def run_audit(
         pitch_deg=selected_pitch_deg,
         tip_speed_ratio=tip_speed_ratio,
     )
-    rotor_load = quasi_steady_rotor_normal_load(
+    # The audit intentionally uses a stationary, aligned reference condition.
+    # It exercises the new kinematic chain without claiming a dynamic inflow
+    # or yaw model for the public OpenFAST operating node.
+    ambient_air_velocity_platform = selected_wind_speed * frozen_normal
+    relative_air_velocity_at_hub = relative_air_velocity_at_platform_point(
+        ambient_air_velocity_platform_mps=ambient_air_velocity_platform,
+        platform_reference_velocity_platform_mps=[0.0, 0.0, 0.0],
+        platform_angular_velocity_platform_radps=[0.0, 0.0, 0.0],
+        point_from_platform_reference_m=frozen_hub_from_reference,
+    )
+    relative_normal_wind_speed = downwind_normal_relative_wind_component(
+        relative_air_velocity_at_hub,
+        frozen_normal,
+    )
+    rotor_load = quasi_steady_rotor_normal_load_from_relative_air(
         air_density_kg_m3=source["air_density_kg_m3"],
         rotor_radius_m=rotor_radius,
         thrust_coefficient=thrust_coefficient,
-        relative_normal_wind_speed_mps=selected_wind_speed,
+        relative_air_velocity_platform_mps=relative_air_velocity_at_hub,
         downwind_rotor_normal_platform=frozen_normal,
     )
     generalized_load = generalized_load_from_point_force(
@@ -261,19 +278,38 @@ def run_audit(
     normal_openfast_reference = np.asarray(
         source["downwind_rotor_normal_openfast_reference"], dtype=float
     )
+    checks = {
+        "archive_identity_matches": archive_sha256 == MODEL_ARCHIVE_SHA256,
+        "wind_speed_equals_table_layer": bool(
+            np.isclose(selected_wind_speed, table_wind_speed, atol=1e-12)
+        ),
+        "rotor_normal_is_unit_length": bool(
+            np.isclose(np.linalg.norm(frozen_normal), 1.0, atol=1e-12)
+        ),
+        "relative_normal_wind_speed_matches_table_layer": bool(
+            np.isclose(
+                relative_normal_wind_speed,
+                table_wind_speed,
+                atol=1e-12,
+            )
+        ),
+    }
+    checks["all_checks_pass"] = all(checks.values())
 
     return {
         "evidence_level": "source_bound_quasi_steady_rotor_normal_load_input",
         "boundaries": {
             "is_controller_operating_case": False,
             "is_platform_relative_wind_model": False,
+            "uses_fixed_reference_relative_wind_kinematics": True,
             "is_yaw_or_misalignment_model": False,
             "is_wave_load_model": False,
             "is_low_order_dynamic_response_validation": False,
             "is_openfast_static_offset_comparison": False,
             "purpose": (
-                "audit one published rotor-table operating node and its "
-                "generalized load mapping in frozen equilibrium platform axes"
+                "audit one published rotor-table operating node, an aligned "
+                "fixed-reference relative-air vector, and its generalized "
+                "load mapping in frozen equilibrium platform axes"
             ),
         },
         "source": {
@@ -297,7 +333,7 @@ def run_audit(
         "table_lookup_node": {
             "pitch_deg": selected_pitch_deg,
             "rotor_speed_rpm": selected_rotor_speed_rpm,
-            "assumed_relative_normal_wind_speed_mps": selected_wind_speed,
+            "prescribed_aligned_ambient_wind_speed_mps": selected_wind_speed,
             "table_wind_speed_mps": table_wind_speed,
             "tip_speed_ratio": tip_speed_ratio,
             "thrust_coefficient": thrust_coefficient,
@@ -309,6 +345,17 @@ def run_audit(
                 if rotor_speed_rpm is None
                 else "explicit audit override"
             ),
+        },
+        "fixed_reference_relative_air": {
+            "ambient_air_velocity_platform_mps": [
+                float(value) for value in ambient_air_velocity_platform
+            ],
+            "platform_reference_velocity_platform_mps": [0.0, 0.0, 0.0],
+            "platform_angular_velocity_platform_radps": [0.0, 0.0, 0.0],
+            "relative_air_velocity_at_hub_platform_mps": [
+                float(value) for value in relative_air_velocity_at_hub
+            ],
+            "relative_normal_wind_speed_mps": relative_normal_wind_speed,
         },
         "source_parameters": {
             "air_density_kg_m3": float(source["air_density_kg_m3"]),
@@ -339,16 +386,7 @@ def run_audit(
         "generalized_load_about_platform_reference": _named_generalized_load(
             generalized_load
         ),
-        "checks": {
-            "archive_identity_matches": True,
-            "wind_speed_equals_table_layer": bool(
-                np.isclose(selected_wind_speed, table_wind_speed, atol=1e-12)
-            ),
-            "rotor_normal_is_unit_length": bool(
-                np.isclose(np.linalg.norm(frozen_normal), 1.0, atol=1e-12)
-            ),
-            "all_checks_pass": True,
-        },
+        "checks": checks,
     }
 
 

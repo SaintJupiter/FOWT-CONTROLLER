@@ -23,8 +23,13 @@ class RotorNormalLoadInputAuditTests(unittest.TestCase):
             "source_bound_quasi_steady_rotor_normal_load_input",
         )
         self.assertTrue(result["checks"]["all_checks_pass"])
+        self.assertTrue(
+            result["boundaries"]["uses_fixed_reference_relative_wind_kinematics"]
+        )
         self.assertAlmostEqual(
-            result["table_lookup_node"]["assumed_relative_normal_wind_speed_mps"],
+            result["table_lookup_node"][
+                "prescribed_aligned_ambient_wind_speed_mps"
+            ],
             10.74,
         )
         self.assertEqual(
@@ -38,6 +43,34 @@ class RotorNormalLoadInputAuditTests(unittest.TestCase):
         self.assertAlmostEqual(result["source_parameters"]["initial_rotor_speed_rpm"], 7.55)
         self.assertGreater(result["table_lookup_node"]["thrust_coefficient"], 0.0)
         self.assertGreater(result["rotor_normal_load"]["thrust_n"], 0.0)
+        self.assertAlmostEqual(
+            result["fixed_reference_relative_air"][
+                "relative_normal_wind_speed_mps"
+            ],
+            result["table_lookup_node"]["table_wind_speed_mps"],
+        )
+        np.testing.assert_allclose(
+            result["fixed_reference_relative_air"][
+                "ambient_air_velocity_platform_mps"
+            ],
+            result["fixed_reference_relative_air"][
+                "relative_air_velocity_at_hub_platform_mps"
+            ],
+        )
+        np.testing.assert_allclose(
+            result["fixed_reference_relative_air"][
+                "ambient_air_velocity_platform_mps"
+            ],
+            result["table_lookup_node"]["table_wind_speed_mps"]
+            * np.asarray(
+                result["source_parameters"][
+                    "downwind_rotor_normal_frozen_equilibrium"
+                ]
+            ),
+        )
+        self.assertTrue(
+            result["checks"]["relative_normal_wind_speed_matches_table_layer"]
+        )
         self.assertGreater(
             result["generalized_load_about_platform_reference"]["pitch_nm"],
             0.0,
