@@ -14,6 +14,8 @@ from typing import Any
 
 import numpy as np
 
+from .coordinates import downwind_normal_relative_wind_component
+
 
 @dataclass(frozen=True)
 class RotorNormalLoad:
@@ -65,6 +67,42 @@ def quasi_steady_rotor_normal_load(
     force = np.array(thrust * direction, dtype=float, copy=True)
     force.setflags(write=False)
     return RotorNormalLoad(thrust_n=float(thrust), force_platform_n=force)
+
+
+def quasi_steady_rotor_normal_load_from_relative_air(
+    *,
+    air_density_kg_m3: Any,
+    rotor_radius_m: Any,
+    thrust_coefficient: Any,
+    relative_air_velocity_platform_mps: Any,
+    downwind_rotor_normal_platform: Any,
+) -> RotorNormalLoad:
+    """Return a positive-thrust rotor load from explicit relative air velocity.
+
+    The caller supplies a preselected, non-negative ``C_T`` and a downwind
+    rotor normal in frozen equilibrium platform axes. The relative-air vector
+    is projected onto that normal before the existing quasi-steady relation is
+    evaluated. A negative projection is rejected rather than squared into a
+    false positive thrust load. This function does not select ``C_T``, decide
+    yaw alignment, or represent a parked/reversed-flow operating state.
+    """
+
+    normal_speed = downwind_normal_relative_wind_component(
+        relative_air_velocity_platform_mps,
+        downwind_rotor_normal_platform,
+    )
+    if normal_speed < 0.0:
+        raise ValueError(
+            "relative_air_velocity_platform_mps has a negative component "
+            "along downwind_rotor_normal_platform"
+        )
+    return quasi_steady_rotor_normal_load(
+        air_density_kg_m3=air_density_kg_m3,
+        rotor_radius_m=rotor_radius_m,
+        thrust_coefficient=thrust_coefficient,
+        relative_normal_wind_speed_mps=normal_speed,
+        downwind_rotor_normal_platform=downwind_rotor_normal_platform,
+    )
 
 
 def _positive_scalar(name: str, value: Any) -> float:

@@ -3,7 +3,10 @@ import unittest
 
 import numpy as np
 
-from fowt_platform.rotor_loads import quasi_steady_rotor_normal_load
+from fowt_platform.rotor_loads import (
+    quasi_steady_rotor_normal_load,
+    quasi_steady_rotor_normal_load_from_relative_air,
+)
 
 
 class RotorLoadTests(unittest.TestCase):
@@ -48,6 +51,50 @@ class RotorLoadTests(unittest.TestCase):
             rotor_radius_m=120.97,
             thrust_coefficient=0.75,
             relative_normal_wind_speed_mps=0.0,
+            downwind_rotor_normal_platform=[1.0, 0.0, 0.0],
+        )
+
+        self.assertEqual(load.thrust_n, 0.0)
+        np.testing.assert_allclose(load.force_platform_n, [0.0, 0.0, 0.0])
+
+    def test_relative_air_assembly_matches_explicit_normal_speed_relation(self):
+        assembled = quasi_steady_rotor_normal_load_from_relative_air(
+            air_density_kg_m3=1.225,
+            rotor_radius_m=120.97,
+            thrust_coefficient=0.75,
+            relative_air_velocity_platform_mps=[10.0, 4.0, 0.0],
+            downwind_rotor_normal_platform=[1.0, 0.0, 0.0],
+        )
+        explicit = quasi_steady_rotor_normal_load(
+            air_density_kg_m3=1.225,
+            rotor_radius_m=120.97,
+            thrust_coefficient=0.75,
+            relative_normal_wind_speed_mps=10.0,
+            downwind_rotor_normal_platform=[1.0, 0.0, 0.0],
+        )
+
+        self.assertAlmostEqual(assembled.thrust_n, explicit.thrust_n)
+        np.testing.assert_allclose(
+            assembled.force_platform_n,
+            explicit.force_platform_n,
+        )
+
+    def test_relative_air_assembly_rejects_reversed_normal_flow(self):
+        with self.assertRaisesRegex(ValueError, "negative component"):
+            quasi_steady_rotor_normal_load_from_relative_air(
+                air_density_kg_m3=1.225,
+                rotor_radius_m=120.97,
+                thrust_coefficient=0.75,
+                relative_air_velocity_platform_mps=[-1.0, 0.0, 0.0],
+                downwind_rotor_normal_platform=[1.0, 0.0, 0.0],
+            )
+
+    def test_relative_air_assembly_returns_zero_for_pure_crossflow(self):
+        load = quasi_steady_rotor_normal_load_from_relative_air(
+            air_density_kg_m3=1.225,
+            rotor_radius_m=120.97,
+            thrust_coefficient=0.75,
+            relative_air_velocity_platform_mps=[0.0, 8.0, 0.0],
             downwind_rotor_normal_platform=[1.0, 0.0, 0.0],
         )
 

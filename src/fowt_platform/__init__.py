@@ -42,7 +42,11 @@ from .rotor_performance import (
     load_rosco_rotor_performance_table_from_zip,
     parse_rosco_rotor_performance_table,
 )
-from .rotor_loads import RotorNormalLoad, quasi_steady_rotor_normal_load
+from .rotor_loads import (
+    RotorNormalLoad,
+    quasi_steady_rotor_normal_load,
+    quasi_steady_rotor_normal_load_from_relative_air,
+)
 from .free_response import LinearFreeResponse, simulate_linear_free_response
 from .ballast_snapshot import (
     assemble_ballast_model_snapshot,
@@ -82,6 +86,7 @@ __all__ = [
     "load_rosco_rotor_performance_table_from_zip",
     "parse_rosco_rotor_performance_table",
     "quasi_steady_rotor_normal_load",
+    "quasi_steady_rotor_normal_load_from_relative_air",
     "solve_incremental_static_offset",
     "simulate_linear_free_response",
     "tank_mass_deltas_from_actual_masses",
