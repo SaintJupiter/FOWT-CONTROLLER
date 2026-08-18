@@ -151,6 +151,8 @@ def _configure_case(
     equilibrium_surge_m: float,
     equilibrium_heave_m: float,
     equilibrium_pitch_deg: float,
+    prescribed_blade_pitch_deg: float = PRESCRIBED_BLADE_PITCH_DEG,
+    prescribed_rotor_speed_rpm: float = PRESCRIBED_ROTOR_SPEED_RPM,
 ) -> Path:
     fst_path = semi_dir / FST_NAME
     fst = fst_path.read_text(encoding="utf-8")
@@ -179,10 +181,10 @@ def _configure_case(
     ):
         ed = _replace_field(ed, field, "False")
     for field, value in (
-        ("BlPitch(1)", "1.0"),
-        ("BlPitch(2)", "1.0"),
-        ("BlPitch(3)", "1.0"),
-        ("RotSpeed", "7.55"),
+        ("BlPitch(1)", f"{prescribed_blade_pitch_deg:.9g}"),
+        ("BlPitch(2)", f"{prescribed_blade_pitch_deg:.9g}"),
+        ("BlPitch(3)", f"{prescribed_blade_pitch_deg:.9g}"),
+        ("RotSpeed", f"{prescribed_rotor_speed_rpm:.9g}"),
         ("PtfmSurge", f"{equilibrium_surge_m:.9g}"),
         ("PtfmHeave", f"{equilibrium_heave_m:.9g}"),
         ("PtfmPitch", f"{equilibrium_pitch_deg:.9g}"),
@@ -390,14 +392,18 @@ def _mean_hub_load_about_reference(
 
 
 def _assert_prescribed_rotor_output(
-    *, blade_pitch_deg: list[float], rotor_speed_rpm: float
+    *,
+    blade_pitch_deg: list[float] | list[np.ndarray],
+    rotor_speed_rpm: float | np.ndarray,
+    prescribed_blade_pitch_deg: float = PRESCRIBED_BLADE_PITCH_DEG,
+    prescribed_rotor_speed_rpm: float = PRESCRIBED_ROTOR_SPEED_RPM,
 ) -> None:
-    if not np.allclose(blade_pitch_deg, PRESCRIBED_BLADE_PITCH_DEG, atol=1e-6):
+    if not np.allclose(blade_pitch_deg, prescribed_blade_pitch_deg, atol=1e-6):
         raise ValueError(
             "OpenFAST output does not retain the prescribed blade pitch: "
             f"{blade_pitch_deg} deg"
         )
-    if not np.isclose(rotor_speed_rpm, PRESCRIBED_ROTOR_SPEED_RPM, atol=1e-6):
+    if not np.allclose(rotor_speed_rpm, prescribed_rotor_speed_rpm, atol=1e-6):
         raise ValueError(
             "OpenFAST output does not retain the prescribed rotor speed: "
             f"{rotor_speed_rpm} rpm"
@@ -414,6 +420,8 @@ def _run_case(
     equilibrium_surge_m: float,
     equilibrium_heave_m: float,
     equilibrium_pitch_deg: float,
+    prescribed_blade_pitch_deg: float = PRESCRIBED_BLADE_PITCH_DEG,
+    prescribed_rotor_speed_rpm: float = PRESCRIBED_ROTOR_SPEED_RPM,
 ) -> dict[str, object]:
     semi_dir = _extract_clean_model(case_root)
     fst_path = _configure_case(
@@ -424,6 +432,8 @@ def _run_case(
         equilibrium_surge_m=equilibrium_surge_m,
         equilibrium_heave_m=equilibrium_heave_m,
         equilibrium_pitch_deg=equilibrium_pitch_deg,
+        prescribed_blade_pitch_deg=prescribed_blade_pitch_deg,
+        prescribed_rotor_speed_rpm=prescribed_rotor_speed_rpm,
     )
     completed = subprocess.run(
         [str(openfast_binary), fst_path.name],
@@ -465,15 +475,22 @@ def _run_case(
     if missing:
         raise ValueError(f"OpenFAST output is missing channels: {', '.join(missing)}")
     second_half = columns["Time"] >= duration_s / 2.0
+    blade_pitch_samples = [
+        columns[name][second_half]
+        for name in ("BldPitch1", "BldPitch2", "BldPitch3")
+    ]
+    rotor_speed_samples = columns["RotSpeed"][second_half]
+    _assert_prescribed_rotor_output(
+        blade_pitch_deg=blade_pitch_samples,
+        rotor_speed_rpm=rotor_speed_samples,
+        prescribed_blade_pitch_deg=prescribed_blade_pitch_deg,
+        prescribed_rotor_speed_rpm=prescribed_rotor_speed_rpm,
+    )
     blade_pitch_deg = [
         float(np.mean(columns[name][second_half]))
         for name in ("BldPitch1", "BldPitch2", "BldPitch3")
     ]
     rotor_speed_rpm = float(np.mean(columns["RotSpeed"][second_half]))
-    _assert_prescribed_rotor_output(
-        blade_pitch_deg=blade_pitch_deg,
-        rotor_speed_rpm=rotor_speed_rpm,
-    )
     hub_geometry = _read_openfast_hub_geometry(semi_dir / ED_NAME)
     reference_load = _mean_hub_load_about_reference(
         columns=columns,
@@ -542,11 +559,17 @@ def run_audit(
     wind_speed_mps: float,
     baseline_wind_speed_mps: float = 0.1,
     reference_state_path: Path = REFERENCE_STATE_JSON,
+    prescribed_blade_pitch_deg: float = PRESCRIBED_BLADE_PITCH_DEG,
+    prescribed_rotor_speed_rpm: float = PRESCRIBED_ROTOR_SPEED_RPM,
 ) -> dict[str, object]:
     if duration_s <= 0.0 or output_step_s <= 0.0:
         raise ValueError("duration_s and output_step_s must be positive")
     if baseline_wind_speed_mps <= 0.0 or wind_speed_mps <= baseline_wind_speed_mps:
         raise ValueError("wind_speed_mps must exceed the positive low-wind reference")
+    if not np.isfinite(prescribed_blade_pitch_deg):
+        raise ValueError("prescribed_blade_pitch_deg must be finite")
+    if not np.isfinite(prescribed_rotor_speed_rpm) or prescribed_rotor_speed_rpm < 0.0:
+        raise ValueError("prescribed_rotor_speed_rpm must be finite and non-negative")
     if work_dir.exists():
         raise FileExistsError(f"work_dir already exists: {work_dir}")
     if not openfast_binary.is_file():
@@ -562,6 +585,8 @@ def run_audit(
         equilibrium_surge_m=equilibrium["surge_m"],
         equilibrium_heave_m=equilibrium["heave_m"],
         equilibrium_pitch_deg=equilibrium["pitch_deg"],
+        prescribed_blade_pitch_deg=prescribed_blade_pitch_deg,
+        prescribed_rotor_speed_rpm=prescribed_rotor_speed_rpm,
     )
     wind = _run_case(
         case_root=work_dir / "steady_wind",
@@ -572,6 +597,8 @@ def run_audit(
         equilibrium_surge_m=equilibrium["surge_m"],
         equilibrium_heave_m=equilibrium["heave_m"],
         equilibrium_pitch_deg=equilibrium["pitch_deg"],
+        prescribed_blade_pitch_deg=prescribed_blade_pitch_deg,
+        prescribed_rotor_speed_rpm=prescribed_rotor_speed_rpm,
     )
     still_mean = still["second_half_mean"]
     wind_mean = wind["second_half_mean"]
@@ -603,8 +630,8 @@ def run_audit(
             },
             "candidate_reference_initialization": equilibrium,
             "other_platform_initial_conditions": "source-file defaults (zero)",
-            "prescribed_rotor_speed_rpm": PRESCRIBED_ROTOR_SPEED_RPM,
-            "prescribed_blade_pitch_deg": PRESCRIBED_BLADE_PITCH_DEG,
+            "prescribed_rotor_speed_rpm": prescribed_rotor_speed_rpm,
+            "prescribed_blade_pitch_deg": prescribed_blade_pitch_deg,
             "wave_and_current": "disabled",
         },
         "low_wind_reference": still,
@@ -647,6 +674,16 @@ def main() -> None:
     parser.add_argument("--wind-speed-mps", type=float, default=5.0)
     parser.add_argument("--baseline-wind-speed-mps", type=float, default=0.1)
     parser.add_argument(
+        "--prescribed-blade-pitch-deg",
+        type=float,
+        default=PRESCRIBED_BLADE_PITCH_DEG,
+    )
+    parser.add_argument(
+        "--prescribed-rotor-speed-rpm",
+        type=float,
+        default=PRESCRIBED_ROTOR_SPEED_RPM,
+    )
+    parser.add_argument(
         "--reference-state-json",
         type=Path,
         default=REFERENCE_STATE_JSON,
@@ -663,6 +700,8 @@ def main() -> None:
         wind_speed_mps=args.wind_speed_mps,
         baseline_wind_speed_mps=args.baseline_wind_speed_mps,
         reference_state_path=args.reference_state_json,
+        prescribed_blade_pitch_deg=args.prescribed_blade_pitch_deg,
+        prescribed_rotor_speed_rpm=args.prescribed_rotor_speed_rpm,
     )
     args.output_json.parent.mkdir(parents=True, exist_ok=True)
     args.output_json.write_text(

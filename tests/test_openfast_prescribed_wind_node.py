@@ -238,6 +238,42 @@ class OpenFastPrescribedWindNodeTests(unittest.TestCase):
                     baseline_wind_speed_mps=0.1,
                 )
 
+    def test_passes_an_explicit_rotor_state_to_both_openfast_cases(self):
+        case = {
+            "second_half_mean": {"surge_m": 0.0, "heave_m": 0.0, "pitch_deg": 0.0},
+            "aerodynamic_hub_load_about_platform_reference_second_half_mean": {
+                "generalized_load_si": {"force_n": [0.0, 0.0, 0.0], "moment_nm": [0.0, 0.0, 0.0]}
+            },
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary = root / "openfast"
+            binary.touch()
+            with (
+                unittest.mock.patch.object(
+                    MODULE,
+                    "_load_candidate_reference_state",
+                    return_value={"surge_m": 0.0, "heave_m": 0.0, "pitch_deg": 0.0},
+                ),
+                unittest.mock.patch.object(MODULE, "_sha256", return_value="f" * 64),
+                unittest.mock.patch.object(MODULE, "_run_case", side_effect=[case, case]) as run_case,
+            ):
+                result = MODULE.run_audit(
+                    work_dir=root / "work",
+                    openfast_binary=binary,
+                    duration_s=10.0,
+                    output_step_s=1.0,
+                    wind_speed_mps=5.0,
+                    prescribed_blade_pitch_deg=1.0,
+                    prescribed_rotor_speed_rpm=5.0,
+                )
+
+        for call in run_case.call_args_list:
+            self.assertEqual(call.kwargs["prescribed_blade_pitch_deg"], 1.0)
+            self.assertEqual(call.kwargs["prescribed_rotor_speed_rpm"], 5.0)
+        self.assertEqual(result["reference"]["prescribed_blade_pitch_deg"], 1.0)
+        self.assertEqual(result["reference"]["prescribed_rotor_speed_rpm"], 5.0)
+
     def test_rejects_output_that_does_not_retain_the_prescribed_rotor_state(self):
         with self.assertRaisesRegex(ValueError, "does not retain the prescribed blade pitch"):
             MODULE._assert_prescribed_rotor_output(
@@ -249,6 +285,27 @@ class OpenFastPrescribedWindNodeTests(unittest.TestCase):
                 blade_pitch_deg=[1.0, 1.0, 1.0],
                 rotor_speed_rpm=7.54,
             )
+
+    def test_rejects_tail_rotor_speed_variation_with_a_correct_mean(self):
+        with self.assertRaisesRegex(ValueError, "does not retain the prescribed rotor speed"):
+            MODULE._assert_prescribed_rotor_output(
+                blade_pitch_deg=[
+                    np.array([1.0, 1.0]),
+                    np.array([1.0, 1.0]),
+                    np.array([1.0, 1.0]),
+                ],
+                rotor_speed_rpm=np.array([4.9, 5.1]),
+                prescribed_blade_pitch_deg=1.0,
+                prescribed_rotor_speed_rpm=5.0,
+            )
+
+    def test_accepts_an_explicit_nondefault_prescribed_rotor_state(self):
+        MODULE._assert_prescribed_rotor_output(
+            blade_pitch_deg=[1.5, 1.5, 1.5],
+            rotor_speed_rpm=5.0,
+            prescribed_blade_pitch_deg=1.5,
+            prescribed_rotor_speed_rpm=5.0,
+        )
 
 
 if __name__ == "__main__":

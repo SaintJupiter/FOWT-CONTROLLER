@@ -103,6 +103,26 @@ class OpenFastPrescribedWindRelaxationReleaseAuditTests(unittest.TestCase):
                 columns, duration_s=1.0, tail_window_s=1.0
             )
 
+    def test_accepts_a_nondefault_prescribed_rotor_state(self):
+        columns = {
+            "Time": np.array([0.0, 1.0]),
+            "BldPitch1": np.array([1.5, 1.5]),
+            "BldPitch2": np.array([1.5, 1.5]),
+            "BldPitch3": np.array([1.5, 1.5]),
+            "RotSpeed": np.array([5.0, 5.0]),
+        }
+
+        output = MODULE._prescribed_rotor_tail_output(
+            columns,
+            duration_s=1.0,
+            tail_window_s=1.0,
+            prescribed_blade_pitch_deg=1.5,
+            prescribed_rotor_speed_rpm=5.0,
+        )
+
+        self.assertEqual(output["blade_pitch_deg"], [1.5, 1.5, 1.5])
+        self.assertEqual(output["rotor_speed_rpm"], 5.0)
+
     def test_transfers_relaxation_late_mean_to_fresh_release_phase(self):
         relaxation_state = {
             "surge_m": 11.0,
@@ -136,8 +156,10 @@ class OpenFastPrescribedWindRelaxationReleaseAuditTests(unittest.TestCase):
                     openfast_binary=binary,
                     duration_s=60.0,
                     output_step_s=1.0,
-                    wind_speed_mps=10.74,
+                    wind_speed_mps=5.0,
                     tail_window_s=20.0,
+                    prescribed_blade_pitch_deg=1.5,
+                    prescribed_rotor_speed_rpm=5.0,
                 )
 
         relaxation_call, release_call = run_phase.call_args_list
@@ -147,6 +169,13 @@ class OpenFastPrescribedWindRelaxationReleaseAuditTests(unittest.TestCase):
             release_call.kwargs["initial_state"], relaxation_state
         )
         self.assertIsNone(release_call.kwargs["temporary_add_blin_diagonal"])
+        self.assertEqual(relaxation_call.kwargs["prescribed_blade_pitch_deg"], 1.5)
+        self.assertEqual(relaxation_call.kwargs["prescribed_rotor_speed_rpm"], 5.0)
+        self.assertEqual(release_call.kwargs["prescribed_blade_pitch_deg"], 1.5)
+        self.assertEqual(release_call.kwargs["prescribed_rotor_speed_rpm"], 5.0)
+        self.assertEqual(result["reference"]["wind_speed_mps"], 5.0)
+        self.assertEqual(result["reference"]["prescribed_blade_pitch_deg"], 1.5)
+        self.assertEqual(result["reference"]["prescribed_rotor_speed_rpm"], 5.0)
         self.assertEqual(result["state_transfer"]["release_initial_state"], relaxation_state)
 
 

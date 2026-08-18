@@ -186,7 +186,12 @@ def _late_window_statistics(
 
 
 def _prescribed_rotor_tail_output(
-    columns: dict[str, np.ndarray], *, duration_s: float, tail_window_s: float
+    columns: dict[str, np.ndarray],
+    *,
+    duration_s: float,
+    tail_window_s: float,
+    prescribed_blade_pitch_deg: float = PRESCRIBED_BLADE_PITCH_DEG,
+    prescribed_rotor_speed_rpm: float = PRESCRIBED_ROTOR_SPEED_RPM,
 ) -> dict[str, object]:
     mask = columns["Time"] >= duration_s - tail_window_s
     if not np.any(mask):
@@ -201,14 +206,14 @@ def _prescribed_rotor_tail_output(
         )
     for name in blade_channels:
         if not np.allclose(
-            columns[name][mask], PRESCRIBED_BLADE_PITCH_DEG, atol=1.0e-6
+            columns[name][mask], prescribed_blade_pitch_deg, atol=1.0e-6
         ):
             raise ValueError(
                 "OpenFAST output does not retain the prescribed blade pitch: "
                 f"{name} varies within the tail window"
             )
     if not np.allclose(
-        columns["RotSpeed"][mask], PRESCRIBED_ROTOR_SPEED_RPM, atol=1.0e-6
+        columns["RotSpeed"][mask], prescribed_rotor_speed_rpm, atol=1.0e-6
     ):
         raise ValueError(
             "OpenFAST output does not retain the prescribed rotor speed "
@@ -217,7 +222,10 @@ def _prescribed_rotor_tail_output(
     blade_pitch_deg = [float(np.mean(columns[name][mask])) for name in blade_channels]
     rotor_speed_rpm = float(np.mean(columns["RotSpeed"][mask]))
     _assert_prescribed_rotor_output(
-        blade_pitch_deg=blade_pitch_deg, rotor_speed_rpm=rotor_speed_rpm
+        blade_pitch_deg=blade_pitch_deg,
+        rotor_speed_rpm=rotor_speed_rpm,
+        prescribed_blade_pitch_deg=prescribed_blade_pitch_deg,
+        prescribed_rotor_speed_rpm=prescribed_rotor_speed_rpm,
     )
     return {
         "tail_window_s": tail_window_s,
@@ -236,6 +244,8 @@ def _run_phase(
     initial_state: dict[str, float],
     tail_window_s: float,
     temporary_add_blin_diagonal: np.ndarray | None,
+    prescribed_blade_pitch_deg: float,
+    prescribed_rotor_speed_rpm: float,
 ) -> dict[str, object]:
     semi_dir = _extract_clean_model(phase_root)
     fst_path = _configure_case(
@@ -246,6 +256,8 @@ def _run_phase(
         equilibrium_surge_m=initial_state["surge_m"],
         equilibrium_heave_m=initial_state["heave_m"],
         equilibrium_pitch_deg=initial_state["pitch_deg"],
+        prescribed_blade_pitch_deg=prescribed_blade_pitch_deg,
+        prescribed_rotor_speed_rpm=prescribed_rotor_speed_rpm,
     )
     ed_path = semi_dir / ED_NAME
     ed_path.write_text(
@@ -293,7 +305,11 @@ def _run_phase(
         ),
         "sample_count": int(columns["Time"].size),
         "prescribed_rotor_tail_output": _prescribed_rotor_tail_output(
-            columns, duration_s=duration_s, tail_window_s=tail_window_s
+            columns,
+            duration_s=duration_s,
+            tail_window_s=tail_window_s,
+            prescribed_blade_pitch_deg=prescribed_blade_pitch_deg,
+            prescribed_rotor_speed_rpm=prescribed_rotor_speed_rpm,
         ),
         "late_window_statistics": _late_window_statistics(
             columns, duration_s=duration_s, tail_window_s=tail_window_s
@@ -310,11 +326,17 @@ def run_audit(
     wind_speed_mps: float,
     tail_window_s: float,
     nominal_reference_state_path: Path = REFERENCE_STATE_JSON,
+    prescribed_blade_pitch_deg: float = PRESCRIBED_BLADE_PITCH_DEG,
+    prescribed_rotor_speed_rpm: float = PRESCRIBED_ROTOR_SPEED_RPM,
 ) -> dict[str, object]:
     if duration_s <= 0.0 or output_step_s <= 0.0:
         raise ValueError("duration_s and output_step_s must be positive")
     if wind_speed_mps <= 0.0:
         raise ValueError("wind_speed_mps must be positive")
+    if not np.isfinite(prescribed_blade_pitch_deg):
+        raise ValueError("prescribed_blade_pitch_deg must be finite")
+    if not np.isfinite(prescribed_rotor_speed_rpm) or prescribed_rotor_speed_rpm < 0.0:
+        raise ValueError("prescribed_rotor_speed_rpm must be finite and non-negative")
     if work_dir.exists():
         raise FileExistsError(f"work_dir already exists: {work_dir}")
     if not openfast_binary.is_file():
@@ -332,6 +354,8 @@ def run_audit(
         initial_state=_initial_state_from_nominal_reference(nominal_reference),
         tail_window_s=tail_window_s,
         temporary_add_blin_diagonal=RELAXATION_ADD_BLIN_DIAGONAL,
+        prescribed_blade_pitch_deg=prescribed_blade_pitch_deg,
+        prescribed_rotor_speed_rpm=prescribed_rotor_speed_rpm,
     )
     release_initial_state = relaxation["late_window_statistics"][
         "second_window_mean_state_for_release_only"
@@ -346,6 +370,8 @@ def run_audit(
         initial_state=_normalise_platform_initial_state(release_initial_state),
         tail_window_s=tail_window_s,
         temporary_add_blin_diagonal=None,
+        prescribed_blade_pitch_deg=prescribed_blade_pitch_deg,
+        prescribed_rotor_speed_rpm=prescribed_rotor_speed_rpm,
     )
     return {
         "evidence_level": "OpenFAST prescribed-wind relaxation and release audit",
@@ -364,8 +390,8 @@ def run_audit(
             "nominal_reference_state_path": str(nominal_reference_state_path),
             "nominal_reference_state": nominal_reference,
             "wind_speed_mps": wind_speed_mps,
-            "prescribed_rotor_speed_rpm": PRESCRIBED_ROTOR_SPEED_RPM,
-            "prescribed_blade_pitch_deg": PRESCRIBED_BLADE_PITCH_DEG,
+            "prescribed_rotor_speed_rpm": prescribed_rotor_speed_rpm,
+            "prescribed_blade_pitch_deg": prescribed_blade_pitch_deg,
             "wave_and_current": "disabled",
         },
         "temporary_relaxation": relaxation,
@@ -389,6 +415,16 @@ def main() -> None:
     parser.add_argument("--duration-s", type=float, default=600.0)
     parser.add_argument("--output-step-s", type=float, default=1.0)
     parser.add_argument("--wind-speed-mps", type=float, default=10.74)
+    parser.add_argument(
+        "--prescribed-blade-pitch-deg",
+        type=float,
+        default=PRESCRIBED_BLADE_PITCH_DEG,
+    )
+    parser.add_argument(
+        "--prescribed-rotor-speed-rpm",
+        type=float,
+        default=PRESCRIBED_ROTOR_SPEED_RPM,
+    )
     parser.add_argument("--tail-window-s", type=float, default=150.0)
     parser.add_argument(
         "--nominal-reference-state-json",
@@ -406,6 +442,8 @@ def main() -> None:
         wind_speed_mps=args.wind_speed_mps,
         tail_window_s=args.tail_window_s,
         nominal_reference_state_path=args.nominal_reference_state_json,
+        prescribed_blade_pitch_deg=args.prescribed_blade_pitch_deg,
+        prescribed_rotor_speed_rpm=args.prescribed_rotor_speed_rpm,
     )
     args.output_json.parent.mkdir(parents=True, exist_ok=True)
     args.output_json.write_text(
