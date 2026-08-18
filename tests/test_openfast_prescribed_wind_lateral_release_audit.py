@@ -94,6 +94,15 @@ class OpenFastPrescribedWindLateralReleaseAuditTests(unittest.TestCase):
                 reference, wind_speed_mps=10.74
             )
 
+    def test_rejects_candidate_without_prescribed_rotor_metadata(self):
+        reference = _candidate_reference()
+        reference.pop("prescribed_rotor_speed_rpm")
+
+        with self.assertRaisesRegex(ValueError, "prescribed_rotor_speed_rpm"):
+            MODULE._validate_candidate_operating_condition(
+                reference, wind_speed_mps=10.74
+            )
+
     def test_changes_only_requested_lateral_state(self):
         changed = MODULE._perturb_state(_state(), field="sway_m", value=0.1)
 
@@ -170,9 +179,59 @@ class OpenFastPrescribedWindLateralReleaseAuditTests(unittest.TestCase):
         self.assertEqual(perturbed_call.kwargs["phase_root"].name, "perturbed")
         self.assertIsNone(base_call.kwargs["temporary_add_blin_diagonal"])
         self.assertIsNone(perturbed_call.kwargs["temporary_add_blin_diagonal"])
+        self.assertEqual(base_call.kwargs["prescribed_blade_pitch_deg"], 1.0)
+        self.assertEqual(base_call.kwargs["prescribed_rotor_speed_rpm"], 7.55)
+        self.assertEqual(perturbed_call.kwargs["prescribed_blade_pitch_deg"], 1.0)
+        self.assertEqual(perturbed_call.kwargs["prescribed_rotor_speed_rpm"], 7.55)
         self.assertEqual(base_call.kwargs["initial_state"], candidate)
         self.assertEqual(perturbed_call.kwargs["initial_state"]["sway_m"], 2.1)
         self.assertEqual(result["perturbation"]["field"], "sway_m")
+
+    def test_uses_the_candidate_prescribed_rotor_condition_for_both_releases(self):
+        candidate = _state()
+        relaxation_audit = {
+            "reference": _candidate_reference(wind_speed_mps=5.0),
+            "temporary_relaxation": {
+                "late_window_statistics": {
+                    "second_window_mean_state_for_release_only": candidate
+                }
+            },
+        }
+        relaxation_audit["reference"]["prescribed_rotor_speed_rpm"] = 5.0
+        unperturbed = _phase(candidate, candidate)
+        perturbed = _phase(_state(sway=2.1), _state(sway=2.05))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary = root / "openfast"
+            binary.touch()
+            audit_path = root / "relaxation-audit.json"
+            audit_path.write_text(json.dumps(relaxation_audit), encoding="utf-8")
+            with (
+                patch.object(
+                    MODULE,
+                    "_sha256",
+                    return_value=relaxation_audit["reference"]["model_zip_sha256"],
+                ),
+                patch.object(
+                    MODULE, "_run_phase", side_effect=[unperturbed, perturbed]
+                ) as run_phase,
+            ):
+                result = MODULE.run_audit(
+                    work_dir=root / "work",
+                    openfast_binary=binary,
+                    relaxation_audit_path=audit_path,
+                    duration_s=60.0,
+                    output_step_s=1.0,
+                    wind_speed_mps=5.0,
+                    tail_window_s=20.0,
+                    perturbation_field="sway_m",
+                    perturbation_value=0.1,
+                )
+
+        for call in run_phase.call_args_list:
+            self.assertEqual(call.kwargs["prescribed_blade_pitch_deg"], 1.0)
+            self.assertEqual(call.kwargs["prescribed_rotor_speed_rpm"], 5.0)
+        self.assertEqual(result["reference"]["prescribed_rotor_speed_rpm"], 5.0)
 
 
 if __name__ == "__main__":

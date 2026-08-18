@@ -29,8 +29,6 @@ from run_openfast_prescribed_wind_relaxation_release_audit import (
 )
 from run_openfast_prescribed_wind_node import (
     MODEL_ZIP,
-    PRESCRIBED_BLADE_PITCH_DEG,
-    PRESCRIBED_ROTOR_SPEED_RPM,
     _sha256,
 )
 
@@ -83,12 +81,10 @@ def _load_candidate_state(relaxation_audit_path: Path) -> dict[str, float]:
 
 def _validate_candidate_operating_condition(
     reference: dict[str, object], *, wind_speed_mps: float
-) -> None:
+) -> tuple[float, float]:
     """Reject a candidate pose created under a different prescribed-wind node."""
     expected_values: dict[str, object] = {
         "model_zip_sha256": _sha256(MODEL_ZIP),
-        "prescribed_blade_pitch_deg": PRESCRIBED_BLADE_PITCH_DEG,
-        "prescribed_rotor_speed_rpm": PRESCRIBED_ROTOR_SPEED_RPM,
         "wave_and_current": "disabled",
     }
     for field, expected in expected_values.items():
@@ -108,6 +104,28 @@ def _validate_candidate_operating_condition(
             "candidate audit operating condition does not match this release: "
             f"wind_speed_mps={recorded_wind!r}, expected {wind_speed_mps!r}"
         )
+    pitch = reference.get("prescribed_blade_pitch_deg")
+    rotor_speed = reference.get("prescribed_rotor_speed_rpm")
+    if (
+        isinstance(pitch, bool)
+        or not isinstance(pitch, (int, float))
+        or not np.isfinite(float(pitch))
+    ):
+        raise ValueError(
+            "candidate audit operating condition is missing a finite "
+            "prescribed_blade_pitch_deg"
+        )
+    if (
+        isinstance(rotor_speed, bool)
+        or not isinstance(rotor_speed, (int, float))
+        or not np.isfinite(float(rotor_speed))
+        or float(rotor_speed) < 0.0
+    ):
+        raise ValueError(
+            "candidate audit operating condition is missing a non-negative "
+            "prescribed_rotor_speed_rpm"
+        )
+    return float(pitch), float(rotor_speed)
 
 
 def _perturb_state(
@@ -192,8 +210,10 @@ def run_audit(
         raise FileNotFoundError(f"OpenFAST binary not found: {openfast_binary}")
 
     candidate_state, candidate_reference = _load_candidate_audit(relaxation_audit_path)
-    _validate_candidate_operating_condition(
+    prescribed_blade_pitch_deg, prescribed_rotor_speed_rpm = (
+        _validate_candidate_operating_condition(
         candidate_reference, wind_speed_mps=wind_speed_mps
+        )
     )
     perturbed_state = _perturb_state(
         candidate_state, field=perturbation_field, value=perturbation_value
@@ -207,6 +227,8 @@ def run_audit(
         initial_state=candidate_state,
         tail_window_s=tail_window_s,
         temporary_add_blin_diagonal=None,
+        prescribed_blade_pitch_deg=prescribed_blade_pitch_deg,
+        prescribed_rotor_speed_rpm=prescribed_rotor_speed_rpm,
     )
     perturbed = _run_phase(
         phase_root=work_dir / "perturbed",
@@ -217,6 +239,8 @@ def run_audit(
         initial_state=perturbed_state,
         tail_window_s=tail_window_s,
         temporary_add_blin_diagonal=None,
+        prescribed_blade_pitch_deg=prescribed_blade_pitch_deg,
+        prescribed_rotor_speed_rpm=prescribed_rotor_speed_rpm,
     )
     return {
         "evidence_level": "OpenFAST prescribed-wind lateral perturbation release audit",
@@ -232,6 +256,8 @@ def run_audit(
             "model_zip_sha256": _sha256(MODEL_ZIP),
             "openfast_binary": str(openfast_binary),
             "wind_speed_mps": wind_speed_mps,
+            "prescribed_blade_pitch_deg": prescribed_blade_pitch_deg,
+            "prescribed_rotor_speed_rpm": prescribed_rotor_speed_rpm,
             "relaxation_audit_path": str(relaxation_audit_path),
             "candidate_state_source": ".".join(CANDIDATE_STATE_KEYS),
             "candidate_state": candidate_state,
