@@ -47,6 +47,10 @@ from .rotor_loads import (
     quasi_steady_rotor_normal_load,
     quasi_steady_rotor_normal_load_from_relative_air,
 )
+from .rotor_input import (
+    RotorGeneralizedLoad,
+    quasi_steady_rotor_generalized_load_from_platform_motion,
+)
 from .free_response import LinearFreeResponse, simulate_linear_free_response
 from .ballast_snapshot import (
     assemble_ballast_model_snapshot,
@@ -81,12 +85,14 @@ __all__ = [
     "ReferenceVerticalBalanceEvidence",
     "RotorPerformanceTable",
     "RotorNormalLoad",
+    "RotorGeneralizedLoad",
     "load_volturnus_reference_components",
     "load_rosco_rotor_performance_table",
     "load_rosco_rotor_performance_table_from_zip",
     "parse_rosco_rotor_performance_table",
     "quasi_steady_rotor_normal_load",
     "quasi_steady_rotor_normal_load_from_relative_air",
+    "quasi_steady_rotor_generalized_load_from_platform_motion",
     "solve_incremental_static_offset",
     "simulate_linear_free_response",
     "tank_mass_deltas_from_actual_masses",
