@@ -273,6 +273,11 @@ class CandidateEvaluation:
     direction_switches: int
     first_action_vector_deg: tuple[float, float]
     first_target_masses_kg: tuple[float, float, float]
+    first_execution_request: ExecutionRolloutRequest | None = field(
+        default=None,
+        compare=False,
+        repr=False,
+    )
     first_execution: ExecutionRolloutStep | None = field(
         default=None,
         compare=False,
@@ -286,6 +291,7 @@ class ControlDecision:
     target_operation: TargetOperation
     action_vector_deg: tuple[float, float]
     target_masses_kg: tuple[float, float, float]
+    execution_request: ExecutionRolloutRequest = field(repr=False, compare=False)
     score: float
     context: ControlContext
     ranked_candidates: tuple[CandidateEvaluation, ...]
@@ -301,6 +307,14 @@ class ControlDecision:
             "target_operation": self.target_operation.value,
             "action_vector_deg": list(self.action_vector_deg),
             "target_masses_kg": list(self.target_masses_kg),
+            "execution_request": {
+                "operation": self.execution_request.operation.value,
+                "target_masses_kg": (
+                    None
+                    if self.execution_request.target_masses_kg is None
+                    else list(self.execution_request.target_masses_kg)
+                ),
+            },
             "score": self.score,
             "candidate_count": len(self.ranked_candidates),
             "rejected_candidate_count": self.rejected_candidate_count,
@@ -678,6 +692,7 @@ def _evaluate_candidate(
     switches = 0
     first_vector = np.zeros(2, dtype=float)
     first_target = state.actual_masses_kg.copy()
+    first_request: ExecutionRolloutRequest | None = None
     first_step: ExecutionRolloutStep | None = None
     final_residual = np.zeros(2, dtype=float)
 
@@ -737,6 +752,7 @@ def _evaluate_candidate(
         if index == 0:
             first_vector = action_vector.copy()
             first_target = step.requested_target_kg.copy()
+            first_request = request
             first_step = step
         if action is ControlAction.RELEASE_TARGET:
             previous_vector = np.zeros(2, dtype=float)
@@ -744,7 +760,7 @@ def _evaluate_candidate(
             previous_vector = action_vector.copy()
         state = step.state
 
-    if first_step is None:
+    if first_step is None or first_request is None:
         return _rejected_candidate(sequence, "empty_sequence")
     terminal_norm = float(np.linalg.norm(final_residual / deadband))
     reference_volume = max(
@@ -779,6 +795,7 @@ def _evaluate_candidate(
         direction_switches=int(switches),
         first_action_vector_deg=tuple(float(value) for value in first_vector),
         first_target_masses_kg=tuple(float(value) for value in first_target),
+        first_execution_request=first_request,
         first_execution=first_step,
     )
 
@@ -860,11 +877,13 @@ def decide_control_cycle(
     )
     snapshot = commit_action_plan(plan)
     assert best.first_execution is not None
+    assert best.first_execution_request is not None
     return ControlDecision(
         action=action,
         target_operation=operation,
         action_vector_deg=best.first_action_vector_deg,
         target_masses_kg=best.first_target_masses_kg,
+        execution_request=best.first_execution_request,
         score=best.score,
         context=context,
         ranked_candidates=tuple(feasible),

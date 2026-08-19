@@ -203,6 +203,11 @@ class ControllerCoreTests(unittest.TestCase):
         self.assertEqual(trace["candidate_count"], len(decision.ranked_candidates))
         self.assertIn("forecast", trace)
         self.assertIn("first_execution", trace)
+        self.assertIn("execution_request", trace)
+        self.assertEqual(
+            trace["execution_request"]["operation"],
+            decision.execution_request.operation.value,
+        )
         self.assertEqual(len(trace["stages"]), 3)
 
     def test_small_forecast_only_demand_does_not_create_a_pump_target(self):
@@ -214,8 +219,16 @@ class ControllerCoreTests(unittest.TestCase):
 
         self.assertEqual(decision.action, ControlAction.CONTINUE_TARGET)
         self.assertEqual(decision.target_operation, TargetOperation.CONTINUE)
+        self.assertEqual(
+            decision.execution_request.operation,
+            ExecutionTargetOperation.TRACK,
+        )
         np.testing.assert_allclose(
             decision.target_masses_kg,
+            _observation().execution_state.actual_masses_kg,
+        )
+        np.testing.assert_allclose(
+            decision.execution_request.target_masses_kg,
             _observation().execution_state.actual_masses_kg,
         )
 
