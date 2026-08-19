@@ -17,18 +17,24 @@ measured posture, wind, tank and pump state
   -> exact ballast targets
   -> three-pump execution preview
   -> one evaluated and committed action
-  -> real plant pump execution and six-DOF propagation
+  -> explicit execution request
+  -> external P4 execution-and-platform handoff
   -> measured tank, pump and posture state for the next cycle
 ```
 
-Platform dynamics are outside this path. A later simulator can replace the
-posture source and consume the same target-water output without changing the
-controller interface.
+Candidate selection does not propagate platform dynamics. The external P4
+handoff advances the actual pump state and platform substeps from the committed
+request; a later calibrated simulator can replace that platform without
+changing the controller decision interface.
 
 ## Public entry
 
-New code imports `wind_prediction.controller` and calls
-`ForecastAssistedBallastController.step(...)`.
+New code imports `wind_prediction.controller`. For an isolated controller and
+pump-preview check it may call `ForecastAssistedBallastController.step(...)`.
+For a platform-connected path, it calls `decide(...)` and advances the
+explicit `execution_request` through physical substeps as specified in
+`p4_controller_execution_platform_handoff.md`; `step(...)` must not directly
+advance the platform.
 
 The recommended configuration entry is
 `load_controller_config("configs/controller_core_v2.json")`. The file uses a
@@ -43,14 +49,17 @@ One call accepts:
 - actual masses and pump state of exactly three ballast tanks;
 - the currently active target carried by `ControllerRuntimeState`.
 
-It returns:
+`decide(...)` returns:
 
 - the selected action and target operation;
 - the exact three-tank target evaluated by the controller;
-- the built-in actuator preview for the current decision interval;
-- the next controller state;
-- a compact trace containing forecast use, candidate cost, target, pump result,
-  remaining target error and constraint-relevant state.
+- the exact first execution request selected with the candidate;
+- the built-in actuator preview for planning only;
+- a compact trace containing forecast use, candidate cost, target and
+  constraint-relevant state.
+
+`step(...)` additionally advances the isolated execution-rollout state over
+the planning interval. It is not the public platform-coupling entry.
 
 ## Active modules
 
