@@ -51,6 +51,7 @@ from .rotor_input import (
     RotorGeneralizedLoad,
     quasi_steady_rotor_generalized_load_from_platform_motion,
 )
+from .open_loop_step import OpenLoopPlatformStep, advance_frozen_open_loop_step
 from .free_response import LinearFreeResponse, simulate_linear_free_response
 from .ballast_snapshot import (
     assemble_ballast_model_snapshot,
@@ -81,6 +82,7 @@ __all__ = [
     "openfast_hub_to_reference_rotation",
     "openfast_reference_vector_to_frozen_equilibrium_axes",
     "PlatformMatrices",
+    "OpenLoopPlatformStep",
     "rigid_body_mass_matrix_about_reference",
     "ReferenceVerticalBalanceEvidence",
     "RotorPerformanceTable",
@@ -93,6 +95,7 @@ __all__ = [
     "quasi_steady_rotor_normal_load",
     "quasi_steady_rotor_normal_load_from_relative_air",
     "quasi_steady_rotor_generalized_load_from_platform_motion",
+    "advance_frozen_open_loop_step",
     "solve_incremental_static_offset",
     "simulate_linear_free_response",
     "tank_mass_deltas_from_actual_masses",
