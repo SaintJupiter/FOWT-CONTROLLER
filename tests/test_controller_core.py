@@ -104,6 +104,89 @@ class ControllerCoreTests(unittest.TestCase):
             np.testing.assert_allclose(stage.forecast_increment_deg, np.zeros(2))
             np.testing.assert_allclose(stage.combined_demand_deg, np.zeros(2))
 
+    def test_full_reliability_preserves_legacy_forecast_increment_mapping(self):
+        context = build_control_context(
+            _observation(current_wind_uv_ms=(0.0, -10.0)),
+            _evidence([(0.0, -12.0)] * 6, reliability=1.0),
+            _config(wind_reference_ms=10.0, wind_effect_cap=2.0),
+        )
+
+        np.testing.assert_allclose(
+            context.stages[0].forecast_increment_deg,
+            (0.44, 0.0),
+            atol=1e-12,
+        )
+
+    def test_reliability_gates_high_impact_actions_without_scaling_forecast_demand(self):
+        high_reliability = build_control_context(
+            _observation(),
+            _evidence([(0.0, -12.0)] * 6, reliability=0.9),
+            _config(),
+        )
+        low_reliability = build_control_context(
+            _observation(),
+            _evidence([(0.0, -12.0)] * 6, reliability=0.5),
+            _config(),
+        )
+
+        np.testing.assert_allclose(
+            high_reliability.stages[0].forecast_increment_deg,
+            low_reliability.stages[0].forecast_increment_deg,
+        )
+        self.assertTrue(
+            high_reliability.stages[0].authorizations[
+                ControlAction.STRENGTHEN
+            ].allowed
+        )
+        self.assertFalse(
+            low_reliability.stages[0].authorizations[
+                ControlAction.STRENGTHEN
+            ].allowed
+        )
+
+    def test_direction_inconsistency_is_recorded_without_new_demand_gate(self):
+        context = build_control_context(
+            _observation(),
+            _evidence(
+                [
+                    (0.0, -12.0),
+                    (0.0, 12.0),
+                    (0.0, -12.0),
+                    (0.0, 12.0),
+                    (0.0, -12.0),
+                    (0.0, 12.0),
+                ]
+            ),
+            _config(),
+        )
+        first = context.stages[0]
+
+        self.assertFalse(first.forecast_direction_consistent)
+        self.assertLess(first.forecast_direction_consistency, 0.8)
+        self.assertEqual(
+            first.forecast_demand_reason,
+            "forecast_direction_inconsistent_recorded",
+        )
+        self.assertGreater(abs(first.forecast_increment_deg[0]), 0.0)
+
+    def test_policy_disabled_is_recorded_without_disabling_future_demand(self):
+        context = build_control_context(
+            _observation(),
+            _evidence([(0.0, -12.0)] * 6),
+            _config(
+                forecast_policy=ForecastActionPolicyConfig(
+                    enabled=False,
+                    stage_duration_s=1200.0,
+                )
+            ),
+        )
+
+        self.assertEqual(
+            context.stages[0].forecast_demand_reason,
+            "forecast_policy_disabled",
+        )
+        self.assertGreater(abs(context.stages[0].forecast_increment_deg[0]), 0.0)
+
     def test_measured_posture_uses_physical_deadzone_before_decay(self):
         context = build_control_context(
             _observation(posture_deg=(2.0, -1.3)),

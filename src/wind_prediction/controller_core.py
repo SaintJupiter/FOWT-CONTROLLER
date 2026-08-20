@@ -27,6 +27,11 @@ from .ballast_allocation import (
     compensation_to_mass_delta_kg,
     mass_delta_to_compensation_vec,
 )
+from .decision_demand import (
+    LegacyWindDemandProxyConfig,
+    form_stage_demand,
+    posture_feedback_demand_deg,
+)
 from .execution_rollout import (
     ExecutionRolloutConfig,
     ExecutionRolloutRequest,
@@ -239,6 +244,9 @@ class ControlStage:
     forecast_increment_deg: tuple[float, float]
     combined_demand_deg: tuple[float, float]
     mean_reliability: float
+    forecast_demand_reason: str
+    forecast_direction_consistency: float | None
+    forecast_direction_consistent: bool | None
     authorizations: Mapping[ControlAction, ActionAuthorization]
 
     def __post_init__(self) -> None:
@@ -336,6 +344,13 @@ class ControlDecision:
                     "forecast_increment_deg": list(stage.forecast_increment_deg),
                     "combined_demand_deg": list(stage.combined_demand_deg),
                     "mean_reliability": stage.mean_reliability,
+                    "forecast_demand_reason": stage.forecast_demand_reason,
+                    "forecast_direction_consistency": (
+                        stage.forecast_direction_consistency
+                    ),
+                    "forecast_direction_consistent": (
+                        stage.forecast_direction_consistent
+                    ),
                 }
                 for stage in self.context.stages
             ],
@@ -401,37 +416,6 @@ def _finite_tuple(name: str, values: Any) -> tuple[float, ...]:
     return result
 
 
-def _signed_deadzone(values: np.ndarray, thresholds: np.ndarray) -> np.ndarray:
-    return np.sign(values) * np.maximum(np.abs(values) - thresholds, 0.0)
-
-
-def _wind_effect_deg(uv_ms: np.ndarray, config: ControlCoreConfig) -> np.ndarray:
-    vectors = np.asarray(uv_ms, dtype=float)
-    if vectors.ndim != 2 or vectors.shape[1] != 2 or vectors.shape[0] == 0:
-        raise ValueError("wind vectors must have shape (N, 2)")
-    speeds = np.linalg.norm(vectors, axis=1)
-    mean_speed = float(np.mean(speeds))
-    mean_vector = np.mean(vectors, axis=0)
-    direction_speed = float(np.linalg.norm(mean_vector))
-    if mean_speed <= _EPS or direction_speed <= _EPS:
-        return np.zeros(2, dtype=float)
-    magnitude = min(
-        (mean_speed / float(config.wind_reference_ms)) ** 2,
-        float(config.wind_effect_cap),
-    )
-    u, v = (float(mean_vector[0]), float(mean_vector[1]))
-    wind_direction = math.atan2(-u, -v)
-    deadband = np.asarray(config.deadband_deg, dtype=float)
-    raw = np.array(
-        [
-            -deadband[0] * magnitude * math.cos(wind_direction),
-            deadband[1] * magnitude * math.sin(wind_direction),
-        ],
-        dtype=float,
-    )
-    return float(config.pressure_sign_multiplier) * raw
-
-
 def _disabled_policy(reason: str, stage_duration_s: float) -> ForecastActionPolicyResult:
     return ForecastActionPolicyResult(
         enabled=False,
@@ -495,6 +479,26 @@ def _stage_authorizations(
     return authorizations
 
 
+def _forecast_demand_metadata(
+    policy: ForecastActionPolicyResult,
+    stage_index: int,
+    *,
+    forecast_available: bool,
+) -> tuple[str, float | None, bool | None]:
+    if not forecast_available:
+        return "forecast_unavailable", None, None
+    if not policy.enabled:
+        return "forecast_policy_disabled", None, None
+    if stage_index >= len(policy.stages):
+        return "forecast_policy_stage_unavailable", None, None
+    stage = policy.stages[stage_index]
+    if stage.direction_consistent:
+        reason = "forecast_direction_consistent"
+    else:
+        reason = "forecast_direction_inconsistent_recorded"
+    return reason, stage.direction_consistency, stage.direction_consistent
+
+
 def build_control_context(
     observation: ControlObservation,
     evidence: ForecastEvidence | None,
@@ -502,9 +506,9 @@ def build_control_context(
 ) -> ControlContext:
     """Fuse measured posture with forecast increments without plant dynamics."""
 
-    posture = np.asarray(observation.posture_deg, dtype=float)
     deadband = np.asarray(config.deadband_deg, dtype=float)
-    feedback = _signed_deadzone(posture, deadband)
+    posture = np.asarray(observation.posture_deg, dtype=float)
+    feedback = posture_feedback_demand_deg(posture, deadband_deg=deadband)
     priority_envelope = np.asarray(config.posture_priority_envelope_deg, dtype=float)
     posture_priority = bool(np.any(np.abs(posture) >= priority_envelope))
 
@@ -551,9 +555,11 @@ def build_control_context(
         vectors = np.tile(vectors[-1], (required_points, 1))
         reliability = np.ones(required_points, dtype=float)
 
-    current_effect = _wind_effect_deg(
-        np.asarray([observation.current_wind_uv_ms], dtype=float),
-        config,
+    proxy_config = LegacyWindDemandProxyConfig(
+        normalization_deg=tuple(float(value) for value in deadband),
+        reference_speed_ms=config.wind_reference_ms,
+        effect_cap=config.wind_effect_cap,
+        sign_multiplier=config.pressure_sign_multiplier,
     )
     stages: list[ControlStage] = []
     for index in range(config.stage_count):
@@ -561,28 +567,37 @@ def build_control_context(
         end = start + points_per_stage
         stage_feedback = feedback * float(config.posture_decay) ** index
         mean_reliability = float(np.mean(reliability[start:end]))
-        if forecast_available:
-            future_effect = _wind_effect_deg(vectors[start:end], config)
-            forecast_increment = (
-                (future_effect - current_effect)
-                * float(config.forecast_gain)
-                * float(config.stage_discounts[index])
-                * mean_reliability
-            )
-        else:
-            forecast_increment = np.zeros(2, dtype=float)
-        combined = stage_feedback + forecast_increment
+        reason, direction_consistency, direction_consistent = _forecast_demand_metadata(
+            policy,
+            index,
+            forecast_available=forecast_available,
+        )
+        stage_demand = form_stage_demand(
+            feedback_demand_deg=stage_feedback,
+            current_wind_uv_ms=observation.current_wind_uv_ms,
+            future_wind_uv_ms=vectors[start:end] if forecast_available else None,
+            forecast_available=forecast_available,
+            stage_discount=float(config.forecast_gain)
+            * float(config.stage_discounts[index]),
+            proxy_config=proxy_config,
+            forecast_reason=reason,
+            direction_consistency=direction_consistency,
+            direction_consistent=direction_consistent,
+        )
         stages.append(
             ControlStage(
                 index=index,
                 lead_start_s=float(index * config.stage_duration_s),
                 lead_end_s=float((index + 1) * config.stage_duration_s),
-                feedback_demand_deg=tuple(float(value) for value in stage_feedback),
-                forecast_increment_deg=tuple(
-                    float(value) for value in forecast_increment
-                ),
-                combined_demand_deg=tuple(float(value) for value in combined),
+                feedback_demand_deg=stage_demand.feedback_demand_deg,
+                forecast_increment_deg=stage_demand.forecast_increment_deg,
+                combined_demand_deg=stage_demand.combined_demand_deg,
                 mean_reliability=mean_reliability,
+                forecast_demand_reason=stage_demand.forecast_reason,
+                forecast_direction_consistency=(
+                    stage_demand.direction_consistency
+                ),
+                forecast_direction_consistent=stage_demand.direction_consistent,
                 authorizations=_stage_authorizations(
                     policy,
                     index,
