@@ -26,6 +26,30 @@ class ControllerConfigurationTests(unittest.TestCase):
         self.assertEqual(loaded.sha256, controller_config_digest(document))
         self.assertEqual(len(loaded.sha256), 64)
 
+    def test_missing_legacy_demand_scale_uses_the_historical_deadband_value(self):
+        document = json.loads(
+            (ROOT / "configs/controller_core_v2.json").read_text(encoding="utf-8")
+        )
+        document["controller"].pop("legacy_demand_axis_scale_deg")
+
+        config = parse_controller_config(document)
+
+        self.assertIsNone(config.legacy_demand_axis_scale_deg)
+        self.assertEqual(
+            config.resolved_legacy_demand_axis_scale_deg,
+            config.deadband_deg,
+        )
+        normalized = controller_config_to_dict(config)
+        self.assertEqual(
+            tuple(normalized["controller"]["legacy_demand_axis_scale_deg"]),
+            config.deadband_deg,
+        )
+        reparsed = parse_controller_config(normalized)
+        self.assertEqual(
+            reparsed.legacy_demand_axis_scale_deg,
+            config.deadband_deg,
+        )
+
     def test_unknown_configuration_key_is_rejected(self):
         loaded = load_controller_config(ROOT / "configs/controller_core_v2.json")
         document = controller_config_to_dict(loaded.config)

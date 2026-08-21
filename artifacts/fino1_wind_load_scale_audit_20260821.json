@@ -1,0 +1,204 @@
+{
+  "evidence_level": "FINO1 wind-load-scale diagnostic",
+  "boundaries": {
+    "is_controller_performance_validation": false,
+    "is_real_turbine_operating_load_reconstruction": false,
+    "is_openfast_dynamic_response_validation": false,
+    "static_probe_definition": "incremental static moment around the OpenFAST candidate reference, not an absolute wind load",
+    "purpose": "place the static probe and continuous 10-minute wind-load increments within explicit project-data load scales"
+  },
+  "sources": {
+    "canonical_fino1_csv": "data/processed/wind_ml_10min/fino1_platform_10min/canonical_observations_10min.csv.gz",
+    "canonical_fino1_csv_sha256": "7445f889b7c92dad6d0dcfe588dabc846852c0538720cd2f0f12159a1799f376",
+    "frozen_150_case_list": "paper_snapshot/2026-08-11/evidence/cases/frozen_h_holdout150.csv",
+    "frozen_150_case_list_sha256": "a922ebb68a634141ad6f47030dd626343e4807cc6a5e981bcbebd23470555552",
+    "static_probe_mnm": 10.0,
+    "fixed_rotor_state": {
+      "pitch_deg": 1.0,
+      "rotor_speed_rpm": 5.0,
+      "model_zip": "references/fowt_reference_models/3_核心必用_官方模型文件包_IEAWindSystems_v1.1.16/IEAWindSystems_IEA-15-240-RWT_v1.1.16.zip",
+      "model_zip_sha256": "c96c6be345abf9440170764e2d9a2c201b5da6191192cef66537c5bc16805b80",
+      "ct_table_member": "IEA-15-240-RWT-1.1.16/OpenFAST/IEA-15-240-RWT/Cp_Ct_Cq.IEA15MW.txt"
+    }
+  },
+  "test_split": {
+    "scope": "all canonical rows with split=test",
+    "sample_count": 146742,
+    "wind_speed_mps": {
+      "count": 146742,
+      "minimum": 0.16,
+      "p05": 2.57,
+      "p25": 5.16,
+      "median": 7.81,
+      "p75": 11.86,
+      "p90": 15.868999999999941,
+      "p95": 17.95,
+      "p99": 21.97,
+      "maximum": 34.18
+    },
+    "legacy_paper_fallback": {
+      "definition": "T=0.5*rho*pi*63^2*0.8*U^2; M_resultant=T*127 m; components use the historic wind-direction decomposition",
+      "resultant_moment_mnm": {
+        "count": 146742,
+        "minimum": 0.019864184389011243,
+        "p05": 5.1250371668351695,
+        "p25": 20.659993276096007,
+        "median": 47.329600680100334,
+        "p75": 109.14407150330334,
+        "p90": 195.40240666695567,
+        "p95": 250.0113230703279,
+        "p99": 374.5336874474178,
+        "maximum": 906.5147800856523
+      },
+      "absolute_pitch_component_mnm": {
+        "count": 146742,
+        "minimum": 3.2118727040743364e-16,
+        "p05": 1.1703017140447902,
+        "p25": 9.042189973561305,
+        "median": 25.204386580989933,
+        "p75": 60.786897060553756,
+        "p90": 124.32503565173543,
+        "p95": 173.375463241538,
+        "p99": 272.6305768187551,
+        "maximum": 764.2870680550151
+      },
+      "absolute_roll_component_mnm": {
+        "count": 146742,
+        "minimum": 0.0,
+        "p05": 1.430158628132695,
+        "p25": 9.690912901300242,
+        "median": 27.397314076741452,
+        "p75": 69.58324546982601,
+        "p90": 142.79453793393733,
+        "p95": 193.51241365674787,
+        "p99": 305.68004415047596,
+        "maximum": 842.3212022339782
+      },
+      "fraction_resultant_above_static_probe_percent": 88.38301236183234
+    },
+    "fixed_iea15_operating_state": {
+      "definition": "aligned quasi-steady source-bound C_T lookup at fixed 1 deg pitch and 5 rpm; not a reconstruction of real turbine operation or yaw",
+      "validity": {
+        "valid_sample_count": 120576,
+        "valid_fraction_percent": 82.1687042564501,
+        "excluded_for_ct_table_bounds_count": 26166
+      },
+      "absolute_pitch_moment_mnm": {
+        "count": 120576,
+        "minimum": 82.36570225382397,
+        "p05": 93.70508782573044,
+        "p25": 140.00719453887535,
+        "median": 197.352254812736,
+        "p75": 246.20525116309753,
+        "p90": 252.3267299470463,
+        "p95": 252.96603058151663,
+        "p99": 255.664949947717,
+        "maximum": 289.802454098102
+      },
+      "consecutive_10min_absolute_pitch_moment_increment_mnm": {
+        "count": 117943,
+        "minimum": 0.0,
+        "p05": 0.09708178223968673,
+        "p25": 1.0375793326842881,
+        "median": 4.382622914040695,
+        "p75": 10.749650779598753,
+        "p90": 19.29817647820993,
+        "p95": 26.33559976126662,
+        "p99": 45.26531860817863,
+        "maximum": 135.23330970495994
+      },
+      "fraction_increment_above_static_probe_percent": 27.16396903589022
+    }
+  },
+  "frozen_150_case_coverage": {
+    "scope": "unique 10-minute test rows covered by at least one frozen 6-hour case",
+    "sample_count": 5243,
+    "wind_speed_mps": {
+      "count": 5243,
+      "minimum": 3.06,
+      "p05": 8.542,
+      "p25": 11.82,
+      "median": 14.26,
+      "p75": 16.83,
+      "p90": 18.88,
+      "p95": 19.95,
+      "p99": 22.2658,
+      "maximum": 34.18
+    },
+    "legacy_paper_fallback": {
+      "definition": "T=0.5*rho*pi*63^2*0.8*U^2; M_resultant=T*127 m; components use the historic wind-direction decomposition",
+      "resultant_moment_mnm": {
+        "count": 5243,
+        "minimum": 7.2656358181619405,
+        "p05": 56.617425987957674,
+        "p25": 108.40909668090993,
+        "median": 157.78649302589463,
+        "p75": 219.78548349939865,
+        "p90": 276.58890343259253,
+        "p95": 308.82793153466594,
+        "p99": 384.6869037076295,
+        "maximum": 906.5147800856523
+      },
+      "absolute_pitch_component_mnm": {
+        "count": 5243,
+        "minimum": 0.0515817770301217,
+        "p05": 9.178395948371723,
+        "p25": 45.615151570563725,
+        "median": 77.27661673337032,
+        "p75": 129.820668807841,
+        "p90": 189.8190875376078,
+        "p95": 234.77154011011643,
+        "p99": 311.2728244310977,
+        "maximum": 438.9621650995396
+      },
+      "absolute_roll_component_mnm": {
+        "count": 5243,
+        "minimum": 0.03941865811958887,
+        "p05": 13.777958291024728,
+        "p25": 64.37840500942502,
+        "median": 112.13719252054575,
+        "p75": 167.15516191542014,
+        "p90": 227.85768730335195,
+        "p95": 268.57907339764364,
+        "p99": 356.66528320987976,
+        "maximum": 807.8541918539256
+      },
+      "fraction_resultant_above_static_probe_percent": 99.92370780087737
+    },
+    "fixed_iea15_operating_state": {
+      "definition": "aligned quasi-steady source-bound C_T lookup at fixed 1 deg pitch and 5 rpm; not a reconstruction of real turbine operation or yaw",
+      "validity": {
+        "valid_sample_count": 5227,
+        "valid_fraction_percent": 99.69483120350944,
+        "excluded_for_ct_table_bounds_count": 16
+      },
+      "absolute_pitch_moment_mnm": {
+        "count": 5227,
+        "minimum": 82.61113258233604,
+        "p05": 191.34514426904678,
+        "p25": 238.79637177777101,
+        "median": 250.8330281202621,
+        "p75": 252.54032888057932,
+        "p90": 253.03037523485224,
+        "p95": 253.0782570787263,
+        "p99": 254.98711989672768,
+        "maximum": 287.84361721961545
+      },
+      "consecutive_10min_absolute_pitch_moment_increment_mnm": {
+        "count": 5080,
+        "minimum": 0.0,
+        "p05": 0.026552214077207738,
+        "p25": 0.25817078379255776,
+        "median": 0.8288630180216359,
+        "p75": 3.143028881181941,
+        "p90": 8.775878967477711,
+        "p95": 14.814206749881908,
+        "p99": 33.97033059381767,
+        "maximum": 113.59901634361017
+      },
+      "fraction_increment_above_static_probe_percent": 8.641732283464567
+    }
+  },
+  "frozen_case_count": 150,
+  "covered_unique_10min_rows": 5243
+}

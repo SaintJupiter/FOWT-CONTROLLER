@@ -1,0 +1,167 @@
+{
+  "evidence_level": "OpenFAST local-linearization availability probe",
+  "scope": {
+    "purpose": "check whether a frozen rigid-platform reference node produces an inspectable local pitch/roll linearization artifact",
+    "environment": "AeroDyn, InflowWind, ServoDyn, waves, and current disabled; HydroDyn and MoorDyn retained",
+    "hydrodyn_linearization_mode": "hydrostatic-plus-mooring local probe with wave excitation and radiation-memory paths disabled",
+    "not_a_dynamic_coefficient_fit": true,
+    "not_a_source_consistent_runtime_assembly": true,
+    "not_a_controller_validation": true
+  },
+  "source": {
+    "model_zip": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/references/fowt_reference_models/3_核心必用_官方模型文件包_IEAWindSystems_v1.1.16/IEAWindSystems_IEA-15-240-RWT_v1.1.16.zip",
+    "model_zip_sha256": "c96c6be345abf9440170764e2d9a2c201b5da6191192cef66537c5bc16805b80",
+    "openfast_binary": "/tmp/fowt-openfast-4.1.2/bin/openfast",
+    "openfast_binary_sha256": "94985b8cd9df32abbcfa8dd90f1e6a74520061f86421663d7795d17d9376865c",
+    "initial_state_artifact": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/configs/reference_platforms/volturnus_s_openfast_nominal_reference_state_v1.json",
+    "initial_state": {
+      "surge_m": 0.4198,
+      "sway_m": 0.0,
+      "heave_m": -0.3503,
+      "roll_deg": 0.0,
+      "pitch_deg": -1.452,
+      "yaw_deg": 0.0
+    }
+  },
+  "linearization_request": {
+    "linearization_time_s": 60.0,
+    "linearize": true,
+    "calculate_steady_state": false,
+    "linearization_times": 1,
+    "input_selection": "none",
+    "output_selection": "standard OpenFAST output channels",
+    "stationary_rigid_turbine": true
+  },
+  "terminal_platform_state_statistics": {
+    "tail_window_s": 20.0,
+    "first_window_s": [
+      40.0,
+      50.0
+    ],
+    "second_window_s": [
+      50.0,
+      60.0
+    ],
+    "first_window_statistics": {
+      "surge_m": {
+        "mean": 0.41568000000000005,
+        "minimum": 0.415,
+        "maximum": 0.4162,
+        "range": 0.0012000000000000344
+      },
+      "sway_m": {
+        "mean": -9.6525e-09,
+        "minimum": -1.14e-08,
+        "maximum": -8.178e-09,
+        "range": 3.221999999999999e-09
+      },
+      "heave_m": {
+        "mean": -0.35023,
+        "minimum": -0.3503,
+        "maximum": -0.3501,
+        "range": 0.00019999999999997797
+      },
+      "roll_deg": {
+        "mean": -3.1177e-08,
+        "minimum": -3.559e-08,
+        "maximum": -2.172e-08,
+        "range": 1.3870000000000004e-08
+      },
+      "pitch_deg": {
+        "mean": -1.4522,
+        "minimum": -1.453,
+        "maximum": -1.452,
+        "range": 0.001000000000000112
+      },
+      "yaw_deg": {
+        "mean": -1.19888e-09,
+        "minimum": -1.554e-09,
+        "maximum": -9.591e-10,
+        "range": 5.949000000000001e-10
+      }
+    },
+    "second_window_statistics": {
+      "surge_m": {
+        "mean": 0.41706363636363636,
+        "minimum": 0.4162,
+        "maximum": 0.4182,
+        "range": 0.0020000000000000018
+      },
+      "sway_m": {
+        "mean": -1.3038181818181821e-08,
+        "minimum": -1.356e-08,
+        "maximum": -1.179e-08,
+        "range": 1.7700000000000003e-09
+      },
+      "heave_m": {
+        "mean": -0.3503636363636364,
+        "minimum": -0.3504,
+        "maximum": -0.3503,
+        "range": 9.999999999998899e-05
+      },
+      "roll_deg": {
+        "mean": -4.528972727272727e-09,
+        "minimum": -1.797e-08,
+        "maximum": 1.627e-09,
+        "range": 1.9597e-08
+      },
+      "pitch_deg": {
+        "mean": -1.4524545454545454,
+        "minimum": -1.453,
+        "maximum": -1.452,
+        "range": 0.001000000000000112
+      },
+      "yaw_deg": {
+        "mean": -2.018636363636363e-09,
+        "minimum": -2.19e-09,
+        "maximum": -1.703e-09,
+        "range": 4.870000000000001e-10
+      }
+    },
+    "second_window_mean_state_for_release_only": {
+      "surge_m": 0.41706363636363636,
+      "sway_m": -1.3038181818181821e-08,
+      "heave_m": -0.3503636363636364,
+      "roll_deg": -4.528972727272727e-09,
+      "pitch_deg": -1.4524545454545454,
+      "yaw_deg": -2.018636363636363e-09
+    },
+    "second_minus_first_mean": {
+      "surge_m": 0.0013836363636363092,
+      "sway_m": -3.385681818181821e-09,
+      "heave_m": -0.0001336363636363913,
+      "roll_deg": 2.6648027272727275e-08,
+      "pitch_deg": -0.00025454545454550725,
+      "yaw_deg": -8.197563636363633e-10
+    }
+  },
+  "linearization_files": [
+    "/tmp/fowt-openfast-platform-linearization-probe-v4d-20260821/source/IEA-15-240-RWT-1.1.16/OpenFAST/IEA-15-240-RWT-UMaineSemi/IEA-15-240-RWT-UMaineSemi.1.lin"
+  ],
+  "linearization_summaries": {
+    "/tmp/fowt-openfast-platform-linearization-probe-v4d-20260821/source/IEA-15-240-RWT-1.1.16/OpenFAST/IEA-15-240-RWT-UMaineSemi/IEA-15-240-RWT-UMaineSemi.1.lin": {
+      "continuous_states": 894,
+      "discrete_states": 0,
+      "inputs": 0,
+      "outputs": 306,
+      "platform_state_lines": [
+        "1    4.182E-01                                 F               2         ED Platform horizontal surge translation DOF (internal DOF index = DOF_Sg), m",
+        "2   -1.334E-08                                 F               2         ED Platform horizontal sway translation DOF (internal DOF index = DOF_Sw), m",
+        "3   -3.504E-01                                 F               2         ED Platform vertical heave translation DOF (internal DOF index = DOF_Hv), m",
+        "4   -1.292E-11                                 F               2         ED Platform roll tilt rotation DOF (internal DOF index = DOF_R), rad",
+        "5   -2.534E-02                                 F               2         ED Platform pitch tilt rotation DOF (internal DOF index = DOF_P), rad",
+        "6   -3.126E-11                                 F               2         ED Platform yaw rotation DOF (internal DOF index = DOF_Y), rad",
+        "1    2.821E-04                                 F               2         First time derivative of ED Platform horizontal surge translation DOF (internal DOF index = DOF_Sg), m/s",
+        "2    2.537E-10                                 F               2         First time derivative of ED Platform horizontal sway translation DOF (internal DOF index = DOF_Sw), m/s",
+        "3    9.155E-05                                 F               2         First time derivative of ED Platform vertical heave translation DOF (internal DOF index = DOF_Hv), m/s",
+        "4   -3.482E-11                                 F               2         First time derivative of ED Platform roll tilt rotation DOF (internal DOF index = DOF_R), rad/s",
+        "5    1.647E-06                                 F               2         First time derivative of ED Platform pitch tilt rotation DOF (internal DOF index = DOF_P), rad/s",
+        "6    5.361E-12                                 F               2         First time derivative of ED Platform yaw rotation DOF (internal DOF index = DOF_Y), rad/s"
+      ],
+      "platform_pitch_roll_output_lines": [
+        "32   -1.452E+00                                 F               0         ED PtfmPitch, (deg)",
+        "33   -7.402E-10                                 F               0         ED PtfmRoll, (deg)"
+      ]
+    }
+  }
+}

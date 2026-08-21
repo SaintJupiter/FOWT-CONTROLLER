@@ -24,7 +24,7 @@ ForecastEvidenceSource = Callable[[float, Mapping[str, Any]], ForecastEvidence |
 
 
 def wind_observation_to_uv_ms(wind_obs: Mapping[str, Any]) -> tuple[float, float]:
-    """Convert speed and meteorological direction to the model UV convention."""
+    """Convert a wind-from observation to ENU downwind ``[east, north]`` m/s."""
 
     try:
         speed = float(wind_obs["ws"])

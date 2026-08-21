@@ -1,9 +1,11 @@
-"""Explicit formation of the V2 controller's current demand proxy.
+"""Explicit formation of the V2 controller's historical demand proxy.
 
 This module deliberately preserves the existing empirical wind-to-demand
-relation while keeping it outside candidate selection.  It is not a platform
-response model: its output is only the legacy demand proxy that a later,
-physics-informed mapping can replace without changing action or pump logic.
+relation while keeping that calculation outside candidate selection. It is
+not a platform-response model, nor does it define a physics-informed demand
+interface. Before a physical mapping can replace this proxy, its output
+quantity and units must be fixed and its relation to action-to-mass mapping
+and residual scoring must be reviewed explicitly.
 """
 
 from __future__ import annotations
@@ -42,24 +44,27 @@ def _finite_positive(name: str, value: float) -> float:
 class LegacyWindDemandProxyConfig:
     """Parameters of the historical empirical wind-demand proxy.
 
-    ``normalization_deg`` currently receives the controller's historical
-    deadband values for numerical compatibility.  It is a shared legacy scale,
-    not a statement that the posture deadband is a physical ballast mapping.
+    ``demand_axis_scale_deg`` is the retained numerical scale of the legacy
+    two-axis demand representation.  It is not a posture deadband, a platform
+    parameter, or a physically calibrated ballast mapping.
     """
 
-    normalization_deg: tuple[float, float]
+    demand_axis_scale_deg: tuple[float, float]
     reference_speed_ms: float
     effect_cap: float
     sign_multiplier: float
 
     def __post_init__(self) -> None:
-        normalization = _finite_pair("normalization_deg", self.normalization_deg)
-        if np.any(normalization <= 0.0):
-            raise ValueError("normalization_deg values must be positive")
+        demand_scale = _finite_pair(
+            "demand_axis_scale_deg",
+            self.demand_axis_scale_deg,
+        )
+        if np.any(demand_scale <= 0.0):
+            raise ValueError("demand_axis_scale_deg values must be positive")
         object.__setattr__(
             self,
-            "normalization_deg",
-            tuple(float(value) for value in normalization),
+            "demand_axis_scale_deg",
+            tuple(float(value) for value in demand_scale),
         )
         object.__setattr__(
             self,
@@ -108,7 +113,7 @@ def legacy_wind_proxy_demand_deg(
     *,
     config: LegacyWindDemandProxyConfig,
 ) -> np.ndarray:
-    """Map wind vectors to the retained empirical two-axis demand proxy."""
+    """Map ENU downwind wind vectors to the retained empirical demand proxy."""
 
     vectors = np.asarray(uv_ms, dtype=float)
     if vectors.ndim != 2 or vectors.shape[1] != 2 or vectors.shape[0] == 0:
@@ -127,11 +132,11 @@ def legacy_wind_proxy_demand_deg(
     )
     u, v = (float(mean_vector[0]), float(mean_vector[1]))
     wind_direction = math.atan2(-u, -v)
-    normalization = np.asarray(config.normalization_deg, dtype=float)
+    demand_scale = np.asarray(config.demand_axis_scale_deg, dtype=float)
     raw = np.array(
         [
-            -normalization[0] * magnitude * math.cos(wind_direction),
-            normalization[1] * magnitude * math.sin(wind_direction),
+            -demand_scale[0] * magnitude * math.cos(wind_direction),
+            demand_scale[1] * magnitude * math.sin(wind_direction),
         ],
         dtype=float,
     )

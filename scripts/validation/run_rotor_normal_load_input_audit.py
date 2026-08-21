@@ -34,6 +34,7 @@ from fowt_platform import (
     openfast_reference_vector_to_frozen_equilibrium_axes,
     quasi_steady_rotor_normal_load_from_relative_air,
     relative_air_velocity_at_platform_point,
+    RotorPerformanceOperatingPoint,
 )
 
 
@@ -231,18 +232,14 @@ def run_audit(
         raise ValueError("pitch_deg must be finite")
 
     rotor_radius = float(source["rotor_radius_m"])
-    tip_speed_ratio = (
-        selected_rotor_speed_rpm
-        * 2.0
-        * math.pi
-        / 60.0
-        * rotor_radius
-        / selected_wind_speed
-    )
-    thrust_coefficient = table.ct_at(
+    operating_point = RotorPerformanceOperatingPoint(
         pitch_deg=selected_pitch_deg,
-        tip_speed_ratio=tip_speed_ratio,
+        rotor_speed_rpm=selected_rotor_speed_rpm,
+        rotor_radius_m=rotor_radius,
+        normal_inflow_speed_mps=selected_wind_speed,
     )
+    tip_speed_ratio = operating_point.tip_speed_ratio
+    thrust_coefficient = table.ct_at_operating_point(operating_point)
     # The audit intentionally uses a stationary, aligned reference condition.
     # It exercises the new kinematic chain without claiming a dynamic inflow
     # or yaw model for the public OpenFAST operating node.

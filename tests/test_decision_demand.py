@@ -13,7 +13,7 @@ from wind_prediction.decision_demand import (
 class DecisionDemandTests(unittest.TestCase):
     def setUp(self):
         self.proxy = LegacyWindDemandProxyConfig(
-            normalization_deg=(1.0, 0.8),
+            demand_axis_scale_deg=(1.0, 0.8),
             reference_speed_ms=10.0,
             effect_cap=2.0,
             sign_multiplier=-1.0,

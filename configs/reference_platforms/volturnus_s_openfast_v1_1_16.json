@@ -23,7 +23,10 @@
     }
   },
   "archive_members": {
+    "openfast_fst": "IEA-15-240-RWT-1.1.16/OpenFAST/IEA-15-240-RWT-UMaineSemi/IEA-15-240-RWT-UMaineSemi.fst",
     "elastodyn": "IEA-15-240-RWT-1.1.16/OpenFAST/IEA-15-240-RWT-UMaineSemi/IEA-15-240-RWT-UMaineSemi_ElastoDyn.dat",
+    "elastodyn_tower": "IEA-15-240-RWT-1.1.16/OpenFAST/IEA-15-240-RWT-UMaineSemi/IEA-15-240-RWT-UMaineSemi_ElastoDyn_tower.dat",
+    "elastodyn_blade": "IEA-15-240-RWT-1.1.16/OpenFAST/IEA-15-240-RWT/IEA-15-240-RWT_ElastoDyn_blade.dat",
     "hydrodyn": "IEA-15-240-RWT-1.1.16/OpenFAST/IEA-15-240-RWT-UMaineSemi/IEA-15-240-RWT-UMaineSemi_HydroDyn.dat",
     "wamit_hydrostatic": "IEA-15-240-RWT-1.1.16/OpenFAST/IEA-15-240-RWT-UMaineSemi/HydroData/IEA-15-240-RWT-UMaineSemi.hst",
     "wamit_added_mass": "IEA-15-240-RWT-1.1.16/OpenFAST/IEA-15-240-RWT-UMaineSemi/HydroData/IEA-15-240-RWT-UMaineSemi.1",

@@ -2,6 +2,7 @@
   "schema_version": "controller_core.v2",
   "controller": {
     "deadband_deg": [1.0, 0.8],
+    "legacy_demand_axis_scale_deg": [1.0, 0.8],
     "posture_priority_envelope_deg": [4.0, 4.0],
     "stage_duration_s": 1200.0,
     "stage_count": 3,

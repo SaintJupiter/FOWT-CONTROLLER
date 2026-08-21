@@ -16,6 +16,12 @@ class ForecastContract:
 
 
 def speed_direction_from_uv(uv: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Recover speed and meteorological wind-from direction from ENU ``u/v``.
+
+    ``uv`` has component order ``[east, north]`` and points downwind.  The
+    returned direction therefore names the direction the wind comes from.
+    """
+
     arr = np.asarray(uv, dtype=np.float32)
     speed = np.sqrt(arr[:, 0] ** 2 + arr[:, 1] ** 2)
     direction = (np.rad2deg(np.arctan2(-arr[:, 0], -arr[:, 1])) + 360.0) % 360.0

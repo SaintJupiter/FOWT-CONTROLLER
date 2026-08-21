@@ -29,6 +29,25 @@ class RotorPerformanceTable:
     source_sha256: str
     source_archive_sha256: str | None = None
 
+    def ct_at_operating_point(
+        self,
+        operating_point: "RotorPerformanceOperatingPoint",
+    ) -> float:
+        """Look up ``C_T`` for one explicitly supplied table operating point.
+
+        The point contains only the quantities needed by the two-dimensional
+        ROSCO table.  In particular, it is not a rotor controller, does not
+        infer pitch or rotor speed from wind speed, and does not establish that
+        the supplied inflow is at rotor height.
+        """
+
+        if not isinstance(operating_point, RotorPerformanceOperatingPoint):
+            raise TypeError("operating_point must be a RotorPerformanceOperatingPoint")
+        return self.ct_at(
+            pitch_deg=operating_point.pitch_deg,
+            tip_speed_ratio=operating_point.tip_speed_ratio,
+        )
+
     def ct_at(self, *, pitch_deg: float, tip_speed_ratio: float) -> float:
         """Return bilinearly interpolated ``C_T`` within the published grid.
 
@@ -44,6 +63,51 @@ class RotorPerformanceTable:
             y=float(tip_speed_ratio),
             x_name="pitch_deg",
             y_name="tip_speed_ratio",
+        )
+
+
+@dataclass(frozen=True)
+class RotorPerformanceOperatingPoint:
+    """Explicit inputs required for one two-dimensional ``C_T`` lookup.
+
+    ``normal_inflow_speed_mps`` is already the rotor-normal inflow used to
+    form the tip-speed ratio.  It is deliberately not described as a FINO1
+    measurement or a hub-height conversion: a later physical inflow layer
+    must make that relationship explicit.
+    """
+
+    pitch_deg: float
+    rotor_speed_rpm: float
+    rotor_radius_m: float
+    normal_inflow_speed_mps: float
+
+    def __post_init__(self) -> None:
+        pitch = _finite_scalar("pitch_deg", self.pitch_deg)
+        rotor_speed = _finite_scalar("rotor_speed_rpm", self.rotor_speed_rpm)
+        radius = _finite_scalar("rotor_radius_m", self.rotor_radius_m)
+        inflow = _finite_scalar("normal_inflow_speed_mps", self.normal_inflow_speed_mps)
+        if rotor_speed < 0.0:
+            raise ValueError("rotor_speed_rpm must be non-negative")
+        if radius <= 0.0:
+            raise ValueError("rotor_radius_m must be positive")
+        if inflow <= 0.0:
+            raise ValueError("normal_inflow_speed_mps must be positive")
+        object.__setattr__(self, "pitch_deg", pitch)
+        object.__setattr__(self, "rotor_speed_rpm", rotor_speed)
+        object.__setattr__(self, "rotor_radius_m", radius)
+        object.__setattr__(self, "normal_inflow_speed_mps", inflow)
+
+    @property
+    def tip_speed_ratio(self) -> float:
+        """Return the table's tip-speed ratio from the explicit inputs."""
+
+        return float(
+            self.rotor_speed_rpm
+            * 2.0
+            * np.pi
+            / 60.0
+            * self.rotor_radius_m
+            / self.normal_inflow_speed_mps
         )
 
 
@@ -183,6 +247,16 @@ def _validate_axis(axis: np.ndarray, name: str, *, minimum_length: int = 1) -> N
         raise ValueError(f"{name} must contain at least {minimum_length} entries")
     if not np.isfinite(axis).all() or np.any(np.diff(axis) <= 0.0):
         raise ValueError(f"{name} must be finite and strictly increasing")
+
+
+def _finite_scalar(name: str, value: object) -> float:
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{name} must be finite") from error
+    if not np.isfinite(result):
+        raise ValueError(f"{name} must be finite")
+    return result
 
 
 def _file_sha256(path: Path) -> str:

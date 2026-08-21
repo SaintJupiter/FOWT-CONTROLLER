@@ -1,0 +1,109 @@
+{
+  "evidence_level": "OpenFAST/source-consistent static no-MoorDyn endpoint check",
+  "scope": {
+    "purpose": "check the source-consistent hydrostatic-plus-gravity pitch scale at three static endpoints",
+    "environment": "AeroDyn, InflowWind, ServoDyn, waves, current, and MoorDyn disabled; ElastoDyn and HydroDyn retained",
+    "load_definition": "pure pitch HydroDyn AddF0 about the WAMIT/OpenFAST reference point",
+    "readout_definition": "matched zero-preload original-damping release tail mean",
+    "stability_definition": "roll and pitch release-tail range and drift only; no six-degree-of-freedom convergence claim",
+    "not_a_mooring_validation": true,
+    "not_a_dynamic_six_dof_validation": true,
+    "not_a_controller_validation": true
+  },
+  "source_consistent_static_reference": {
+    "total_mass_kg": 20252442.15921621,
+    "vertical_center_of_mass_m": -1.5351887163872497,
+    "pitch_restoring_stiffness_without_mooring_nm_per_rad": 2499228319.387886
+  },
+  "zero_preload_release_stability": {
+    "criteria": {
+      "maximum_tail_range_deg": 0.01,
+      "maximum_abs_second_minus_first_tail_mean_deg": 0.005
+    },
+    "components": {
+      "roll_deg": {
+        "tail_range_deg": 3.5759999999999996e-05,
+        "second_minus_first_tail_mean_deg": 3.44774301754386e-06
+      },
+      "pitch_deg": {
+        "tail_range_deg": 0.0,
+        "second_minus_first_tail_mean_deg": 0.0
+      }
+    },
+    "passes": true
+  },
+  "cases": [
+    {
+      "target_source_consistent_pitch_increment_deg": 2.0,
+      "applied_openfast_add_f0_pitch_moment_nm": 87239525.86480609,
+      "openfast_pitch_increment_deg": 2.0058000000000002,
+      "difference_deg": -0.005800000000000249,
+      "relative_difference_percent": -0.29000000000001247,
+      "original_damping_release_stability": {
+        "criteria": {
+          "maximum_tail_range_deg": 0.01,
+          "maximum_abs_second_minus_first_tail_mean_deg": 0.005
+        },
+        "components": {
+          "roll_deg": {
+            "tail_range_deg": 1.9999999999998318e-06,
+            "second_minus_first_tail_mean_deg": -4.1228070174828546e-08
+          },
+          "pitch_deg": {
+            "tail_range_deg": 0.0,
+            "second_minus_first_tail_mean_deg": 0.0
+          }
+        },
+        "passes": true
+      }
+    },
+    {
+      "target_source_consistent_pitch_increment_deg": 5.0,
+      "applied_openfast_add_f0_pitch_moment_nm": 218098814.66201523,
+      "openfast_pitch_increment_deg": 5.01875,
+      "difference_deg": -0.018749999999999822,
+      "relative_difference_percent": -0.37499999999999645,
+      "original_damping_release_stability": {
+        "criteria": {
+          "maximum_tail_range_deg": 0.01,
+          "maximum_abs_second_minus_first_tail_mean_deg": 0.005
+        },
+        "components": {
+          "roll_deg": {
+            "tail_range_deg": 7.000000000000062e-05,
+            "second_minus_first_tail_mean_deg": -6.899999999997186e-06
+          },
+          "pitch_deg": {
+            "tail_range_deg": 0.0009999999999998899,
+            "second_minus_first_tail_mean_deg": 0.00012333333333369723
+          }
+        },
+        "passes": true
+      }
+    },
+    {
+      "target_source_consistent_pitch_increment_deg": 10.0,
+      "applied_openfast_add_f0_pitch_moment_nm": 436197629.32403046,
+      "openfast_pitch_increment_deg": 10.053,
+      "difference_deg": -0.053000000000000824,
+      "relative_difference_percent": -0.5300000000000082,
+      "original_damping_release_stability": {
+        "criteria": {
+          "maximum_tail_range_deg": 0.01,
+          "maximum_abs_second_minus_first_tail_mean_deg": 0.005
+        },
+        "components": {
+          "roll_deg": {
+            "tail_range_deg": 5.9999999999990616e-05,
+            "second_minus_first_tail_mean_deg": -1.4150877192961597e-05
+          },
+          "pitch_deg": {
+            "tail_range_deg": 0.0,
+            "second_minus_first_tail_mean_deg": 0.0
+          }
+        },
+        "passes": true
+      }
+    }
+  ]
+}

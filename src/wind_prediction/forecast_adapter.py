@@ -10,6 +10,14 @@ import numpy as np
 
 @dataclass(frozen=True)
 class ForecastResult:
+    """One wind forecast using ENU downwind ``[east, north]`` vectors.
+
+    ``wind_uv_raw`` is expressed in m/s and points in the direction the air
+    moves.  ``wind_dir_deg`` retains the corresponding meteorological
+    wind-from direction.  This is a data convention, not a platform-axis
+    convention; a platform-load caller must still apply its frozen heading.
+    """
+
     wind_uv_raw: np.ndarray
     wind_speed: np.ndarray
     wind_dir_deg: np.ndarray

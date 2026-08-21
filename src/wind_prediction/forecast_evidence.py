@@ -20,7 +20,18 @@ from .forecast_adapter import ForecastResult
 
 @dataclass(frozen=True)
 class ForecastEvidence:
-    """One forecast origin and all evidence available at that origin."""
+    """One forecast origin and all evidence available at that origin.
+
+    ``uv_ms`` uses the forecasting data convention: an ENU downwind velocity
+    with component order ``[east, north]`` and unit m/s.  It is not yet
+    resolved into the platform axes used by the low-order load model.
+
+    For the current FINO1 sequence dataset, ``uv_ms[i]`` is the dataset record
+    at ``origin + (i + 1) * sample_period_s``.  Thus the first element is a
+    future ``+sample_period_s`` record, not a value at the forecast origin and
+    not an interval average.  A later plant-coupling layer must define its own
+    scheduling rule before treating these records as physical substep inputs.
+    """
 
     source: str
     model_version: str

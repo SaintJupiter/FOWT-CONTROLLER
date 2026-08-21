@@ -205,6 +205,23 @@ class ForecastActionPolicyTests(unittest.TestCase):
             all(stage.high_impact_event_supported for stage in result.stages)
         )
 
+    def test_first_policy_stage_uses_plus_10_and_plus_20_min_records(self):
+        result = self._evaluate(
+            [
+                [6.0, 0.0],
+                [7.0, 0.0],
+                [8.0, 0.0],
+                [9.0, 0.0],
+                [10.0, 0.0],
+                [11.0, 0.0],
+            ]
+        )
+
+        first = result.stages[0]
+        self.assertEqual(first.point_indices, (0, 1))
+        self.assertEqual(first.lead_start_s, 600.0)
+        self.assertEqual(first.lead_end_s, 1200.0)
+
     def test_declining_forecast_authorizes_hold_and_release_without_event_support(self):
         result = self._evaluate(
             [

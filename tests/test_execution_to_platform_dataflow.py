@@ -5,11 +5,11 @@ from pathlib import Path
 import numpy as np
 
 from fowt_platform import (
+    assemble_volturnus_static_restoring_aligned_runtime_assembly,
     assemble_ballast_model_snapshot,
     IncrementalLoads,
     IncrementalPlatformModel,
     IncrementalState,
-    load_volturnus_reference_components,
 )
 from wind_prediction.execution_rollout import (
     ExecutionRolloutConfig,
@@ -37,6 +37,17 @@ TANK_COORDINATES_M = np.array(
 
 
 class ExecutionToPlatformDataflowTests(unittest.TestCase):
+    def runtime_assembly(self, damping):
+        runtime = assemble_volturnus_static_restoring_aligned_runtime_assembly(
+            REFERENCE_MANIFEST,
+            damping,
+        )
+        self.assertEqual(
+            runtime.provenance,
+            "static_restoring_aligned_with_aux_frc_inertia_mooring",
+        )
+        return runtime
+
     @staticmethod
     def execution_config(*, density_kg_m3: float) -> ExecutionRolloutConfig:
         return ExecutionRolloutConfig(
@@ -80,10 +91,9 @@ class ExecutionToPlatformDataflowTests(unittest.TestCase):
             REFERENCE_TANK_MASSES_KG + expected_delta,
         )
 
-        reference = load_volturnus_reference_components(REFERENCE_MANIFEST)
+        runtime_assembly = self.runtime_assembly(np.zeros((6, 6)))
         snapshot = assemble_ballast_model_snapshot(
-            reference=reference,
-            damping=np.zeros((6, 6)),
+            runtime_assembly=runtime_assembly,
             actual_tank_masses_kg=execution.state.actual_masses_kg,
             reference_tank_masses_kg=REFERENCE_TANK_MASSES_KG,
             tank_capacities_kg=np.full(3, TANK_CAPACITY_KG),
@@ -91,9 +101,7 @@ class ExecutionToPlatformDataflowTests(unittest.TestCase):
         )
 
         np.testing.assert_allclose(snapshot.tank_mass_deltas_kg, expected_delta)
-        baseline = reference.assemble_whole_system_candidate(
-            damping=np.zeros((6, 6))
-        )
+        baseline = runtime_assembly.base_matrices
         self.assertAlmostEqual(
             snapshot.matrices.mass[0, 0] - baseline.mass[0, 0],
             density_kg_m3,
@@ -148,18 +156,15 @@ class ExecutionToPlatformDataflowTests(unittest.TestCase):
             REFERENCE_TANK_MASSES_KG + 2.0 * per_period_delta,
         )
 
-        reference = load_volturnus_reference_components(REFERENCE_MANIFEST)
+        runtime_assembly = self.runtime_assembly(np.zeros((6, 6)))
         snapshot = assemble_ballast_model_snapshot(
-            reference=reference,
-            damping=np.zeros((6, 6)),
+            runtime_assembly=runtime_assembly,
             actual_tank_masses_kg=second.state.actual_masses_kg,
             reference_tank_masses_kg=REFERENCE_TANK_MASSES_KG,
             tank_capacities_kg=np.full(3, TANK_CAPACITY_KG),
             tank_coordinates_m=TANK_COORDINATES_M,
         )
-        baseline = reference.assemble_whole_system_candidate(
-            damping=np.zeros((6, 6))
-        )
+        baseline = runtime_assembly.base_matrices
 
         self.assertAlmostEqual(float(np.sum(snapshot.tank_mass_deltas_kg)), 0.0)
         self.assertAlmostEqual(snapshot.incremental_ballast_load[2], 0.0)
@@ -183,15 +188,14 @@ class ExecutionToPlatformDataflowTests(unittest.TestCase):
         requested_target = REFERENCE_TANK_MASSES_KG + np.array(
             [-3_000.0, 3_000.0, 0.0]
         )
-        reference = load_volturnus_reference_components(REFERENCE_MANIFEST)
         damping = np.zeros((6, 6))
+        runtime_assembly = self.runtime_assembly(damping)
         tank_capacities = np.full(3, TANK_CAPACITY_KG)
         platform_state = IncrementalState.zeros()
         execution_state = self.initial_execution_state()
 
         snapshot_n = assemble_ballast_model_snapshot(
-            reference=reference,
-            damping=damping,
+            runtime_assembly=runtime_assembly,
             actual_tank_masses_kg=execution_state.actual_masses_kg,
             reference_tank_masses_kg=REFERENCE_TANK_MASSES_KG,
             tank_capacities_kg=tank_capacities,
@@ -218,8 +222,7 @@ class ExecutionToPlatformDataflowTests(unittest.TestCase):
         np.testing.assert_array_equal(platform_state.velocity, np.zeros(6))
 
         snapshot_n1 = assemble_ballast_model_snapshot(
-            reference=reference,
-            damping=damping,
+            runtime_assembly=runtime_assembly,
             actual_tank_masses_kg=execution_n1.state.actual_masses_kg,
             reference_tank_masses_kg=REFERENCE_TANK_MASSES_KG,
             tank_capacities_kg=tank_capacities,

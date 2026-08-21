@@ -12,11 +12,11 @@ from pathlib import Path
 import numpy as np
 
 from fowt_platform import (
+    assemble_volturnus_static_restoring_aligned_runtime_assembly,
     assemble_ballast_model_snapshot,
     IncrementalLoads,
     IncrementalPlatformModel,
     IncrementalState,
-    load_volturnus_reference_components,
 )
 from wind_prediction.execution_rollout import (
     ExecutionRolloutConfig,
@@ -51,8 +51,10 @@ def run_short_chain(*, duration_s: float, step_s: float) -> list[dict[str, float
         raise ValueError("duration_s must be an integer multiple of step_s")
 
     density_kg_m3 = 1025.0
-    reference = load_volturnus_reference_components(REFERENCE_MANIFEST)
-    damping = np.zeros((6, 6))
+    runtime_assembly = assemble_volturnus_static_restoring_aligned_runtime_assembly(
+        REFERENCE_MANIFEST,
+        np.zeros((6, 6)),
+    )
     capacities = np.full(3, TANK_CAPACITY_KG)
     requested_target = REFERENCE_TANK_MASSES_KG + np.array(
         [-3_000.0, 3_000.0, 0.0]
@@ -85,8 +87,7 @@ def run_short_chain(*, duration_s: float, step_s: float) -> list[dict[str, float
 
     for step_index in range(step_count):
         snapshot = assemble_ballast_model_snapshot(
-            reference=reference,
-            damping=damping,
+            runtime_assembly=runtime_assembly,
             actual_tank_masses_kg=execution_state.actual_masses_kg,
             reference_tank_masses_kg=REFERENCE_TANK_MASSES_KG,
             tank_capacities_kg=capacities,

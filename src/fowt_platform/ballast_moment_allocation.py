@@ -1,0 +1,215 @@
+"""Map a requested ballast-generated pitch-roll load to three-tank redistribution.
+
+This module only resolves the geometry of a three-tank mass redistribution.
+It neither chooses a requested moment nor simulates the water pumps. The
+first research-model version holds total ballast mass constant, so it does not
+model independent exchange with the sea as a candidate decision variable.
+
+The requested vector uses ``(pitch, roll) = (M, K)`` and denotes the
+generalized gravity load that the ballast change itself must produce. It is
+therefore not an external wind or wave load that still needs a sign reversal.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+import numpy as np
+
+from .ballast import ballast_gravity_load_about_reference
+
+
+_PITCH_ROLL_LOAD_INDICES = np.array([4, 3], dtype=int)
+_REDISTRIBUTION_BASIS = np.array(
+    [[1.0, 0.0], [0.0, 1.0], [-1.0, -1.0]],
+    dtype=float,
+)
+
+
+def _finite_array(name: str, value: Any, shape: tuple[int, ...]) -> np.ndarray:
+    try:
+        array = np.asarray(value, dtype=float)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"{name} must have shape {shape} and contain finite values"
+        ) from exc
+    if array.shape != shape or not np.all(np.isfinite(array)):
+        raise ValueError(f"{name} must have shape {shape} and contain finite values")
+    result = np.array(array, dtype=float, copy=True)
+    result.setflags(write=False)
+    return result
+
+
+def _positive_scalar(name: str, value: Any) -> float:
+    try:
+        scalar = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be finite and positive") from exc
+    if not np.isfinite(scalar) or scalar <= 0.0:
+        raise ValueError(f"{name} must be finite and positive")
+    return scalar
+
+
+@dataclass(frozen=True)
+class BallastMomentAllocation:
+    """One bounded redistribution target and its generated gravity moment.
+
+    Pitch and roll quantities use the fixed order ``(pitch, roll) = (M, K)``.
+    The requested and achieved values are ballast-generated generalized
+    gravity loads. Tank mass deltas are relative to the supplied actual tank
+    masses. Their sum is always zero, so the result represents redistribution
+    only.
+    """
+
+    requested_pitch_roll_moment_nm: Any
+    tank_mass_deltas_kg: Any
+    target_tank_masses_kg: Any
+    achieved_pitch_roll_moment_nm: Any
+    residual_pitch_roll_moment_nm: Any
+    feasible_scale: float
+    capacity_limited: bool
+
+    def __post_init__(self) -> None:
+        for name in (
+            "requested_pitch_roll_moment_nm",
+            "tank_mass_deltas_kg",
+            "target_tank_masses_kg",
+            "achieved_pitch_roll_moment_nm",
+            "residual_pitch_roll_moment_nm",
+        ):
+            shape = (2,) if "pitch_roll" in name else (3,)
+            object.__setattr__(self, name, _finite_array(name, getattr(self, name), shape))
+        scale = float(self.feasible_scale)
+        if not np.isfinite(scale) or not 0.0 <= scale <= 1.0:
+            raise ValueError("feasible_scale must lie in [0, 1]")
+        object.__setattr__(self, "feasible_scale", scale)
+        if type(self.capacity_limited) is not bool:
+            raise ValueError("capacity_limited must be a boolean")
+        if not np.isclose(float(np.sum(self.tank_mass_deltas_kg)), 0.0, atol=1e-8):
+            raise ValueError("tank_mass_deltas_kg must preserve total ballast mass")
+
+
+def pitch_roll_moment_from_tank_mass_deltas(
+    *,
+    tank_mass_deltas_kg: Any,
+    tank_coordinates_m: Any,
+    gravity_m_s2: Any = 9.81,
+) -> np.ndarray:
+    """Return the ballast-generated ``(pitch, roll) = (M, K)`` gravity load."""
+
+    mass_deltas = _finite_array("tank_mass_deltas_kg", tank_mass_deltas_kg, (3,))
+    coordinates = _finite_array("tank_coordinates_m", tank_coordinates_m, (3, 3))
+    gravity = _positive_scalar("gravity_m_s2", gravity_m_s2)
+    result = np.array(
+        ballast_gravity_load_about_reference(
+            tank_mass_deltas_kg=mass_deltas,
+            tank_coordinates_m=coordinates,
+            gravity_m_s2=gravity,
+        )[_PITCH_ROLL_LOAD_INDICES],
+        dtype=float,
+        copy=True,
+    )
+    result.setflags(write=False)
+    return result
+
+
+def allocate_pitch_roll_moment_to_tanks(
+    *,
+    requested_pitch_roll_moment_nm: Any,
+    actual_tank_masses_kg: Any,
+    tank_capacities_kg: Any,
+    tank_coordinates_m: Any,
+    gravity_m_s2: Any = 9.81,
+) -> BallastMomentAllocation:
+    """Allocate a ballast-generated request through zero-net-mass redistribution.
+
+    The three-tank layout has two independent pitch-roll degrees of freedom
+    after enforcing zero total mass change. If a request exceeds a tank bound,
+    it is scaled uniformly to the largest feasible fraction. This preserves
+    its load direction without inserting pump logic or a candidate cost.
+
+    ``requested_pitch_roll_moment_nm`` must already be the load generated by
+    the ballast redistribution, in ``(pitch, roll) = (M, K)`` order. External
+    disturbance loads must be converted to their counteracting ballast load by
+    the caller before entering this function.
+    """
+
+    requested = _finite_array(
+        "requested_pitch_roll_moment_nm",
+        requested_pitch_roll_moment_nm,
+        (2,),
+    )
+    actual = _finite_array("actual_tank_masses_kg", actual_tank_masses_kg, (3,))
+    capacities = _finite_array("tank_capacities_kg", tank_capacities_kg, (3,))
+    coordinates = _finite_array("tank_coordinates_m", tank_coordinates_m, (3, 3))
+    gravity = _positive_scalar("gravity_m_s2", gravity_m_s2)
+    if np.any(capacities <= 0.0):
+        raise ValueError("tank_capacities_kg values must be positive")
+    if np.any(actual < 0.0) or np.any(actual > capacities):
+        raise ValueError("actual_tank_masses_kg must remain within tank capacities")
+
+    if np.allclose(requested, 0.0, rtol=0.0, atol=1e-12):
+        return BallastMomentAllocation(
+            requested_pitch_roll_moment_nm=requested,
+            tank_mass_deltas_kg=np.zeros(3),
+            target_tank_masses_kg=actual,
+            achieved_pitch_roll_moment_nm=np.zeros(2),
+            residual_pitch_roll_moment_nm=np.zeros(2),
+            feasible_scale=1.0,
+            capacity_limited=False,
+        )
+
+    unit_moment_matrix = np.column_stack(
+        [
+            pitch_roll_moment_from_tank_mass_deltas(
+                tank_mass_deltas_kg=np.eye(3)[index],
+                tank_coordinates_m=coordinates,
+                gravity_m_s2=gravity,
+            )
+            for index in range(3)
+        ]
+    )
+    redistribution_moment_matrix = unit_moment_matrix @ _REDISTRIBUTION_BASIS
+    if np.linalg.matrix_rank(redistribution_moment_matrix, tol=1e-10) != 2:
+        raise ValueError(
+            "tank geometry cannot span independent pitch and roll moments under "
+            "zero-net-mass redistribution"
+        )
+    unconstrained_coordinates = np.linalg.solve(
+        redistribution_moment_matrix,
+        requested,
+    )
+    unconstrained_deltas = _REDISTRIBUTION_BASIS @ unconstrained_coordinates
+
+    scale = 1.0
+    for mass, capacity, delta in zip(actual, capacities, unconstrained_deltas):
+        if delta > 0.0:
+            scale = min(scale, float((capacity - mass) / delta))
+        elif delta < 0.0:
+            scale = min(scale, float(mass / -delta))
+    scale = float(np.clip(scale, 0.0, 1.0))
+    deltas = scale * unconstrained_deltas
+    target = actual + deltas
+    achieved = pitch_roll_moment_from_tank_mass_deltas(
+        tank_mass_deltas_kg=deltas,
+        tank_coordinates_m=coordinates,
+        gravity_m_s2=gravity,
+    )
+    residual = requested - achieved
+    return BallastMomentAllocation(
+        requested_pitch_roll_moment_nm=requested,
+        tank_mass_deltas_kg=deltas,
+        target_tank_masses_kg=target,
+        achieved_pitch_roll_moment_nm=achieved,
+        residual_pitch_roll_moment_nm=residual,
+        feasible_scale=scale,
+        capacity_limited=bool(scale < 1.0 - 1e-12),
+    )
+
+
+__all__ = [
+    "BallastMomentAllocation",
+    "allocate_pitch_roll_moment_to_tanks",
+    "pitch_roll_moment_from_tank_mass_deltas",
+]

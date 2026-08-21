@@ -121,6 +121,15 @@ class AuditOnlyFakePlant(FakePlant):
         )
 
 
+class FrameworkSmokeFakePlant(FakePlant):
+    @staticmethod
+    def resolved_platform_identity():
+        return _fake_platform_identity(
+            status="framework_only_not_for_performance_validation",
+            purpose="framework_smoke",
+        )
+
+
 class ShallowIdentityFakePlant(FakePlant):
     @staticmethod
     def resolved_platform_identity():
@@ -198,6 +207,9 @@ class ControllerChainRunnerTests(unittest.TestCase):
         self.assertEqual(result.summary.decision_count, 2)
         self.assertEqual(result.summary.forecast_decision_count, 0)
         self.assertEqual(result.summary.max_command_transfer_error_kg, 0.0)
+        self.assertEqual(result.summary.platform_profile_requested_name, "fake_platform")
+        self.assertEqual(result.summary.platform_model_status, "runtime")
+        self.assertEqual(result.summary.platform_run_purpose, "control")
         self.assertGreaterEqual(len(result.sampled_timeseries), 4)
         self.assertEqual(len(result.decisions), 2)
         self.assertIn("stages", result.decisions[0]["trace"])
@@ -261,6 +273,32 @@ class ControllerChainRunnerTests(unittest.TestCase):
                 duration_s=10.0,
                 dt_s=1.0,
             )
+
+    def test_framework_smoke_summary_retains_platform_use_identity(self):
+        plant = FrameworkSmokeFakePlant()
+        adapter = CompactControllerPlantAdapter(
+            initial_tank_masses_kg=plant.current_ballast_mass,
+            forecast_source=None,
+            config=compact_test_config(),
+        )
+        result = run_controller_plant_chain(
+            plant=plant,
+            controller=adapter,
+            wind_trace={"ws": np.full(10, 10.0), "wd": np.zeros(10)},
+            thrust_model=lambda speed: speed,
+            duration_s=10.0,
+            dt_s=1.0,
+        )
+
+        self.assertEqual(
+            result.summary.platform_model_status,
+            "framework_only_not_for_performance_validation",
+        )
+        self.assertEqual(result.summary.platform_run_purpose, "framework_smoke")
+        self.assertEqual(
+            result.summary.to_dict()["platform_model_status"],
+            "framework_only_not_for_performance_validation",
+        )
 
     def test_unidentified_plant_is_rejected_by_control_runner(self):
         plant = UnidentifiedFakePlant()

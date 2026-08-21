@@ -49,6 +49,9 @@ def _json_object_without_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, A
 
 def controller_config_to_dict(config: ControlCoreConfig) -> dict[str, Any]:
     controller = asdict(config)
+    controller["legacy_demand_axis_scale_deg"] = (
+        config.resolved_legacy_demand_axis_scale_deg
+    )
     execution = controller.pop("execution")
     forecast_policy = controller.pop("forecast_policy")
     return {
@@ -97,7 +100,12 @@ def parse_controller_config(document: Mapping[str, Any]) -> ControlCoreConfig:
     _reject_unknown("execution", execution_values, execution_fields)
     _reject_unknown("forecast_policy", policy_values, policy_fields)
 
-    for name in ("deadband_deg", "posture_priority_envelope_deg", "stage_discounts"):
+    for name in (
+        "deadband_deg",
+        "legacy_demand_axis_scale_deg",
+        "posture_priority_envelope_deg",
+        "stage_discounts",
+    ):
         if name in controller_values:
             controller_values[name] = tuple(controller_values[name])
     if "pump_rate_schedule_m3_min" in execution_values:

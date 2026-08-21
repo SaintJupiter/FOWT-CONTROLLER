@@ -1,0 +1,68 @@
+{
+  "evidence_level": "one local no-environment pitch free-response comparison",
+  "boundaries": {
+    "is_damping_calibration": false,
+    "is_full_six_dof_validation": false,
+    "is_controller_validation": false,
+    "openfast_dissipation": "original HydroDyn and MoorDyn input retained",
+    "low_order_dissipation": "zero damping by construction",
+    "comparison_scope": "pitch response direction and local period only"
+  },
+  "reference": {
+    "model_zip": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/references/fowt_reference_models/3_核心必用_官方模型文件包_IEAWindSystems_v1.1.16/IEAWindSystems_IEA-15-240-RWT_v1.1.16.zip",
+    "model_zip_sha256": "c96c6be345abf9440170764e2d9a2c201b5da6191192cef66537c5bc16805b80",
+    "openfast_binary": "/tmp/fowt-openfast-4.1.2/bin/openfast",
+    "openfast_binary_sha256": "94985b8cd9df32abbcfa8dd90f1e6a74520061f86421663d7795d17d9376865c",
+    "reference_state_path": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/configs/reference_platforms/volturnus_s_openfast_nominal_reference_state_v1.json",
+    "reference_state": {
+      "surge_m": 0.4198,
+      "heave_m": -0.3503,
+      "pitch_deg": -1.452
+    },
+    "duration_s": 150.0,
+    "output_step_s": 0.1,
+    "pitch_increment_deg": 1.0
+  },
+  "openfast": {
+    "initial_state": {
+      "surge_m": 0.4198,
+      "sway_m": 0.0,
+      "heave_m": -0.3503,
+      "roll_deg": 0.0,
+      "pitch_deg": -0.45199999999999996,
+      "yaw_deg": 0.0
+    },
+    "positive_peak_times_s": [
+      28.5,
+      57.0,
+      85.5,
+      114.0,
+      142.5
+    ],
+    "dominant_positive_period_s": 28.5,
+    "pitch_increment_range_deg": [
+      -0.9769999999999999,
+      1.0
+    ]
+  },
+  "low_order": {
+    "runtime_provenance": "static_restoring_aligned_with_aux_frc_inertia_mooring",
+    "positive_peak_times_s": [
+      27.6,
+      55.3,
+      82.9,
+      110.6,
+      138.2
+    ],
+    "dominant_positive_period_s": 27.65,
+    "pitch_increment_range_deg": [
+      -0.999908950245913,
+      1.0
+    ]
+  },
+  "comparison": {
+    "low_order_minus_openfast_period_s": -0.8500000000000014,
+    "low_order_relative_period_error_percent": -2.982456140350882,
+    "pitch_response_direction_matches": true
+  }
+}

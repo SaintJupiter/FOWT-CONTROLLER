@@ -15,6 +15,7 @@ from .ballast import (
     rigid_body_mass_matrix_about_reference,
     weight_stiffness_about_reference,
 )
+from .ballast_snapshot import BallastRuntimeAssembly
 from .incremental import PlatformMatrices
 
 
@@ -140,6 +141,31 @@ class VolturnusReferenceComponents:
                 total_mass_kg=self.whole_system_mass_kg,
                 center_of_mass_m=self.whole_system_center_of_mass,
             ),
+        )
+
+    def assemble_historical_mixed_runtime_assembly(
+        self,
+        damping: Any,
+    ) -> BallastRuntimeAssembly:
+        """Return the explicit historical runtime baseline for regression use.
+
+        The returned assembly preserves the prior ``.frc`` plus first-order
+        WAMIT candidate exactly.  Its provenance is intentionally explicit so
+        a caller cannot mistake it for the newer source-consistent static
+        reference.
+        """
+
+        return BallastRuntimeAssembly(
+            base_matrices=self.assemble_whole_system_candidate(damping),
+            reference_mass_properties=BallastMassProperties(
+                total_mass_kg=self.whole_system_mass_kg,
+                center_of_mass_m=self.whole_system_center_of_mass,
+                inertia_about_reference_kg_m2=(
+                    self.whole_system_rigid_body_mass[3:, 3:]
+                ),
+            ),
+            gravity_m_s2=self.vertical_balance_evidence.gravity_m_s2,
+            provenance="historical_mixed_frc_candidate",
         )
 
     def mass_properties_with_ballast_deltas(

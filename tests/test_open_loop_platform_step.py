@@ -32,6 +32,7 @@ def _snapshot(*, mass_x: float, ballast_load: np.ndarray) -> BallastModelSnapsho
         tank_mass_deltas_kg=np.zeros(3),
         matrices=_matrices(mass_x=mass_x),
         incremental_ballast_load=ballast_load,
+        runtime_provenance="unit_test",
     )
 
 

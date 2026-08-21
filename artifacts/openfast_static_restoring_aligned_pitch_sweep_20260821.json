@@ -1,0 +1,1455 @@
+{
+  "evidence_level": "OpenFAST/low-order one-sided static pitch end-state sweep",
+  "scope": {
+    "purpose": "compare final pitch increments under the same frozen-axis pitch moment and identify where the frozen small-angle low-order reading departs from OpenFAST",
+    "is_controller_validation": false,
+    "is_wind_load_replay": false,
+    "is_field_operating_load_envelope": false,
+    "positive_pitch_side_only": true,
+    "environment": "AeroDyn, InflowWind, ServoDyn, waves, and current disabled; HydroDyn and MoorDyn retained",
+    "load_definition": "HydroDyn AddF0 static preload at the WAMIT/OpenFAST reference point, obtained by rotating a pure frozen-axis pitch moment",
+    "readout_definition": "matched zero-preload original-damping release tail mean",
+    "stability_definition": "original-damping release tail range and consecutive-tail mean drift only",
+    "loading_path_boundary": "HydroDyn AddF0 is a static input. This endpoint comparison does not represent a time-continuous load ramp or a path-dependent mooring response.",
+    "parameter_fitting": "none"
+  },
+  "reference": {
+    "reference_manifest": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/configs/reference_platforms/volturnus_s_openfast_v1_1_16.json",
+    "nominal_reference_state_path": "/Users/saintyoung/Desktop/FOWT-CONTROLLER-main/configs/reference_platforms/volturnus_s_openfast_nominal_reference_state_v1.json",
+    "nominal_reference_state": {
+      "surge_m": 0.4198,
+      "heave_m": -0.3503,
+      "pitch_deg": -1.452
+    },
+    "openfast_binary": "/tmp/fowt-openfast-4.1.2/bin/openfast",
+    "relaxation_duration_s": 300.0,
+    "release_duration_s": 600.0,
+    "output_step_s": 1.0,
+    "tail_window_s": 150.0,
+    "target_pitch_deg": [
+      2.0,
+      5.0,
+      10.0
+    ]
+  },
+  "zero_preload": {
+    "temporary_relaxation": {
+      "input_tree": "/tmp/fowt-openfast-static-restoring-aligned-20260821/zero_preload/relaxation/source/IEA-15-240-RWT-1.1.16/OpenFAST/IEA-15-240-RWT-UMaineSemi",
+      "initial_state": {
+        "surge_m": 0.4198,
+        "sway_m": 0.0,
+        "heave_m": -0.3503,
+        "roll_deg": 0.0,
+        "pitch_deg": -1.452,
+        "yaw_deg": 0.0
+      },
+      "configured_add_f0_about_wrp_si": {
+        "surge_n": 0.0,
+        "sway_n": 0.0,
+        "heave_n": 0.0,
+        "roll_nm": 0.0,
+        "pitch_nm": 0.0,
+        "yaw_nm": 0.0
+      },
+      "hydrodyn_damping_mode": "temporary_numerical_relaxation_add_blin",
+      "sample_count": 301,
+      "late_window_statistics": {
+        "tail_window_s": 150.0,
+        "first_window_s": [
+          150.0,
+          225.0
+        ],
+        "second_window_s": [
+          225.0,
+          300.0
+        ],
+        "first_window_statistics": {
+          "surge_m": {
+            "mean": 0.41957866666666666,
+            "minimum": 0.419,
+            "maximum": 0.4202,
+            "range": 0.0012000000000000344
+          },
+          "sway_m": {
+            "mean": 2.4757059999999997e-08,
+            "minimum": -5.557e-08,
+            "maximum": 9.727e-08,
+            "range": 1.5283999999999998e-07
+          },
+          "heave_m": {
+            "mean": -0.35029999999999994,
+            "minimum": -0.3503,
+            "maximum": -0.3503,
+            "range": 0.0
+          },
+          "roll_deg": {
+            "mean": -2.1332773333333333e-08,
+            "minimum": -8.174e-08,
+            "maximum": 4.916e-08,
+            "range": 1.309e-07
+          },
+          "pitch_deg": {
+            "mean": -1.452,
+            "minimum": -1.452,
+            "maximum": -1.452,
+            "range": 0.0
+          },
+          "yaw_deg": {
+            "mean": -1.0983118666666664e-07,
+            "minimum": -1.906e-06,
+            "maximum": 1.636e-06,
+            "range": 3.542e-06
+          }
+        },
+        "second_window_statistics": {
+          "surge_m": {
+            "mean": 0.419578947368421,
+            "minimum": 0.4191,
+            "maximum": 0.4201,
+            "range": 0.0010000000000000009
+          },
+          "sway_m": {
+            "mean": 7.726686710526316e-08,
+            "minimum": -6.804e-09,
+            "maximum": 1.486e-07,
+            "range": 1.55404e-07
+          },
+          "heave_m": {
+            "mean": -0.3503,
+            "minimum": -0.3503,
+            "maximum": -0.3503,
+            "range": 0.0
+          },
+          "roll_deg": {
+            "mean": -1.3243548684210524e-08,
+            "minimum": -8.61e-08,
+            "maximum": 6.029e-08,
+            "range": 1.4639e-07
+          },
+          "pitch_deg": {
+            "mean": -1.452,
+            "minimum": -1.452,
+            "maximum": -1.452,
+            "range": 0.0
+          },
+          "yaw_deg": {
+            "mean": -5.17781052631579e-08,
+            "minimum": -1.158e-06,
+            "maximum": 1.495e-06,
+            "range": 2.653e-06
+          }
+        },
+        "second_window_mean_state_for_release_only": {
+          "surge_m": 0.419578947368421,
+          "sway_m": 7.726686710526316e-08,
+          "heave_m": -0.3503,
+          "roll_deg": -1.3243548684210524e-08,
+          "pitch_deg": -1.452,
+          "yaw_deg": -5.17781052631579e-08
+        },
+        "second_minus_first_mean": {
+          "surge_m": 2.807017543404733e-07,
+          "sway_m": 5.2509807105263166e-08,
+          "heave_m": -5.551115123125783e-17,
+          "roll_deg": 8.089224649122808e-09,
+          "pitch_deg": 0.0,
+          "yaw_deg": 5.8053081403508735e-08
+        }
+      }
+    },
+    "original_damping_release": {
+      "input_tree": "/tmp/fowt-openfast-static-restoring-aligned-20260821/zero_preload/release/source/IEA-15-240-RWT-1.1.16/OpenFAST/IEA-15-240-RWT-UMaineSemi",
+      "initial_state": {
+        "surge_m": 0.419578947368421,
+        "sway_m": 7.726686710526316e-08,
+        "heave_m": -0.3503,
+        "roll_deg": -1.3243548684210524e-08,
+        "pitch_deg": -1.452,
+        "yaw_deg": -5.17781052631579e-08
+      },
+      "configured_add_f0_about_wrp_si": {
+        "surge_n": 0.0,
+        "sway_n": 0.0,
+        "heave_n": 0.0,
+        "roll_nm": 0.0,
+        "pitch_nm": 0.0,
+        "yaw_nm": 0.0
+      },
+      "hydrodyn_damping_mode": "original_public_input",
+      "sample_count": 601,
+      "late_window_statistics": {
+        "tail_window_s": 150.0,
+        "first_window_s": [
+          450.0,
+          525.0
+        ],
+        "second_window_s": [
+          525.0,
+          600.0
+        ],
+        "first_window_statistics": {
+          "surge_m": {
+            "mean": 0.422664,
+            "minimum": 0.416,
+            "maximum": 0.4262,
+            "range": 0.010200000000000042
+          },
+          "sway_m": {
+            "mean": 1.0276238666666667e-06,
+            "minimum": -2.583e-06,
+            "maximum": 5.231e-06,
+            "range": 7.814e-06
+          },
+          "heave_m": {
+            "mean": -0.3502946666666667,
+            "minimum": -0.3504,
+            "maximum": -0.3502,
+            "range": 0.00019999999999997797
+          },
+          "roll_deg": {
+            "mean": 1.924864e-06,
+            "minimum": -3.034e-05,
+            "maximum": 3.147e-05,
+            "range": 6.181e-05
+          },
+          "pitch_deg": {
+            "mean": -1.4523733333333333,
+            "minimum": -1.453,
+            "maximum": -1.452,
+            "range": 0.001000000000000112
+          },
+          "yaw_deg": {
+            "mean": -1.0245666666666667e-05,
+            "minimum": -4.56e-05,
+            "maximum": 5.348e-05,
+            "range": 9.908000000000001e-05
+          }
+        },
+        "second_window_statistics": {
+          "surge_m": {
+            "mean": 0.4161565789473684,
+            "minimum": 0.4136,
+            "maximum": 0.4216,
+            "range": 0.007999999999999952
+          },
+          "sway_m": {
+            "mean": -1.1499131578947368e-06,
+            "minimum": -4.82e-06,
+            "maximum": 3.194e-06,
+            "range": 8.014e-06
+          },
+          "heave_m": {
+            "mean": -0.35030263157894737,
+            "minimum": -0.3504,
+            "maximum": -0.3502,
+            "range": 0.00019999999999997797
+          },
+          "roll_deg": {
+            "mean": -3.4329039473684214e-06,
+            "minimum": -3.437e-05,
+            "maximum": 3.279e-05,
+            "range": 6.716e-05
+          },
+          "pitch_deg": {
+            "mean": -1.4522631578947367,
+            "minimum": -1.453,
+            "maximum": -1.452,
+            "range": 0.001000000000000112
+          },
+          "yaw_deg": {
+            "mean": -1.5421407894736844e-06,
+            "minimum": -3.926e-05,
+            "maximum": 6.04e-05,
+            "range": 9.966e-05
+          }
+        },
+        "second_window_mean_state_for_release_only": {
+          "surge_m": 0.4161565789473684,
+          "sway_m": -1.1499131578947368e-06,
+          "heave_m": -0.35030263157894737,
+          "roll_deg": -3.4329039473684214e-06,
+          "pitch_deg": -1.4522631578947367,
+          "yaw_deg": -1.5421407894736844e-06
+        },
+        "second_minus_first_mean": {
+          "surge_m": -0.006507421052631579,
+          "sway_m": -2.1775370245614037e-06,
+          "heave_m": -7.96491228066687e-06,
+          "roll_deg": -5.357767947368421e-06,
+          "pitch_deg": 0.00011017543859659362,
+          "yaw_deg": 8.703525877192982e-06
+        }
+      }
+    },
+    "original_damping_release_stability": {
+      "criteria": {
+        "maximum_tail_range_deg": 0.01,
+        "maximum_abs_second_minus_first_tail_mean_deg": 0.005
+      },
+      "components": {
+        "roll_deg": {
+          "tail_range_deg": 6.716e-05,
+          "second_minus_first_tail_mean_deg": -5.357767947368421e-06
+        },
+        "pitch_deg": {
+          "tail_range_deg": 0.001000000000000112,
+          "second_minus_first_tail_mean_deg": 0.00011017543859659362
+        }
+      },
+      "passes": true
+    }
+  },
+  "summary": {
+    "requested_case_count": 3,
+    "completed_case_count": 3,
+    "stable_release_case_count": 3
+  },
+  "cases": [
+    {
+      "case_id": "pitch_target_2deg",
+      "target": {
+        "target_low_order_pitch_increment_deg": 2.0,
+        "frozen_axis_pitch_compliance_rad_per_nm": 3.65003549532662e-10,
+        "frozen_equilibrium_load_si": {
+          "surge_n": 0.0,
+          "sway_n": 0.0,
+          "heave_n": 0.0,
+          "roll_nm": 0.0,
+          "pitch_nm": 95633549.54925722,
+          "yaw_nm": 0.0
+        },
+        "openfast_add_f0_about_wrp_si": {
+          "surge_n": 0.0,
+          "sway_n": 0.0,
+          "heave_n": 0.0,
+          "roll_nm": 0.0,
+          "pitch_nm": 95633549.54925722,
+          "yaw_nm": 0.0
+        },
+        "openfast_add_f0_pitch_component_mnm": 95.63354954925722
+      },
+      "status": "completed",
+      "comparison": {
+        "case_id": "pitch_target_2deg",
+        "openfast_add_f0_about_wrp_si": {
+          "surge_n": 0.0,
+          "sway_n": 0.0,
+          "heave_n": 0.0,
+          "roll_nm": 0.0,
+          "pitch_nm": 95633549.54925722,
+          "yaw_nm": 0.0
+        },
+        "low_order": {
+          "runtime_provenance": "source_static_auxiliary_dynamic_runtime_candidate",
+          "input_load_frozen_equilibrium_si": {
+            "surge_n": 0.0,
+            "sway_n": 0.0,
+            "heave_n": 0.0,
+            "roll_nm": 0.0,
+            "pitch_nm": 95633549.54925722,
+            "yaw_nm": 0.0
+          },
+          "static_offset": {
+            "translation_m": [
+              -0.5557291415390838,
+              -0.0,
+              3.1167014659212275e-05
+            ],
+            "rotation_rad": [
+              0.0,
+              0.03490658503988659,
+              0.0
+            ],
+            "roll_deg": 0.0,
+            "pitch_deg": 2.0
+          },
+          "static_residual_max_abs": 3.6975683626039313e-10
+        },
+        "openfast": {
+          "temporary_relaxation": {
+            "input_tree": "/tmp/fowt-openfast-static-restoring-aligned-20260821/pitch_target_2deg/relaxation/source/IEA-15-240-RWT-1.1.16/OpenFAST/IEA-15-240-RWT-UMaineSemi",
+            "initial_state": {
+              "surge_m": 0.4198,
+              "sway_m": 0.0,
+              "heave_m": -0.3503,
+              "roll_deg": 0.0,
+              "pitch_deg": -1.452,
+              "yaw_deg": 0.0
+            },
+            "configured_add_f0_about_wrp_si": {
+              "surge_n": 0.0,
+              "sway_n": 0.0,
+              "heave_n": 0.0,
+              "roll_nm": 0.0,
+              "pitch_nm": 95633549.5493,
+              "yaw_nm": 0.0
+            },
+            "hydrodyn_damping_mode": "temporary_numerical_relaxation_add_blin",
+            "sample_count": 301,
+            "late_window_statistics": {
+              "tail_window_s": 150.0,
+              "first_window_s": [
+                150.0,
+                225.0
+              ],
+              "second_window_s": [
+                225.0,
+                300.0
+              ],
+              "first_window_statistics": {
+                "surge_m": {
+                  "mean": -0.16546533333333333,
+                  "minimum": -0.1662,
+                  "maximum": -0.1649,
+                  "range": 0.0012999999999999956
+                },
+                "sway_m": {
+                  "mean": 1.6187384e-05,
+                  "minimum": -3.824e-05,
+                  "maximum": 5.678e-05,
+                  "range": 9.502e-05
+                },
+                "heave_m": {
+                  "mean": -0.3500000000000001,
+                  "minimum": -0.35,
+                  "maximum": -0.35,
+                  "range": 0.0
+                },
+                "roll_deg": {
+                  "mean": 4.586786666666667e-07,
+                  "minimum": -1.272e-05,
+                  "maximum": 1.716e-05,
+                  "range": 2.988e-05
+                },
+                "pitch_deg": {
+                  "mean": 0.5533093333333334,
+                  "minimum": 0.5532,
+                  "maximum": 0.5535,
+                  "range": 0.00029999999999996696
+                },
+                "yaw_deg": {
+                  "mean": 6.964106666666669e-06,
+                  "minimum": -0.0004299,
+                  "maximum": 0.0004679,
+                  "range": 0.0008978
+                }
+              },
+              "second_window_statistics": {
+                "surge_m": {
+                  "mean": -0.16521184210526313,
+                  "minimum": -0.1658,
+                  "maximum": -0.1649,
+                  "range": 0.0009000000000000119
+                },
+                "sway_m": {
+                  "mean": 8.273421052631582e-07,
+                  "minimum": -4.431e-05,
+                  "maximum": 4.746e-05,
+                  "range": 9.177e-05
+                },
+                "heave_m": {
+                  "mean": -0.3500000000000001,
+                  "minimum": -0.35,
+                  "maximum": -0.35,
+                  "range": 0.0
+                },
+                "roll_deg": {
+                  "mean": -6.877368421052628e-08,
+                  "minimum": -1.181e-05,
+                  "maximum": 1.307e-05,
+                  "range": 2.488e-05
+                },
+                "pitch_deg": {
+                  "mean": 0.5533013157894738,
+                  "minimum": 0.5532,
+                  "maximum": 0.5534,
+                  "range": 0.00019999999999997797
+                },
+                "yaw_deg": {
+                  "mean": 8.262565789473684e-06,
+                  "minimum": -0.0003579,
+                  "maximum": 0.0003544,
+                  "range": 0.0007123
+                }
+              },
+              "second_window_mean_state_for_release_only": {
+                "surge_m": -0.16521184210526313,
+                "sway_m": 8.273421052631582e-07,
+                "heave_m": -0.3500000000000001,
+                "roll_deg": -6.877368421052628e-08,
+                "pitch_deg": 0.5533013157894738,
+                "yaw_deg": 8.262565789473684e-06
+              },
+              "second_minus_first_mean": {
+                "surge_m": 0.0002534912280701962,
+                "sway_m": -1.536004189473684e-05,
+                "heave_m": 0.0,
+                "roll_deg": -5.27452350877193e-07,
+                "pitch_deg": -8.0175438595953e-06,
+                "yaw_deg": 1.298459122807015e-06
+              }
+            }
+          },
+          "original_damping_release": {
+            "input_tree": "/tmp/fowt-openfast-static-restoring-aligned-20260821/pitch_target_2deg/release/source/IEA-15-240-RWT-1.1.16/OpenFAST/IEA-15-240-RWT-UMaineSemi",
+            "initial_state": {
+              "surge_m": -0.16521184210526313,
+              "sway_m": 8.273421052631582e-07,
+              "heave_m": -0.3500000000000001,
+              "roll_deg": -6.877368421052628e-08,
+              "pitch_deg": 0.5533013157894738,
+              "yaw_deg": 8.262565789473684e-06
+            },
+            "configured_add_f0_about_wrp_si": {
+              "surge_n": 0.0,
+              "sway_n": 0.0,
+              "heave_n": 0.0,
+              "roll_nm": 0.0,
+              "pitch_nm": 95633549.5493,
+              "yaw_nm": 0.0
+            },
+            "hydrodyn_damping_mode": "original_public_input",
+            "sample_count": 601,
+            "late_window_statistics": {
+              "tail_window_s": 150.0,
+              "first_window_s": [
+                450.0,
+                525.0
+              ],
+              "second_window_s": [
+                525.0,
+                600.0
+              ],
+              "first_window_statistics": {
+                "surge_m": {
+                  "mean": -0.166636,
+                  "minimum": -0.1682,
+                  "maximum": -0.1639,
+                  "range": 0.004299999999999998
+                },
+                "sway_m": {
+                  "mean": 7.22636e-07,
+                  "minimum": -3.217e-06,
+                  "maximum": 3.81e-06,
+                  "range": 7.027e-06
+                },
+                "heave_m": {
+                  "mean": -0.34999600000000003,
+                  "minimum": -0.3502,
+                  "maximum": -0.3498,
+                  "range": 0.00040000000000001146
+                },
+                "roll_deg": {
+                  "mean": -3.627613333333332e-07,
+                  "minimum": -1.817e-05,
+                  "maximum": 1.696e-05,
+                  "range": 3.513e-05
+                },
+                "pitch_deg": {
+                  "mean": 0.5533426666666666,
+                  "minimum": 0.553,
+                  "maximum": 0.5537,
+                  "range": 0.0006999999999999229
+                },
+                "yaw_deg": {
+                  "mean": 1.7907160000000003e-06,
+                  "minimum": -1.583e-05,
+                  "maximum": 2.125e-05,
+                  "range": 3.7080000000000004e-05
+                }
+              },
+              "second_window_statistics": {
+                "surge_m": {
+                  "mean": -0.16364736842105265,
+                  "minimum": -0.1661,
+                  "maximum": -0.1625,
+                  "range": 0.003599999999999992
+                },
+                "sway_m": {
+                  "mean": -1.3236143421052632e-06,
+                  "minimum": -3.824e-06,
+                  "maximum": 3.136e-06,
+                  "range": 6.96e-06
+                },
+                "heave_m": {
+                  "mean": -0.350021052631579,
+                  "minimum": -0.3502,
+                  "maximum": -0.3498,
+                  "range": 0.00040000000000001146
+                },
+                "roll_deg": {
+                  "mean": 1.7795298684210522e-06,
+                  "minimum": -1.884e-05,
+                  "maximum": 1.954e-05,
+                  "range": 3.8379999999999995e-05
+                },
+                "pitch_deg": {
+                  "mean": 0.5532618421052632,
+                  "minimum": 0.553,
+                  "maximum": 0.5536,
+                  "range": 0.0005999999999999339
+                },
+                "yaw_deg": {
+                  "mean": 3.2324096052631574e-07,
+                  "minimum": -1.801e-05,
+                  "maximum": 1.001e-05,
+                  "range": 2.802e-05
+                }
+              },
+              "second_window_mean_state_for_release_only": {
+                "surge_m": -0.16364736842105265,
+                "sway_m": -1.3236143421052632e-06,
+                "heave_m": -0.350021052631579,
+                "roll_deg": 1.7795298684210522e-06,
+                "pitch_deg": 0.5532618421052632,
+                "yaw_deg": 3.2324096052631574e-07
+              },
+              "second_minus_first_mean": {
+                "surge_m": 0.002988631578947354,
+                "sway_m": -2.046250342105263e-06,
+                "heave_m": -2.5052631578981188e-05,
+                "roll_deg": 2.1422912017543853e-06,
+                "pitch_deg": -8.082456140345862e-05,
+                "yaw_deg": -1.4674750394736847e-06
+              }
+            }
+          },
+          "increment_from_matched_zero_preload_release_tail_mean_deg": {
+            "roll_deg": 5.2124338157894735e-06,
+            "pitch_deg": 2.005525
+          }
+        },
+        "angle_difference_low_order_minus_openfast_deg": {
+          "roll_deg": -5.2124338157894735e-06,
+          "pitch_deg": -0.005525000000000002
+        },
+        "original_damping_release_tail_range_deg": {
+          "roll_deg": 3.8379999999999995e-05,
+          "pitch_deg": 0.0005999999999999339
+        },
+        "original_damping_release_stability": {
+          "criteria": {
+            "maximum_tail_range_deg": 0.01,
+            "maximum_abs_second_minus_first_tail_mean_deg": 0.005
+          },
+          "components": {
+            "roll_deg": {
+              "tail_range_deg": 3.8379999999999995e-05,
+              "second_minus_first_tail_mean_deg": 2.1422912017543853e-06
+            },
+            "pitch_deg": {
+              "tail_range_deg": 0.0005999999999999339,
+              "second_minus_first_tail_mean_deg": -8.082456140345862e-05
+            }
+          },
+          "passes": true
+        },
+        "state_transfer": {
+          "release_initial_state_source": "temporary_relaxation.second_window_mean_state_for_release_only",
+          "release_initial_state": {
+            "surge_m": -0.16521184210526313,
+            "sway_m": 8.273421052631582e-07,
+            "heave_m": -0.3500000000000001,
+            "roll_deg": -6.877368421052628e-08,
+            "pitch_deg": 0.5533013157894738,
+            "yaw_deg": 8.262565789473684e-06
+          }
+        }
+      },
+      "summary": {
+        "target_low_order_pitch_increment_deg": 2.0,
+        "low_order_pitch_increment_deg": 2.0,
+        "openfast_pitch_increment_deg": 2.005525,
+        "low_order_minus_openfast_pitch_deg": -0.005525000000000002,
+        "openfast_over_low_order_pitch_ratio": 1.0027625,
+        "relative_low_order_minus_openfast_pitch_percent": -0.2762500000000001,
+        "openfast_roll_increment_deg": 5.2124338157894735e-06,
+        "original_damping_release_tail_range_deg": {
+          "roll_deg": 3.8379999999999995e-05,
+          "pitch_deg": 0.0005999999999999339
+        },
+        "original_damping_release_stability": {
+          "criteria": {
+            "maximum_tail_range_deg": 0.01,
+            "maximum_abs_second_minus_first_tail_mean_deg": 0.005
+          },
+          "components": {
+            "roll_deg": {
+              "tail_range_deg": 3.8379999999999995e-05,
+              "second_minus_first_tail_mean_deg": 2.1422912017543853e-06
+            },
+            "pitch_deg": {
+              "tail_range_deg": 0.0005999999999999339,
+              "second_minus_first_tail_mean_deg": -8.082456140345862e-05
+            }
+          },
+          "passes": true
+        }
+      }
+    },
+    {
+      "case_id": "pitch_target_5deg",
+      "target": {
+        "target_low_order_pitch_increment_deg": 5.0,
+        "frozen_axis_pitch_compliance_rad_per_nm": 3.65003549532662e-10,
+        "frozen_equilibrium_load_si": {
+          "surge_n": 0.0,
+          "sway_n": 0.0,
+          "heave_n": 0.0,
+          "roll_nm": 0.0,
+          "pitch_nm": 239083873.87314302,
+          "yaw_nm": 0.0
+        },
+        "openfast_add_f0_about_wrp_si": {
+          "surge_n": 0.0,
+          "sway_n": 0.0,
+          "heave_n": 0.0,
+          "roll_nm": 0.0,
+          "pitch_nm": 239083873.87314302,
+          "yaw_nm": 0.0
+        },
+        "openfast_add_f0_pitch_component_mnm": 239.083873873143
+      },
+      "status": "completed",
+      "comparison": {
+        "case_id": "pitch_target_5deg",
+        "openfast_add_f0_about_wrp_si": {
+          "surge_n": 0.0,
+          "sway_n": 0.0,
+          "heave_n": 0.0,
+          "roll_nm": 0.0,
+          "pitch_nm": 239083873.87314302,
+          "yaw_nm": 0.0
+        },
+        "low_order": {
+          "runtime_provenance": "source_static_auxiliary_dynamic_runtime_candidate",
+          "input_load_frozen_equilibrium_si": {
+            "surge_n": 0.0,
+            "sway_n": 0.0,
+            "heave_n": 0.0,
+            "roll_nm": 0.0,
+            "pitch_nm": 239083873.87314302,
+            "yaw_nm": 0.0
+          },
+          "static_offset": {
+            "translation_m": [
+              -1.3893228538476938,
+              -0.0,
+              7.791753664803068e-05
+            ],
+            "rotation_rad": [
+              0.0,
+              0.08726646259971646,
+              0.0
+            ],
+            "roll_deg": 0.0,
+            "pitch_deg": 4.999999999999999
+          },
+          "static_residual_max_abs": 1.8351875574751375e-10
+        },
+        "openfast": {
+          "temporary_relaxation": {
+            "input_tree": "/tmp/fowt-openfast-static-restoring-aligned-20260821/pitch_target_5deg/relaxation/source/IEA-15-240-RWT-1.1.16/OpenFAST/IEA-15-240-RWT-UMaineSemi",
+            "initial_state": {
+              "surge_m": 0.4198,
+              "sway_m": 0.0,
+              "heave_m": -0.3503,
+              "roll_deg": 0.0,
+              "pitch_deg": -1.452,
+              "yaw_deg": 0.0
+            },
+            "configured_add_f0_about_wrp_si": {
+              "surge_n": 0.0,
+              "sway_n": 0.0,
+              "heave_n": 0.0,
+              "roll_nm": 0.0,
+              "pitch_nm": 239083873.873,
+              "yaw_nm": 0.0
+            },
+            "hydrodyn_damping_mode": "temporary_numerical_relaxation_add_blin",
+            "sample_count": 301,
+            "late_window_statistics": {
+              "tail_window_s": 150.0,
+              "first_window_s": [
+                150.0,
+                225.0
+              ],
+              "second_window_s": [
+                225.0,
+                300.0
+              ],
+              "first_window_statistics": {
+                "surge_m": {
+                  "mean": -1.0582933333333333,
+                  "minimum": -1.062,
+                  "maximum": -1.048,
+                  "range": 0.014000000000000012
+                },
+                "sway_m": {
+                  "mean": 8.133438666666667e-05,
+                  "minimum": -0.0001485,
+                  "maximum": 0.0002729,
+                  "range": 0.00042140000000000005
+                },
+                "heave_m": {
+                  "mean": -0.35080133333333335,
+                  "minimum": -0.3509,
+                  "maximum": -0.3506,
+                  "range": 0.00029999999999996696
+                },
+                "roll_deg": {
+                  "mean": 3.4351199999999996e-06,
+                  "minimum": -4.706e-05,
+                  "maximum": 6.054e-05,
+                  "range": 0.0001076
+                },
+                "pitch_deg": {
+                  "mean": 3.565426666666666,
+                  "minimum": 3.565,
+                  "maximum": 3.566,
+                  "range": 0.0009999999999998899
+                },
+                "yaw_deg": {
+                  "mean": 2.1743066666666672e-05,
+                  "minimum": -0.000677,
+                  "maximum": 0.0007576,
+                  "range": 0.0014345999999999999
+                }
+              },
+              "second_window_statistics": {
+                "surge_m": {
+                  "mean": -1.0631184210526319,
+                  "minimum": -1.064,
+                  "maximum": -1.062,
+                  "range": 0.0020000000000000018
+                },
+                "sway_m": {
+                  "mean": -4.526315789473855e-08,
+                  "minimum": -0.0001664,
+                  "maximum": 0.0001786,
+                  "range": 0.00034500000000000004
+                },
+                "heave_m": {
+                  "mean": -0.35090394736842107,
+                  "minimum": -0.351,
+                  "maximum": -0.3508,
+                  "range": 0.00019999999999997797
+                },
+                "roll_deg": {
+                  "mean": 4.5816842105263137e-07,
+                  "minimum": -3.895e-05,
+                  "maximum": 4.119e-05,
+                  "range": 8.014e-05
+                },
+                "pitch_deg": {
+                  "mean": 3.5658026315789457,
+                  "minimum": 3.565,
+                  "maximum": 3.566,
+                  "range": 0.0009999999999998899
+                },
+                "yaw_deg": {
+                  "mean": 1.583736842105263e-05,
+                  "minimum": -0.0005376,
+                  "maximum": 0.0005498,
+                  "range": 0.0010874
+                }
+              },
+              "second_window_mean_state_for_release_only": {
+                "surge_m": -1.0631184210526319,
+                "sway_m": -4.526315789473855e-08,
+                "heave_m": -0.35090394736842107,
+                "roll_deg": 4.5816842105263137e-07,
+                "pitch_deg": 3.5658026315789457,
+                "yaw_deg": 1.583736842105263e-05
+              },
+              "second_minus_first_mean": {
+                "surge_m": -0.004825087719298571,
+                "sway_m": -8.137964982456141e-05,
+                "heave_m": -0.00010261403508771139,
+                "roll_deg": -2.976951578947368e-06,
+                "pitch_deg": 0.00037596491227986917,
+                "yaw_deg": -5.905698245614043e-06
+              }
+            }
+          },
+          "original_damping_release": {
+            "input_tree": "/tmp/fowt-openfast-static-restoring-aligned-20260821/pitch_target_5deg/release/source/IEA-15-240-RWT-1.1.16/OpenFAST/IEA-15-240-RWT-UMaineSemi",
+            "initial_state": {
+              "surge_m": -1.0631184210526319,
+              "sway_m": -4.526315789473855e-08,
+              "heave_m": -0.35090394736842107,
+              "roll_deg": 4.5816842105263137e-07,
+              "pitch_deg": 3.5658026315789457,
+              "yaw_deg": 1.583736842105263e-05
+            },
+            "configured_add_f0_about_wrp_si": {
+              "surge_n": 0.0,
+              "sway_n": 0.0,
+              "heave_n": 0.0,
+              "roll_nm": 0.0,
+              "pitch_nm": 239083873.873,
+              "yaw_nm": 0.0
+            },
+            "hydrodyn_damping_mode": "original_public_input",
+            "sample_count": 601,
+            "late_window_statistics": {
+              "tail_window_s": 150.0,
+              "first_window_s": [
+                450.0,
+                525.0
+              ],
+              "second_window_s": [
+                525.0,
+                600.0
+              ],
+              "first_window_statistics": {
+                "surge_m": {
+                  "mean": -1.0633599999999999,
+                  "minimum": -1.074,
+                  "maximum": -1.053,
+                  "range": 0.02100000000000013
+                },
+                "sway_m": {
+                  "mean": 3.8652733333333335e-06,
+                  "minimum": -1.557e-05,
+                  "maximum": 2.033e-05,
+                  "range": 3.59e-05
+                },
+                "heave_m": {
+                  "mean": -0.35089333333333333,
+                  "minimum": -0.3512,
+                  "maximum": -0.3506,
+                  "range": 0.0005999999999999894
+                },
+                "roll_deg": {
+                  "mean": 6.216150666666666e-06,
+                  "minimum": -5.281e-05,
+                  "maximum": 5.834e-05,
+                  "range": 0.00011114999999999999
+                },
+                "pitch_deg": {
+                  "mean": 3.565693333333331,
+                  "minimum": 3.565,
+                  "maximum": 3.567,
+                  "range": 0.002000000000000224
+                },
+                "yaw_deg": {
+                  "mean": 1.0577944e-05,
+                  "minimum": -9.157e-06,
+                  "maximum": 3.907e-05,
+                  "range": 4.8227e-05
+                }
+              },
+              "second_window_statistics": {
+                "surge_m": {
+                  "mean": -1.0616315789473685,
+                  "minimum": -1.074,
+                  "maximum": -1.053,
+                  "range": 0.02100000000000013
+                },
+                "sway_m": {
+                  "mean": -6.978725e-06,
+                  "minimum": -2.373e-05,
+                  "maximum": 1.683e-05,
+                  "range": 4.0560000000000005e-05
+                },
+                "heave_m": {
+                  "mean": -0.3509223684210526,
+                  "minimum": -0.3512,
+                  "maximum": -0.3506,
+                  "range": 0.0005999999999999894
+                },
+                "roll_deg": {
+                  "mean": -8.025541315789472e-06,
+                  "minimum": -6.584e-05,
+                  "maximum": 6.142e-05,
+                  "range": 0.00012726000000000003
+                },
+                "pitch_deg": {
+                  "mean": 3.565513157894736,
+                  "minimum": 3.565,
+                  "maximum": 3.567,
+                  "range": 0.002000000000000224
+                },
+                "yaw_deg": {
+                  "mean": -1.8579140789473683e-05,
+                  "minimum": -6.945e-05,
+                  "maximum": 3.268e-05,
+                  "range": 0.00010213
+                }
+              },
+              "second_window_mean_state_for_release_only": {
+                "surge_m": -1.0616315789473685,
+                "sway_m": -6.978725e-06,
+                "heave_m": -0.3509223684210526,
+                "roll_deg": -8.025541315789472e-06,
+                "pitch_deg": 3.565513157894736,
+                "yaw_deg": -1.8579140789473683e-05
+              },
+              "second_minus_first_mean": {
+                "surge_m": 0.0017284210526313792,
+                "sway_m": -1.0843998333333334e-05,
+                "heave_m": -2.9035087719286867e-05,
+                "roll_deg": -1.4241691982456138e-05,
+                "pitch_deg": -0.0001801754385950538,
+                "yaw_deg": -2.9157084789473683e-05
+              }
+            }
+          },
+          "increment_from_matched_zero_preload_release_tail_mean_deg": {
+            "roll_deg": -4.59263736842105e-06,
+            "pitch_deg": 5.017776315789472
+          }
+        },
+        "angle_difference_low_order_minus_openfast_deg": {
+          "roll_deg": 4.59263736842105e-06,
+          "pitch_deg": -0.01777631578947325
+        },
+        "original_damping_release_tail_range_deg": {
+          "roll_deg": 0.00012726000000000003,
+          "pitch_deg": 0.002000000000000224
+        },
+        "original_damping_release_stability": {
+          "criteria": {
+            "maximum_tail_range_deg": 0.01,
+            "maximum_abs_second_minus_first_tail_mean_deg": 0.005
+          },
+          "components": {
+            "roll_deg": {
+              "tail_range_deg": 0.00012726000000000003,
+              "second_minus_first_tail_mean_deg": -1.4241691982456138e-05
+            },
+            "pitch_deg": {
+              "tail_range_deg": 0.002000000000000224,
+              "second_minus_first_tail_mean_deg": -0.0001801754385950538
+            }
+          },
+          "passes": true
+        },
+        "state_transfer": {
+          "release_initial_state_source": "temporary_relaxation.second_window_mean_state_for_release_only",
+          "release_initial_state": {
+            "surge_m": -1.0631184210526319,
+            "sway_m": -4.526315789473855e-08,
+            "heave_m": -0.35090394736842107,
+            "roll_deg": 4.5816842105263137e-07,
+            "pitch_deg": 3.5658026315789457,
+            "yaw_deg": 1.583736842105263e-05
+          }
+        }
+      },
+      "summary": {
+        "target_low_order_pitch_increment_deg": 5.0,
+        "low_order_pitch_increment_deg": 4.999999999999999,
+        "openfast_pitch_increment_deg": 5.017776315789472,
+        "low_order_minus_openfast_pitch_deg": -0.01777631578947325,
+        "openfast_over_low_order_pitch_ratio": 1.0035552631578946,
+        "relative_low_order_minus_openfast_pitch_percent": -0.3555263157894651,
+        "openfast_roll_increment_deg": -4.59263736842105e-06,
+        "original_damping_release_tail_range_deg": {
+          "roll_deg": 0.00012726000000000003,
+          "pitch_deg": 0.002000000000000224
+        },
+        "original_damping_release_stability": {
+          "criteria": {
+            "maximum_tail_range_deg": 0.01,
+            "maximum_abs_second_minus_first_tail_mean_deg": 0.005
+          },
+          "components": {
+            "roll_deg": {
+              "tail_range_deg": 0.00012726000000000003,
+              "second_minus_first_tail_mean_deg": -1.4241691982456138e-05
+            },
+            "pitch_deg": {
+              "tail_range_deg": 0.002000000000000224,
+              "second_minus_first_tail_mean_deg": -0.0001801754385950538
+            }
+          },
+          "passes": true
+        }
+      }
+    },
+    {
+      "case_id": "pitch_target_10deg",
+      "target": {
+        "target_low_order_pitch_increment_deg": 10.0,
+        "frozen_axis_pitch_compliance_rad_per_nm": 3.65003549532662e-10,
+        "frozen_equilibrium_load_si": {
+          "surge_n": 0.0,
+          "sway_n": 0.0,
+          "heave_n": 0.0,
+          "roll_nm": 0.0,
+          "pitch_nm": 478167747.74628603,
+          "yaw_nm": 0.0
+        },
+        "openfast_add_f0_about_wrp_si": {
+          "surge_n": 0.0,
+          "sway_n": 0.0,
+          "heave_n": 0.0,
+          "roll_nm": 0.0,
+          "pitch_nm": 478167747.74628603,
+          "yaw_nm": 0.0
+        },
+        "openfast_add_f0_pitch_component_mnm": 478.167747746286
+      },
+      "status": "completed",
+      "comparison": {
+        "case_id": "pitch_target_10deg",
+        "openfast_add_f0_about_wrp_si": {
+          "surge_n": 0.0,
+          "sway_n": 0.0,
+          "heave_n": 0.0,
+          "roll_nm": 0.0,
+          "pitch_nm": 478167747.74628603,
+          "yaw_nm": 0.0
+        },
+        "low_order": {
+          "runtime_provenance": "source_static_auxiliary_dynamic_runtime_candidate",
+          "input_load_frozen_equilibrium_si": {
+            "surge_n": 0.0,
+            "sway_n": 0.0,
+            "heave_n": 0.0,
+            "roll_nm": 0.0,
+            "pitch_nm": 478167747.74628603,
+            "yaw_nm": 0.0
+          },
+          "static_offset": {
+            "translation_m": [
+              -2.7786457076953877,
+              -0.0,
+              0.00015583507329606136
+            ],
+            "rotation_rad": [
+              0.0,
+              0.17453292519943292,
+              0.0
+            ],
+            "roll_deg": 0.0,
+            "pitch_deg": 9.999999999999998
+          },
+          "static_residual_max_abs": 3.670375114950275e-10
+        },
+        "openfast": {
+          "temporary_relaxation": {
+            "input_tree": "/tmp/fowt-openfast-static-restoring-aligned-20260821/pitch_target_10deg/relaxation/source/IEA-15-240-RWT-1.1.16/OpenFAST/IEA-15-240-RWT-UMaineSemi",
+            "initial_state": {
+              "surge_m": 0.4198,
+              "sway_m": 0.0,
+              "heave_m": -0.3503,
+              "roll_deg": 0.0,
+              "pitch_deg": -1.452,
+              "yaw_deg": 0.0
+            },
+            "configured_add_f0_about_wrp_si": {
+              "surge_n": 0.0,
+              "sway_n": 0.0,
+              "heave_n": 0.0,
+              "roll_nm": 0.0,
+              "pitch_nm": 478167747.746,
+              "yaw_nm": 0.0
+            },
+            "hydrodyn_damping_mode": "temporary_numerical_relaxation_add_blin",
+            "sample_count": 301,
+            "late_window_statistics": {
+              "tail_window_s": 150.0,
+              "first_window_s": [
+                150.0,
+                225.0
+              ],
+              "second_window_s": [
+                225.0,
+                300.0
+              ],
+              "first_window_statistics": {
+                "surge_m": {
+                  "mean": -2.63408,
+                  "minimum": -2.662,
+                  "maximum": -2.581,
+                  "range": 0.08099999999999996
+                },
+                "sway_m": {
+                  "mean": 0.00025373484000000004,
+                  "minimum": -0.0002825,
+                  "maximum": 0.000763,
+                  "range": 0.0010455
+                },
+                "heave_m": {
+                  "mean": -0.35562933333333335,
+                  "minimum": -0.3564,
+                  "maximum": -0.3542,
+                  "range": 0.0021999999999999797
+                },
+                "roll_deg": {
+                  "mean": 2.279412e-05,
+                  "minimum": -9.371e-05,
+                  "maximum": 0.0001642,
+                  "range": 0.00025791
+                },
+                "pitch_deg": {
+                  "mean": 8.593240000000002,
+                  "minimum": 8.591,
+                  "maximum": 8.594,
+                  "range": 0.0030000000000001137
+                },
+                "yaw_deg": {
+                  "mean": 0.00010605985333333334,
+                  "minimum": -0.0007232,
+                  "maximum": 0.001016,
+                  "range": 0.0017392
+                }
+              },
+              "second_window_statistics": {
+                "surge_m": {
+                  "mean": -2.6695394736842104,
+                  "minimum": -2.673,
+                  "maximum": -2.662,
+                  "range": 0.01100000000000012
+                },
+                "sway_m": {
+                  "mean": -4.507105263157895e-06,
+                  "minimum": -0.0003411,
+                  "maximum": 0.0003674,
+                  "range": 0.0007084999999999999
+                },
+                "heave_m": {
+                  "mean": -0.35657894736842105,
+                  "minimum": -0.3568,
+                  "maximum": -0.3563,
+                  "range": 0.0005000000000000004
+                },
+                "roll_deg": {
+                  "mean": 5.617078947368421e-06,
+                  "minimum": -8.168e-05,
+                  "maximum": 9.523e-05,
+                  "range": 0.00017691
+                },
+                "pitch_deg": {
+                  "mean": 8.594736842105263,
+                  "minimum": 8.594,
+                  "maximum": 8.595,
+                  "range": 0.0010000000000012221
+                },
+                "yaw_deg": {
+                  "mean": 4.035978157894737e-05,
+                  "minimum": -0.0006085,
+                  "maximum": 0.0006822,
+                  "range": 0.0012907
+                }
+              },
+              "second_window_mean_state_for_release_only": {
+                "surge_m": -2.6695394736842104,
+                "sway_m": -4.507105263157895e-06,
+                "heave_m": -0.35657894736842105,
+                "roll_deg": 5.617078947368421e-06,
+                "pitch_deg": 8.594736842105263,
+                "yaw_deg": 4.035978157894737e-05
+              },
+              "second_minus_first_mean": {
+                "surge_m": -0.03545947368421043,
+                "sway_m": -0.00025824194526315793,
+                "heave_m": -0.000949614035087698,
+                "roll_deg": -1.717704105263158e-05,
+                "pitch_deg": 0.0014968421052614644,
+                "yaw_deg": -6.570007175438596e-05
+              }
+            }
+          },
+          "original_damping_release": {
+            "input_tree": "/tmp/fowt-openfast-static-restoring-aligned-20260821/pitch_target_10deg/release/source/IEA-15-240-RWT-1.1.16/OpenFAST/IEA-15-240-RWT-UMaineSemi",
+            "initial_state": {
+              "surge_m": -2.6695394736842104,
+              "sway_m": -4.507105263157895e-06,
+              "heave_m": -0.35657894736842105,
+              "roll_deg": 5.617078947368421e-06,
+              "pitch_deg": 8.594736842105263,
+              "yaw_deg": 4.035978157894737e-05
+            },
+            "configured_add_f0_about_wrp_si": {
+              "surge_n": 0.0,
+              "sway_n": 0.0,
+              "heave_n": 0.0,
+              "roll_nm": 0.0,
+              "pitch_nm": 478167747.746,
+              "yaw_nm": 0.0
+            },
+            "hydrodyn_damping_mode": "original_public_input",
+            "sample_count": 601,
+            "late_window_statistics": {
+              "tail_window_s": 150.0,
+              "first_window_s": [
+                450.0,
+                525.0
+              ],
+              "second_window_s": [
+                525.0,
+                600.0
+              ],
+              "first_window_statistics": {
+                "surge_m": {
+                  "mean": -2.6758933333333332,
+                  "minimum": -2.677,
+                  "maximum": -2.673,
+                  "range": 0.0040000000000000036
+                },
+                "sway_m": {
+                  "mean": 5.606731999999999e-06,
+                  "minimum": -2.045e-05,
+                  "maximum": 2.819e-05,
+                  "range": 4.8639999999999995e-05
+                },
+                "heave_m": {
+                  "mean": -0.35672533333333334,
+                  "minimum": -0.3569,
+                  "maximum": -0.3566,
+                  "range": 0.00030000000000002247
+                },
+                "roll_deg": {
+                  "mean": -2.511906666666667e-05,
+                  "minimum": -0.0002249,
+                  "maximum": 0.0002116,
+                  "range": 0.0004365
+                },
+                "pitch_deg": {
+                  "mean": 8.594693333333332,
+                  "minimum": 8.593,
+                  "maximum": 8.597,
+                  "range": 0.0039999999999995595
+                },
+                "yaw_deg": {
+                  "mean": -2.1481408e-05,
+                  "minimum": -0.0001417,
+                  "maximum": 0.0001048,
+                  "range": 0.0002465
+                }
+              },
+              "second_window_statistics": {
+                "surge_m": {
+                  "mean": -2.6744342105263157,
+                  "minimum": -2.676,
+                  "maximum": -2.673,
+                  "range": 0.0030000000000001137
+                },
+                "sway_m": {
+                  "mean": -2.3017921052631577e-06,
+                  "minimum": -2.839e-05,
+                  "maximum": 3.281e-05,
+                  "range": 6.12e-05
+                },
+                "heave_m": {
+                  "mean": -0.35672894736842103,
+                  "minimum": -0.3569,
+                  "maximum": -0.3566,
+                  "range": 0.00030000000000002247
+                },
+                "roll_deg": {
+                  "mean": 8.839144736842104e-06,
+                  "minimum": -0.0002599,
+                  "maximum": 0.0002514,
+                  "range": 0.0005112999999999999
+                },
+                "pitch_deg": {
+                  "mean": 8.594697368421052,
+                  "minimum": 8.592,
+                  "maximum": 8.597,
+                  "range": 0.004999999999999005
+                },
+                "yaw_deg": {
+                  "mean": 5.814868421052633e-06,
+                  "minimum": -0.0001521,
+                  "maximum": 0.0001375,
+                  "range": 0.0002896
+                }
+              },
+              "second_window_mean_state_for_release_only": {
+                "surge_m": -2.6744342105263157,
+                "sway_m": -2.3017921052631577e-06,
+                "heave_m": -0.35672894736842103,
+                "roll_deg": 8.839144736842104e-06,
+                "pitch_deg": 8.594697368421052,
+                "yaw_deg": 5.814868421052633e-06
+              },
+              "second_minus_first_mean": {
+                "surge_m": 0.0014591228070175433,
+                "sway_m": -7.908524105263157e-06,
+                "heave_m": -3.614035087695644e-06,
+                "roll_deg": 3.3958211403508776e-05,
+                "pitch_deg": 4.0350877199557544e-06,
+                "yaw_deg": 2.729627642105263e-05
+              }
+            }
+          },
+          "increment_from_matched_zero_preload_release_tail_mean_deg": {
+            "roll_deg": 1.2272048684210526e-05,
+            "pitch_deg": 10.04696052631579
+          }
+        },
+        "angle_difference_low_order_minus_openfast_deg": {
+          "roll_deg": -1.2272048684210526e-05,
+          "pitch_deg": -0.046960526315791284
+        },
+        "original_damping_release_tail_range_deg": {
+          "roll_deg": 0.0005112999999999999,
+          "pitch_deg": 0.004999999999999005
+        },
+        "original_damping_release_stability": {
+          "criteria": {
+            "maximum_tail_range_deg": 0.01,
+            "maximum_abs_second_minus_first_tail_mean_deg": 0.005
+          },
+          "components": {
+            "roll_deg": {
+              "tail_range_deg": 0.0005112999999999999,
+              "second_minus_first_tail_mean_deg": 3.3958211403508776e-05
+            },
+            "pitch_deg": {
+              "tail_range_deg": 0.004999999999999005,
+              "second_minus_first_tail_mean_deg": 4.0350877199557544e-06
+            }
+          },
+          "passes": true
+        },
+        "state_transfer": {
+          "release_initial_state_source": "temporary_relaxation.second_window_mean_state_for_release_only",
+          "release_initial_state": {
+            "surge_m": -2.6695394736842104,
+            "sway_m": -4.507105263157895e-06,
+            "heave_m": -0.35657894736842105,
+            "roll_deg": 5.617078947368421e-06,
+            "pitch_deg": 8.594736842105263,
+            "yaw_deg": 4.035978157894737e-05
+          }
+        }
+      },
+      "summary": {
+        "target_low_order_pitch_increment_deg": 10.0,
+        "low_order_pitch_increment_deg": 9.999999999999998,
+        "openfast_pitch_increment_deg": 10.04696052631579,
+        "low_order_minus_openfast_pitch_deg": -0.046960526315791284,
+        "openfast_over_low_order_pitch_ratio": 1.0046960526315791,
+        "relative_low_order_minus_openfast_pitch_percent": -0.46960526315791296,
+        "openfast_roll_increment_deg": 1.2272048684210526e-05,
+        "original_damping_release_tail_range_deg": {
+          "roll_deg": 0.0005112999999999999,
+          "pitch_deg": 0.004999999999999005
+        },
+        "original_damping_release_stability": {
+          "criteria": {
+            "maximum_tail_range_deg": 0.01,
+            "maximum_abs_second_minus_first_tail_mean_deg": 0.005
+          },
+          "components": {
+            "roll_deg": {
+              "tail_range_deg": 0.0005112999999999999,
+              "second_minus_first_tail_mean_deg": 3.3958211403508776e-05
+            },
+            "pitch_deg": {
+              "tail_range_deg": 0.004999999999999005,
+              "second_minus_first_tail_mean_deg": 4.0350877199557544e-06
+            }
+          },
+          "passes": true
+        }
+      }
+    }
+  ]
+}

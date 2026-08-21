@@ -70,10 +70,12 @@ the planning interval. It is not the public platform-coupling entry.
 | `controller_runtime.py` | One-cycle orchestration and persistent state |
 | `controller_plant_adapter.py` | Existing platform-state and target interface adapter |
 | `controller_chain_runner.py` | Direct controller-to-plant loop and connectivity evidence |
+| `controller_platform_handoff.py` | P4 physical substep and low-order-state-to-observation conversion |
 | `controller_replay_adapter.py` | Replay history to explicit model forecast evidence |
 | `controller_core.py` | Demand formation, candidate evaluation and final commit |
 | `forecast_evidence.py` | Validated future wind evidence |
 | `forecast_action_policy.py` | Permission for forecast-specific actions |
+| `decision_demand.py` | Retained historical demand proxy and stage demand record |
 | `ballast_allocation.py` | Two-axis demand to three-tank mass mapping |
 | `execution_rollout.py` | Three-pump target execution preview |
 | `action_plan.py` | Evaluated-action identity and atomic commit rule |
@@ -95,6 +97,29 @@ named current-only forecast adapter.
 
 These names describe target changes, not fixed pump-speed gears. Pump flow is
 computed separately from target error, capacity and pump-state limits.
+`continue_target` is therefore distinct from the forecast policy's legacy
+`hold` advisory: the former retains an existing water-mass target, while the
+latter does not itself issue a V2 execution request.
+
+The cycle trace records stage-level policy evidence separately from the
+authorization result for every action, along with the selected candidate
+sequence. This keeps the forecast input and the actions it allows distinct. If
+future wind is available but the policy is disabled, the trace says so instead
+of reporting the forecast as absent; the resulting demand increment remains
+visible in the stage record. A `null` policy-evidence record means no future
+preview was available, while `available=true, policy_evaluated=false` means
+future wind was available but no policy trend was evaluated. The stage lead
+bounds describe controller stages, whereas the nested policy lead bounds
+describe the forecast samples used to form their trend evidence. The records
+describe controller-internal eligibility and ranking only; they do not claim a
+platform-level safety verification.
+
+For the selected sequence, the same trace also lists the six weighted ranking
+terms and their configured weights. This exposes the current empirical
+trade-off without implying that these weights have already received physical
+calibration. The same term breakdown appears for the recorded leading
+candidates, so their ordering can be checked without reimplementing the
+ranking formula.
 
 ## Compatibility boundary
 
@@ -133,6 +158,9 @@ The present acceptance level is intentionally structural:
     separate content hashes;
 15. a same-state probe changes only future wind-vector content and verifies
     that candidate ranking and the executable target respond.
+16. a P4 substep uses start-of-step tank masses for the frozen platform step,
+    then passes the resulting actual actuator state and low-order posture back
+    to the next `ControlObservation`.
 
 Run the focused checks with:
 

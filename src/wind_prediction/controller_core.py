@@ -11,7 +11,6 @@ from __future__ import annotations
 import itertools
 import math
 from dataclasses import dataclass, field
-from enum import Enum
 from types import MappingProxyType
 from typing import Any, Mapping
 
@@ -23,10 +22,16 @@ from .action_plan import (
     commit_action_plan,
     record_evaluation,
 )
-from .ballast_allocation import (
-    compensation_to_mass_delta_kg,
-    mass_delta_to_compensation_vec,
+from .action_target import (
+    ACTION_ORDER,
+    ActionSemantics,
+    ActionVectorSource,
+    ControlAction,
+    action_semantics_for,
+    action_vector_for,
+    execution_request_for_action as _execution_request_for_action,
 )
+from .ballast_allocation import mass_delta_to_compensation_vec
 from .decision_demand import (
     LegacyWindDemandProxyConfig,
     form_stage_demand,
@@ -51,32 +56,12 @@ from .forecast_evidence import ForecastEvidence, validate_forecast_evidence
 _EPS = 1e-12
 
 
-class ControlAction(str, Enum):
-    """Controller decisions with explicit target-lifecycle meaning."""
-
-    STRENGTHEN = "strengthen"
-    NORMAL = "normal"
-    REDUCED = "reduced"
-    CONTINUE_TARGET = "continue_target"
-    RELEASE_TARGET = "release_target"
-    REVERSE = "reverse"
-
-
-_ACTION_ORDER = (
-    ControlAction.CONTINUE_TARGET,
-    ControlAction.RELEASE_TARGET,
-    ControlAction.REDUCED,
-    ControlAction.NORMAL,
-    ControlAction.STRENGTHEN,
-    ControlAction.REVERSE,
-)
-
-
 @dataclass(frozen=True)
 class ControlCoreConfig:
     """Parameters that define the compact controller, not the plant model."""
 
     deadband_deg: tuple[float, float] = (1.0, 0.8)
+    legacy_demand_axis_scale_deg: tuple[float, float] | None = None
     posture_priority_envelope_deg: tuple[float, float] = (4.0, 4.0)
     stage_duration_s: float = 1200.0
     stage_count: int = 3
@@ -112,6 +97,16 @@ class ControlCoreConfig:
         )
         if min(deadband) <= 0.0:
             raise ValueError("deadband_deg values must be positive")
+        demand_scale = (
+            deadband
+            if self.legacy_demand_axis_scale_deg is None
+            else _finite_pair(
+                "legacy_demand_axis_scale_deg",
+                self.legacy_demand_axis_scale_deg,
+            )
+        )
+        if min(demand_scale) <= 0.0:
+            raise ValueError("legacy_demand_axis_scale_deg values must be positive")
         if min(envelope) <= 0.0:
             raise ValueError("posture_priority_envelope_deg values must be positive")
         if any(deadband_value >= envelope_value for deadband_value, envelope_value in zip(deadband, envelope)):
@@ -208,10 +203,27 @@ class ControlCoreConfig:
         ):
             raise ValueError("at least one candidate cost weight must be positive")
 
+    @property
+    def resolved_legacy_demand_axis_scale_deg(self) -> tuple[float, float]:
+        """Return the legacy demand scale, applying the compatibility fallback."""
+
+        values = (
+            self.deadband_deg
+            if self.legacy_demand_axis_scale_deg is None
+            else self.legacy_demand_axis_scale_deg
+        )
+        return tuple(float(value) for value in values)
+
 
 @dataclass(frozen=True)
 class ControlObservation:
-    """All measured values needed for one controller decision."""
+    """All measured values needed for one controller decision.
+
+    ``current_wind_uv_ms`` is the downwind air-velocity vector in geographic
+    ENU axes, ordered ``[east, north]`` and expressed in m/s. It is not
+    resolved into platform forward/port axes here. A future physical-demand
+    mapping must perform that conversion explicitly with its chosen heading.
+    """
 
     time_s: float
     posture_deg: tuple[float, float]
@@ -294,6 +306,40 @@ class CandidateEvaluation:
 
 
 @dataclass(frozen=True)
+class CandidateScoreTerms:
+    """Weighted terms that form one feasible candidate's ranking score."""
+
+    residual: float
+    terminal_residual: float
+    pump_volume: float
+    pump_runtime: float
+    starts: float
+    direction_switches: float
+
+    @property
+    def total(self) -> float:
+        return float(
+            self.residual
+            + self.terminal_residual
+            + self.pump_volume
+            + self.pump_runtime
+            + self.starts
+            + self.direction_switches
+        )
+
+    def as_trace(self) -> dict[str, float]:
+        return {
+            "residual": self.residual,
+            "terminal_residual": self.terminal_residual,
+            "pump_volume": self.pump_volume,
+            "pump_runtime": self.pump_runtime,
+            "starts": self.starts,
+            "direction_switches": self.direction_switches,
+            "total": self.total,
+        }
+
+
+@dataclass(frozen=True)
 class ControlDecision:
     action: ControlAction
     target_operation: TargetOperation
@@ -310,6 +356,18 @@ class ControlDecision:
 
     def as_trace(self) -> dict[str, Any]:
         first = self.ranked_candidates[0]
+        first_stage = self.context.stages[0]
+        selected_authorization = first_stage.authorizations[self.action]
+        selected_semantics = action_semantics_for(self.action)
+        selected_score_terms = _candidate_score_terms(
+            residual_cost=first.residual_cost,
+            terminal_residual_cost=first.terminal_residual_cost,
+            transferred_volume_m3=first.transferred_volume_m3,
+            active_time_s=first.active_time_s,
+            starts=first.starts,
+            direction_switches=first.direction_switches,
+            config=self.config,
+        )
         return {
             "selected_action": self.action.value,
             "target_operation": self.target_operation.value,
@@ -326,6 +384,32 @@ class ControlDecision:
             "score": self.score,
             "candidate_count": len(self.ranked_candidates),
             "rejected_candidate_count": self.rejected_candidate_count,
+            "selection": {
+                "selected_sequence": [
+                    action.value for action in first.sequence
+                ],
+                "feasible_sequence_count": len(self.ranked_candidates),
+                "selected_action_authorization": {
+                    "allowed": selected_authorization.allowed,
+                    "reason": selected_authorization.reason,
+                },
+                "selected_action_semantics": {
+                    "target_operation": selected_semantics.target_operation.value,
+                    "vector_source": selected_semantics.vector_source.value,
+                    "requires_nonzero_demand": (
+                        selected_semantics.requires_nonzero_demand
+                    ),
+                },
+                "score_terms": selected_score_terms.as_trace(),
+                "score_weights": {
+                    "residual": self.config.w_residual,
+                    "terminal_residual": self.config.w_terminal_residual,
+                    "pump_volume": self.config.w_pump_volume,
+                    "pump_runtime": self.config.w_pump_runtime,
+                    "starts": self.config.w_starts,
+                    "direction_switches": self.config.w_direction_switches,
+                },
+            },
             "forecast": {
                 "available": self.context.forecast_available,
                 "source": self.context.forecast_source,
@@ -351,6 +435,18 @@ class ControlDecision:
                     "forecast_direction_consistent": (
                         stage.forecast_direction_consistent
                     ),
+                    "forecast_policy_evidence": _forecast_stage_evidence_trace(
+                        self.context.forecast_policy,
+                        stage.index,
+                        forecast_available=self.context.forecast_available,
+                    ),
+                    "action_authorizations": {
+                        action.value: {
+                            "allowed": authorization.allowed,
+                            "reason": authorization.reason,
+                        }
+                        for action, authorization in stage.authorizations.items()
+                    },
                 }
                 for stage in self.context.stages
             ],
@@ -367,6 +463,15 @@ class ControlDecision:
                     "rank": rank,
                     "sequence": [action.value for action in candidate.sequence],
                     "score": candidate.score,
+                    "score_terms": _candidate_score_terms(
+                        residual_cost=candidate.residual_cost,
+                        terminal_residual_cost=candidate.terminal_residual_cost,
+                        transferred_volume_m3=candidate.transferred_volume_m3,
+                        active_time_s=candidate.active_time_s,
+                        starts=candidate.starts,
+                        direction_switches=candidate.direction_switches,
+                        config=self.config,
+                    ).as_trace(),
                     "residual_cost": candidate.residual_cost,
                     "terminal_residual_cost": candidate.terminal_residual_cost,
                     "pump_volume_m3": candidate.transferred_volume_m3,
@@ -422,6 +527,55 @@ def _disabled_policy(reason: str, stage_duration_s: float) -> ForecastActionPoli
         reason=str(reason),
         stage_duration_s=float(stage_duration_s),
     )
+
+
+def _forecast_stage_evidence_trace(
+    policy: ForecastActionPolicyResult,
+    stage_index: int,
+    *,
+    forecast_available: bool,
+) -> dict[str, Any] | None:
+    """Project policy evidence without hiding a usable forecast input."""
+
+    if not forecast_available:
+        return None
+    if not policy.enabled:
+        return {
+            "available": True,
+            "policy_evaluated": False,
+            "reason": policy.reason,
+        }
+    if stage_index >= len(policy.stages):
+        return {
+            "available": True,
+            "policy_evaluated": False,
+            "reason": "forecast_policy_stage_unavailable",
+        }
+    stage = policy.stages[stage_index]
+    return {
+        "available": True,
+        "policy_evaluated": True,
+        "reason": policy.reason,
+        "lead_start_s": stage.lead_start_s,
+        "lead_end_s": stage.lead_end_s,
+        "mean_speed_ms": stage.mean_speed_ms,
+        "speed_change_ms": stage.speed_change_ms,
+        "relative_speed_change": stage.relative_speed_change,
+        "direction_consistency": stage.direction_consistency,
+        "direction_consistent": stage.direction_consistent,
+        "mean_reliability": stage.mean_reliability,
+        "event_probability": stage.event_probability,
+        "event_threshold": stage.event_threshold,
+        "event_threshold_source": stage.event_threshold_source,
+        "trend": {
+            "strengthening": stage.strengthening,
+            "sustained": stage.sustained,
+            "declining": stage.declining,
+            "continuous_reversal": stage.continuous_reversal,
+            "reversal_run_length": stage.reversal_run_length,
+            "high_impact_event_supported": stage.high_impact_event_supported,
+        },
+    }
 
 
 def _stage_authorizations(
@@ -556,7 +710,7 @@ def build_control_context(
         reliability = np.ones(required_points, dtype=float)
 
     proxy_config = LegacyWindDemandProxyConfig(
-        normalization_deg=tuple(float(value) for value in deadband),
+        demand_axis_scale_deg=config.resolved_legacy_demand_axis_scale_deg,
         reference_speed_ms=config.wind_reference_ms,
         effect_cap=config.wind_effect_cap,
         sign_multiplier=config.pressure_sign_multiplier,
@@ -565,6 +719,15 @@ def build_control_context(
     for index in range(config.stage_count):
         start = index * points_per_stage
         end = start + points_per_stage
+        if forecast_available:
+            # Forecast points are timestamped after the origin.  Keep the
+            # trace aligned with those point leads rather than the policy's
+            # enclosing planning interval.
+            stage_lead_start_s = float((start + 1) * sample_period_s)
+            stage_lead_end_s = float(end * sample_period_s)
+        else:
+            stage_lead_start_s = float(index * config.stage_duration_s)
+            stage_lead_end_s = float((index + 1) * config.stage_duration_s)
         stage_feedback = feedback * float(config.posture_decay) ** index
         mean_reliability = float(np.mean(reliability[start:end]))
         reason, direction_consistency, direction_consistent = _forecast_demand_metadata(
@@ -587,8 +750,8 @@ def build_control_context(
         stages.append(
             ControlStage(
                 index=index,
-                lead_start_s=float(index * config.stage_duration_s),
-                lead_end_s=float((index + 1) * config.stage_duration_s),
+                lead_start_s=stage_lead_start_s,
+                lead_end_s=stage_lead_end_s,
                 feedback_demand_deg=stage_demand.feedback_demand_deg,
                 forecast_increment_deg=stage_demand.forecast_increment_deg,
                 combined_demand_deg=stage_demand.combined_demand_deg,
@@ -615,35 +778,24 @@ def build_control_context(
     )
 
 
-def _normalized_direction(demand_deg: np.ndarray, deadband_deg: np.ndarray) -> np.ndarray:
-    normalized = np.asarray(demand_deg, dtype=float) / deadband_deg
-    magnitude = float(np.linalg.norm(normalized))
-    if magnitude <= _EPS:
-        return np.zeros(2, dtype=float)
-    return normalized / magnitude * deadband_deg
-
-
 def _action_vector(
     action: ControlAction,
     demand_deg: np.ndarray,
     previous_action_vector_deg: np.ndarray,
     config: ControlCoreConfig,
 ) -> np.ndarray:
-    if action in {ControlAction.CONTINUE_TARGET, ControlAction.RELEASE_TARGET}:
-        return np.zeros(2, dtype=float)
-    deadband = np.asarray(config.deadband_deg, dtype=float)
-    if action is ControlAction.REVERSE:
-        reference = np.asarray(previous_action_vector_deg, dtype=float)
-        if np.linalg.norm(reference / deadband) <= _EPS:
-            return np.zeros(2, dtype=float)
-        return -_normalized_direction(reference, deadband) * float(config.reverse_ratio)
-    direction = _normalized_direction(demand_deg, deadband)
-    ratio = {
-        ControlAction.REDUCED: config.reduced_ratio,
-        ControlAction.NORMAL: config.normal_ratio,
-        ControlAction.STRENGTHEN: config.strengthen_ratio,
-    }[action]
-    return direction * float(ratio)
+    """Compatibility wrapper for the extracted action-target calculation."""
+
+    return action_vector_for(
+        action,
+        demand_deg=demand_deg,
+        previous_action_vector_deg=previous_action_vector_deg,
+        demand_axis_scale_deg=config.resolved_legacy_demand_axis_scale_deg,
+        reduced_ratio=config.reduced_ratio,
+        normal_ratio=config.normal_ratio,
+        strengthen_ratio=config.strengthen_ratio,
+        reverse_ratio=config.reverse_ratio,
+    )
 
 
 def execution_request_for_action(
@@ -653,35 +805,64 @@ def execution_request_for_action(
     action_vector_deg: np.ndarray,
     config: ControlCoreConfig,
 ) -> ExecutionRolloutRequest:
-    """Translate one decision into the exact target evaluated by the pumps."""
+    """Compatibility wrapper for the extracted execution-target request."""
 
-    if action is ControlAction.CONTINUE_TARGET:
-        return ExecutionRolloutRequest.track(state.primary_target_masses_kg)
-    if action is ControlAction.RELEASE_TARGET:
-        return ExecutionRolloutRequest.release_to_current()
-    delta = compensation_to_mass_delta_kg(
-        action_vector_deg,
-        deadband_deg=config.deadband_deg,
+    return _execution_request_for_action(
+        action,
+        state=state,
+        action_vector_deg=action_vector_deg,
+        demand_axis_scale_deg=config.resolved_legacy_demand_axis_scale_deg,
         action_mass_quantum_kg=config.action_mass_quantum_kg,
+        tank_capacity_kg=config.execution.tank_capacity_kg,
     )
-    target = np.clip(
-        state.actual_masses_kg + delta,
-        0.0,
-        float(config.execution.tank_capacity_kg),
-    )
-    return ExecutionRolloutRequest.track(target)
-
-
-def _target_operation(action: ControlAction) -> TargetOperation:
-    if action is ControlAction.CONTINUE_TARGET:
-        return TargetOperation.CONTINUE
-    if action is ControlAction.RELEASE_TARGET:
-        return TargetOperation.RELEASE
-    return TargetOperation.SET_DELTA
 
 
 def _candidate_sequences(stage_count: int) -> tuple[tuple[ControlAction, ...], ...]:
-    return tuple(itertools.product(_ACTION_ORDER, repeat=stage_count))
+    return tuple(itertools.product(ACTION_ORDER, repeat=stage_count))
+
+
+def _candidate_score_terms(
+    *,
+    residual_cost: float,
+    terminal_residual_cost: float,
+    transferred_volume_m3: float,
+    active_time_s: float,
+    starts: int,
+    direction_switches: int,
+    config: ControlCoreConfig,
+) -> CandidateScoreTerms:
+    """Evaluate the existing score formula as individually traceable terms."""
+
+    reference_volume = max(
+        float(config.action_mass_quantum_kg)
+        / max(float(config.execution.water_density_kg_m3), _EPS),
+        _EPS,
+    )
+    runtime_reference = max(
+        float(config.stage_count) * 3.0 * float(config.stage_duration_s),
+        _EPS,
+    )
+    action_reference = max(3.0 * config.stage_count, 1.0)
+    return CandidateScoreTerms(
+        residual=float(config.w_residual) * float(residual_cost),
+        terminal_residual=(
+            float(config.w_terminal_residual) * float(terminal_residual_cost)
+        ),
+        pump_volume=(
+            float(config.w_pump_volume)
+            * float(transferred_volume_m3)
+            / reference_volume
+        ),
+        pump_runtime=(
+            float(config.w_pump_runtime) * float(active_time_s) / runtime_reference
+        ),
+        starts=float(config.w_starts) * int(starts) / action_reference,
+        direction_switches=(
+            float(config.w_direction_switches)
+            * int(direction_switches)
+            / action_reference
+        ),
+    )
 
 
 def _evaluate_candidate(
@@ -699,7 +880,10 @@ def _evaluate_candidate(
     state = observation.execution_state
     compensation = np.zeros(2, dtype=float)
     previous_vector = np.asarray(initial_previous_vector_deg, dtype=float).copy()
-    deadband = np.asarray(config.deadband_deg, dtype=float)
+    demand_scale = np.asarray(
+        config.resolved_legacy_demand_axis_scale_deg,
+        dtype=float,
+    )
     residual_cost = 0.0
     transferred_volume = 0.0
     active_time = 0.0
@@ -712,18 +896,14 @@ def _evaluate_candidate(
     final_residual = np.zeros(2, dtype=float)
 
     for index, (action, stage) in enumerate(zip(sequence, context.stages)):
+        semantics = action_semantics_for(action)
         demand = np.asarray(stage.combined_demand_deg, dtype=float)
         residual_before = demand - compensation
-        residual_demand_ratio = float(np.linalg.norm(residual_before / deadband))
-        if (
-            action
-            in {
-                ControlAction.STRENGTHEN,
-                ControlAction.NORMAL,
-                ControlAction.REDUCED,
-                ControlAction.REVERSE,
-            }
-            and residual_demand_ratio < float(config.minimum_action_demand_ratio)
+        residual_demand_ratio = float(
+            np.linalg.norm(residual_before / demand_scale)
+        )
+        if semantics.requires_nonzero_demand and residual_demand_ratio < float(
+            config.minimum_action_demand_ratio
         ):
             return _rejected_candidate(sequence, "demand_below_action_threshold")
         action_vector = _action_vector(
@@ -732,12 +912,10 @@ def _evaluate_candidate(
             previous_vector,
             config,
         )
-        if action in {
-            ControlAction.STRENGTHEN,
-            ControlAction.NORMAL,
-            ControlAction.REDUCED,
-            ControlAction.REVERSE,
-        } and np.linalg.norm(action_vector / deadband) <= _EPS:
+        if (
+            semantics.requires_nonzero_demand
+            and np.linalg.norm(action_vector / demand_scale) <= _EPS
+        ):
             return _rejected_candidate(sequence, "active_action_has_zero_effect")
 
         request = execution_request_for_action(
@@ -749,7 +927,7 @@ def _evaluate_candidate(
         step = simulate_execution_step(state, request, config.execution)
         executed_compensation = mass_delta_to_compensation_vec(
             step.mass_delta_kg,
-            deadband_deg=config.deadband_deg,
+            deadband_deg=config.resolved_legacy_demand_axis_scale_deg,
             action_mass_quantum_kg=config.action_mass_quantum_kg,
         )
         compensation = (
@@ -757,7 +935,7 @@ def _evaluate_candidate(
             + executed_compensation
         )
         final_residual = demand - compensation
-        residual_norm = float(np.linalg.norm(final_residual / deadband))
+        residual_norm = float(np.linalg.norm(final_residual / demand_scale))
         residual_cost += float(config.stage_discounts[index]) * residual_norm**2
         transferred_volume += float(step.transferred_volume_m3)
         active_time += float(step.active_time_s)
@@ -769,39 +947,29 @@ def _evaluate_candidate(
             first_target = step.requested_target_kg.copy()
             first_request = request
             first_step = step
-        if action is ControlAction.RELEASE_TARGET:
+        if semantics.target_operation is TargetOperation.RELEASE:
             previous_vector = np.zeros(2, dtype=float)
-        elif action not in {ControlAction.CONTINUE_TARGET}:
+        elif semantics.vector_source is not ActionVectorSource.NONE:
             previous_vector = action_vector.copy()
         state = step.state
 
     if first_step is None or first_request is None:
         return _rejected_candidate(sequence, "empty_sequence")
-    terminal_norm = float(np.linalg.norm(final_residual / deadband))
-    reference_volume = max(
-        float(config.action_mass_quantum_kg)
-        / max(float(config.execution.water_density_kg_m3), _EPS),
-        _EPS,
-    )
-    runtime_reference = max(
-        float(config.stage_count) * 3.0 * float(config.stage_duration_s),
-        _EPS,
-    )
-    score = (
-        float(config.w_residual) * residual_cost
-        + float(config.w_terminal_residual) * terminal_norm**2
-        + float(config.w_pump_volume) * transferred_volume / reference_volume
-        + float(config.w_pump_runtime) * active_time / runtime_reference
-        + float(config.w_starts) * starts / max(3.0 * config.stage_count, 1.0)
-        + float(config.w_direction_switches)
-        * switches
-        / max(3.0 * config.stage_count, 1.0)
+    terminal_norm = float(np.linalg.norm(final_residual / demand_scale))
+    score_terms = _candidate_score_terms(
+        residual_cost=residual_cost,
+        terminal_residual_cost=terminal_norm**2,
+        transferred_volume_m3=transferred_volume,
+        active_time_s=active_time,
+        starts=starts,
+        direction_switches=switches,
+        config=config,
     )
     return CandidateEvaluation(
         sequence=sequence,
         feasible=True,
         reject_reason="",
-        score=float(score),
+        score=score_terms.total,
         residual_cost=float(residual_cost),
         terminal_residual_cost=float(terminal_norm**2),
         transferred_volume_m3=float(transferred_volume),
@@ -846,7 +1014,7 @@ def decide_control_cycle(
     initial_previous = mass_delta_to_compensation_vec(
         observation.execution_state.primary_target_masses_kg
         - observation.execution_state.actual_masses_kg,
-        deadband_deg=config.deadband_deg,
+        deadband_deg=config.resolved_legacy_demand_axis_scale_deg,
         action_mass_quantum_kg=config.action_mass_quantum_kg,
     )
     evaluated = tuple(
@@ -863,7 +1031,7 @@ def decide_control_cycle(
         (candidate for candidate in evaluated if candidate.feasible),
         key=lambda candidate: (
             candidate.score,
-            tuple(_ACTION_ORDER.index(action) for action in candidate.sequence),
+            tuple(ACTION_ORDER.index(action) for action in candidate.sequence),
         ),
     )
     if not feasible:
@@ -874,7 +1042,7 @@ def decide_control_cycle(
 
     best = feasible[0]
     action = best.sequence[0]
-    operation = _target_operation(action)
+    operation = action_semantics_for(action).target_operation
     plan = build_candidate_plan(
         action.value,
         operation,
@@ -910,7 +1078,10 @@ def decide_control_cycle(
 
 
 __all__ = [
+    "ActionSemantics",
+    "ActionVectorSource",
     "CandidateEvaluation",
+    "CandidateScoreTerms",
     "ControlAction",
     "ControlContext",
     "ControlCoreConfig",
@@ -920,4 +1091,5 @@ __all__ = [
     "build_control_context",
     "decide_control_cycle",
     "execution_request_for_action",
+    "action_semantics_for",
 ]

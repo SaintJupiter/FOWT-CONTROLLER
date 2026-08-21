@@ -60,7 +60,13 @@ class ActionAuthorization:
 
 @dataclass(frozen=True)
 class ForecastStageTrend:
-    """Trend evidence and action authorizations for one prediction stage."""
+    """Trend evidence, action permissions and compatibility advice for one stage.
+
+    ``hold`` remains a trend-level advisory for the V1 compatibility path. It
+    is not the V2 ``continue_target`` lifecycle action: continuing an existing
+    target may keep a pump running, whereas a forecast hold advisory does not
+    issue an execution request by itself.
+    """
 
     stage_index: int
     lead_start_s: float
@@ -345,11 +351,14 @@ def evaluate_forecast_action_policy(
 ) -> ForecastActionPolicyResult:
     """Interpret forecast evidence without changing any controller state.
 
-    Six 10-minute leads naturally form three 20-minute stages under the default
-    configuration.  When ``current_uv_ms`` is provided, the first-stage speed
-    trend is measured from the current observation to the mean forecast speed
-    in that stage, and direction reversal is referenced to the current wind
-    vector.  Omitting it preserves the original forecast-only interpretation.
+    Six 10-minute point leads naturally form three 20-minute policy stages
+    under the default configuration.  The first stage contains the ``+10`` and
+    ``+20 min`` records; its ``0-20 min`` label is a policy/event window, not a
+    claim that a forecast vector exists at ``t=0``.  When ``current_uv_ms`` is
+    provided, the first-stage speed trend is measured from the current
+    observation to the mean forecast speed in that stage, and direction
+    reversal is referenced to the current wind vector.  Omitting it preserves
+    the original forecast-only interpretation.
     Reliability and event probability gate only strengthening and reverse
     authorization; the ordinary trend flags use unscaled wind vectors.
     """

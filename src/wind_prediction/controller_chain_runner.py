@@ -35,6 +35,16 @@ ThrustModel = Callable[[float], float]
 
 @dataclass(frozen=True)
 class ChainRunSummary:
+    """Summary metrics together with the resolved platform-use identity.
+
+    The numerical fields below describe one run only. ``platform_*`` fields
+    retain the validated profile status and purpose so framework checks cannot
+    be detached from the low-order model that produced them.
+    """
+
+    platform_profile_requested_name: str
+    platform_model_status: str
+    platform_run_purpose: str
     duration_s: float
     step_count: int
     decision_count: int
@@ -458,7 +468,11 @@ def run_controller_plant_chain(
     decisions = tuple(dict(record) for record in controller.records)
     forecast_decisions = sum(int(row.get("forecast_available", 0)) for row in decisions)
     capacity = float(plant.tank_capacity)
+    platform_profile = platform_identity["profile"]
     summary = ChainRunSummary(
+        platform_profile_requested_name=str(platform_profile["requested_name"]),
+        platform_model_status=str(platform_profile["status"]),
+        platform_run_purpose=str(platform_profile["purpose"]),
         duration_s=duration_s,
         step_count=step_count,
         decision_count=len(decisions),

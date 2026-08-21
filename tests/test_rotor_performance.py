@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 
 from fowt_platform.rotor_performance import (
+    RotorPerformanceOperatingPoint,
     load_rosco_rotor_performance_table_from_zip,
     parse_rosco_rotor_performance_table,
 )
@@ -53,6 +54,48 @@ class RotorPerformanceTests(unittest.TestCase):
     def test_ct_uses_bilinear_interpolation_inside_the_grid(self):
         self.assertAlmostEqual(self.table.ct_at(pitch_deg=5.0, tip_speed_ratio=6.0), 0.65)
 
+    def test_operating_point_exposes_only_the_explicit_tsr_lookup_inputs(self):
+        point = RotorPerformanceOperatingPoint(
+            pitch_deg=0.5,
+            rotor_speed_rpm=5.0,
+            rotor_radius_m=120.97,
+            normal_inflow_speed_mps=5.0,
+        )
+
+        self.assertAlmostEqual(
+            point.tip_speed_ratio,
+            5.0 * 2.0 * np.pi / 60.0 * 120.97 / 5.0,
+        )
+        self.assertAlmostEqual(
+            self.table.ct_at_operating_point(
+                RotorPerformanceOperatingPoint(
+                    pitch_deg=5.0,
+                    rotor_speed_rpm=6.0 * 60.0 / (2.0 * np.pi),
+                    rotor_radius_m=1.0,
+                    normal_inflow_speed_mps=1.0,
+                )
+            ),
+            0.65,
+        )
+
+    def test_operating_point_rejects_nonphysical_or_table_external_inputs(self):
+        with self.assertRaisesRegex(ValueError, "normal_inflow_speed_mps must be positive"):
+            RotorPerformanceOperatingPoint(
+                pitch_deg=0.0,
+                rotor_speed_rpm=5.0,
+                rotor_radius_m=120.97,
+                normal_inflow_speed_mps=0.0,
+            )
+
+        point = RotorPerformanceOperatingPoint(
+            pitch_deg=1.0,
+            rotor_speed_rpm=7.55,
+            rotor_radius_m=120.97,
+            normal_inflow_speed_mps=5.0,
+        )
+        with self.assertRaisesRegex(ValueError, "tip_speed_ratio=.*outside"):
+            self._frozen_table().ct_at_operating_point(point)
+
     def test_ct_rejects_extrapolation(self):
         with self.assertRaisesRegex(ValueError, "outside"):
             self.table.ct_at(pitch_deg=-0.1, tip_speed_ratio=6.0)
@@ -91,11 +134,7 @@ class RotorPerformanceTests(unittest.TestCase):
             parse_rosco_rotor_performance_table(single_pitch)
 
     def test_frozen_public_table_preserves_documented_axis_order(self):
-        table = load_rosco_rotor_performance_table_from_zip(
-            REFERENCE_ARCHIVE,
-            REFERENCE_MEMBER,
-            expected_archive_sha256=REFERENCE_ARCHIVE_SHA256,
-        )
+        table = self._frozen_table()
         self.assertEqual(table.ct.shape, (26, 36))
         self.assertEqual(table.pitch_deg[0], -5.0)
         self.assertEqual(table.pitch_deg[-1], 30.0)
@@ -106,11 +145,7 @@ class RotorPerformanceTests(unittest.TestCase):
         self.assertAlmostEqual(table.ct_at(pitch_deg=0.0, tip_speed_ratio=7.0), 0.614890)
 
     def test_frozen_public_table_uses_the_four_neighboring_entries(self):
-        table = load_rosco_rotor_performance_table_from_zip(
-            REFERENCE_ARCHIVE,
-            REFERENCE_MEMBER,
-            expected_archive_sha256=REFERENCE_ARCHIVE_SHA256,
-        )
+        table = self._frozen_table()
         self.assertAlmostEqual(
             table.ct_at(pitch_deg=0.5, tip_speed_ratio=7.25), 0.624166, places=6
         )
@@ -122,6 +157,14 @@ class RotorPerformanceTests(unittest.TestCase):
                 REFERENCE_MEMBER,
                 expected_archive_sha256="0" * 64,
             )
+
+    @staticmethod
+    def _frozen_table():
+        return load_rosco_rotor_performance_table_from_zip(
+            REFERENCE_ARCHIVE,
+            REFERENCE_MEMBER,
+            expected_archive_sha256=REFERENCE_ARCHIVE_SHA256,
+        )
 
 
 if __name__ == "__main__":
