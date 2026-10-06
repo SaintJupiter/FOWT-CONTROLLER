@@ -1,12 +1,87 @@
 # Codex Handoff
 
-Last updated: 2026-07-11
+Last updated: 2026-10-06
 
 This is the first file a new Codex session should read in this repository.
-It records the active project line, the current dataset and model state, what
-has already been tried, and what should be done next.
+The current entry points and read order below supersede the older training and
+controller notes retained in this file. They are not an automatic execution queue.
 
-## 2026-07-11 Journal Submission Freeze
+## Current Project Direction
+
+The active research line is forecast-driven active ballast for a three-tank
+floating wind turbine. The implemented Preview chain is:
+
+```text
+source-bound wind preview
+-> common physical load conversion
+-> deterministic preview optimization
+-> actual first-block pump/platform precheck
+-> tail replanning from the reached state and candidate selection
+-> current-block execution
+-> actual platform, tank and pump state feedback
+```
+
+Current research and implementation authority:
+
+- [10.6 thesis plan](docs/10.6课题规划.md).
+- [10.6 finite-scenario execution plan](docs/10.6_有限情景主动压载_执行规划.md).
+- [Execution progress](docs/thesis_execution_progress_20261005.md) and
+  [prediction-to-decision diagnosis](docs/thesis_prediction_decision_mechanism_diagnosis_20261005.md).
+- [Full-text literature assessment](docs/recent_preview_control_fulltext_review_20261006.md)
+  and [reference index](references/multistage_control/README.md).
+
+The next research version plans finite-scenario joint planning and low-frequency
+zone-priority objectives. Do not describe those plans as completed controllers
+or established performance improvements. Follow the latest explicit user task
+and the stage status in the two 10.6 plans; do not reopen historical alternatives
+or start a prescribed experiment ladder merely because an older note says so.
+
+The current code entry points are `preview_mpc.py`,
+`preview_mpc_application.py`, `preview_mpc_control_cycle.py` and
+`preview_mpc_runtime.py` under `src/wind_prediction/`, plus
+`scripts/validation/preview_mpc_continuous_experiment.py`.
+Reuse `execution_rollout.py` and `physical_execution_platform_path.py` for actual
+pump and platform propagation. `wind_prediction.controller` is an earlier V2
+interface, not the only entry for current Preview development.
+
+Preserve these distinctions:
+
+- A submitted tank target is not the next actual tank mass.
+- Keeping a target can keep the pump running. Releasing a target does not
+  instantly stop the pump or undo water already moved.
+- Cumulative pumping is the integral of absolute actual flow, not net tank
+  change and not automatically pump energy.
+- Historical performance ratios and model-angle limits are not new acceptance
+  targets or certified safety bounds.
+- Finite scenarios and sampled checks do not by themselves establish a true
+  distributional, continuous-time or recursive-feasibility guarantee.
+
+The public repository omits local environments, weights, raw experimental data,
+complete outputs and licensed paper PDFs. Check availability before attempting
+real-data replay; do not substitute a different run and call it reproduction.
+
+## Read Order
+
+For current thesis/Preview work:
+
+1. `README.md` and this current-entry section.
+2. `docs/10.6课题规划.md`.
+3. `docs/10.6_有限情景主动压载_执行规划.md` and any implementation record it cites.
+4. Relevant current code and the existing focused tests for the assigned stage.
+
+Read paper-format and training handoffs only when the task concerns those topics.
+Read legacy controllers and archives only for explicitly requested reproduction
+or comparison. Do not treat old recommended next steps as current instructions.
+
+## Historical Records Below
+
+The July submission notes and May training/controller records below are retained
+for traceability. Their datasets, results, commands and action lists describe
+those historical stages, not today's model selection or task queue. Where they
+conflict with current research plans, use the latest user request and the 10.6
+plans. Some manuscript/training documents and data paths are local-only.
+
+## Historical 2026-07-11 Journal Submission Freeze
 
 The active Chinese-journal target is now `《海洋工程》`. The former
 `《舰船科学技术》` template and all format rules derived from it are
@@ -25,9 +100,9 @@ Do not overwrite the template. Build future submission copies from it. The
 journal requires an unnumbered, untitled introduction, so the first numbered
 chapter is 1 rather than 0.
 
-## Current Project Direction
+## Historical Wind-Prediction Direction
 
-The active line is:
+The wind-prediction line at that stage was:
 
 ```text
 historical 10-minute wind speed / wind direction
@@ -44,7 +119,10 @@ output:
 - future wind-change event probabilities;
 - segmented risk signals that a later ballast-control layer can consume.
 
-## 2026-05-11 Control Integration Reset
+## Historical 2026-05-11 Control Integration Reset
+
+This reset and its diagnostics are historical. Do not automatically rerun them
+or adopt their baseline descriptions for the current Preview implementation.
 
 The prediction-control line is being reset around three definitions before any
 new controller patching:
@@ -78,9 +156,10 @@ new controller patching:
    1 Hz hold feedback. They may remain only as historical/diagnostic switches
    until a cleanup pass removes them safely.
 
-## Read Order
+## Historical Read Order
 
-When starting a new Codex session in this repo, read in this order:
+The following read order belonged to the earlier paper/training stage. For
+current Preview work, use the read order at the top of this file:
 
 1. `README.md`
 2. `CODEX_HANDOFF.md`
@@ -94,7 +173,12 @@ If the task is specifically about control integration, also read:
 6. `archive/legacy_fowt_control/controllers_extras.py`
 7. `archive/legacy_fowt_control/run_validation.py`
 
-## Execution Discipline For Codex
+## Historical Local Execution Notes
+
+These notes document the earlier local training, casebook and manuscript setup.
+They do not authorize new installations, training, tuning or experiments. For
+current work, inspect the available environment and follow the assigned stage's
+current configuration and validation scope.
 
 When running tasks in this repository, follow this checklist before improvising:
 
@@ -186,7 +270,7 @@ When running tasks in this repository, follow this checklist before improvising:
    tick marks. Put units in axis labels only once, e.g. `事件时距 / min`, and use
    numeric tick labels such as `20`, `40`, `60` when the x-axis is a time axis.
 
-## Current Main Datasets
+## Historical Main Datasets
 
 Current trained baseline dataset:
 
@@ -255,7 +339,7 @@ FINO1 split counts:
 | validation | 138,657 |
 | test | 142,915 |
 
-## Current Best Results
+## Historical Best Results
 
 The current main comparison is on the `test` split.
 
@@ -270,7 +354,7 @@ The current main comparison is on the `test` split.
 - current result board and figures:
   `outputs/wind_prediction/ppt_figures`
 
-### Current test summary
+### Historical test summary
 
 | model | speed MAE | direction MAE | ballast attention F1 | 0-20 F1 | 20-40 F1 | 40-60 F1 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -312,7 +396,7 @@ Current conclusions from those trials:
 - LightGBM is a valid strong baseline, but segmented GRU remains better on the
   control-oriented event target.
 
-## Control Integration State
+## Historical Control Integration State
 
 Legacy control integration code is under:
 
@@ -339,7 +423,7 @@ Already done:
 This means the next control experiment should not redesign the controller from
 scratch. It should plug wind preview output into the existing preview interface.
 
-## Current Planning Judgment
+## Historical Planning Judgment
 
 The method-route documents under `风预测规划/` are still directionally correct:
 
@@ -359,7 +443,7 @@ What changed since those documents were first written:
   1. get better offshore-height data such as FINO1;
   2. or integrate the current preview model into ballast-control evaluation.
 
-## FINO1 Status
+## Historical FINO1 Status
 
 FINO1 download and first-pass processing are done.
 
@@ -378,7 +462,7 @@ Important note:
 - The next FINO1 action is retraining and comparing against the existing DWD
   result under the same model/metric setup.
 
-## Recommended Next Steps
+## Historical Recommended Next Steps
 
 Choose one of these two lines and stay focused:
 
@@ -795,7 +879,7 @@ that wins on a narrow regime and loses on the rest**. Specifically:
   - −13.7 pp fallback
   - no max_p95 regression
 
-### Required actions
+### Required actions at that historical stage
 
 1. **No production code change is needed** — `scripts/analysis/run_prediction_primary_casebook.py`
    already defaults `--model-dir` to `outputs/wind_prediction/lstm_segmented_fino1_meteo_aux_v1`
@@ -842,7 +926,7 @@ candidate only.
 **Artifact**:
 `outputs/wind_prediction/f60_relief_e15_holdout_validation_v1/forecast_attribution/relief_bias_table.txt`
 
-## Commands That Still Matter
+## Historical Reproduction Commands
 
 Prepare the segmented dataset:
 
@@ -883,7 +967,7 @@ python scripts/modeling/train_lightgbm_wind_baseline.py \
   --threshold-mode best_f1
 ```
 
-## Current Risks
+## Historical Risks
 
 - the present evidence is still single-station and partly low-height;
 - GRU superiority over LSTM is real but small, not enough to be the sole paper
