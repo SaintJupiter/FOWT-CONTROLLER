@@ -89,6 +89,18 @@ class RotorLoadTests(unittest.TestCase):
                 downwind_rotor_normal_platform=[1.0, 0.0, 0.0],
             )
 
+    def test_explicit_zero_thrust_accepts_reversed_relative_flow(self):
+        load = quasi_steady_rotor_normal_load_from_relative_air(
+            air_density_kg_m3=1.225,
+            rotor_radius_m=120.97,
+            thrust_coefficient=0.0,
+            relative_air_velocity_platform_mps=[-1.0, 0.0, 0.0],
+            downwind_rotor_normal_platform=[1.0, 0.0, 0.0],
+        )
+
+        self.assertEqual(load.thrust_n, 0.0)
+        np.testing.assert_allclose(load.force_platform_n, [0.0, 0.0, 0.0])
+
     def test_relative_air_assembly_returns_zero_for_pure_crossflow(self):
         load = quasi_steady_rotor_normal_load_from_relative_air(
             air_density_kg_m3=1.225,

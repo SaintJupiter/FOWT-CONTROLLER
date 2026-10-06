@@ -8,6 +8,7 @@ from wind_prediction.forecast_action_policy import (
     evaluate_forecast_action_policy,
 )
 from wind_prediction.forecast_evidence import ForecastEvidence
+from wind_prediction.forecast_stage_grid import build_forecast_stage_grid
 
 
 class ForecastActionPolicyTests(unittest.TestCase):
@@ -221,6 +222,40 @@ class ForecastActionPolicyTests(unittest.TestCase):
         self.assertEqual(first.point_indices, (0, 1))
         self.assertEqual(first.lead_start_s, 600.0)
         self.assertEqual(first.lead_end_s, 1200.0)
+
+    def test_explicit_controller_grid_owns_policy_point_assignment(self):
+        grid = build_forecast_stage_grid(
+            sample_period_s=600.0,
+            stage_duration_s=1200.0,
+            stage_count=3,
+            available_point_count=6,
+        )
+        result = evaluate_forecast_action_policy(
+            uv_ms=np.asarray(
+                [[6.0, 0.0], [7.0, 0.0], [8.0, 0.0],
+                 [9.0, 0.0], [10.0, 0.0], [11.0, 0.0]],
+                dtype=float,
+            ),
+            current_uv_ms=np.asarray([5.0, 0.0]),
+            lead_reliability=np.ones(6, dtype=float),
+            event_probs={
+                "attention_event_0_20m": 0.9,
+                "attention_event_20_40m": 0.9,
+                "attention_event_40_60m": 0.9,
+            },
+            sample_period_s=600.0,
+            stage_grid=grid,
+            config=self._config(),
+        )
+
+        self.assertEqual(
+            [(stage.point_indices, stage.lead_start_s, stage.lead_end_s) for stage in result.stages],
+            [
+                ((0, 1), 600.0, 1200.0),
+                ((2, 3), 1800.0, 2400.0),
+                ((4, 5), 3000.0, 3600.0),
+            ],
+        )
 
     def test_declining_forecast_authorizes_hold_and_release_without_event_support(self):
         result = self._evaluate(

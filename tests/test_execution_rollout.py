@@ -64,8 +64,14 @@ class ExecutionRolloutTests(unittest.TestCase):
         self.assertAlmostEqual(result.shaped_target_kg[0], 3000.0)
         self.assertAlmostEqual(result.mass_delta_kg[0], 1000.0)
         self.assertAlmostEqual(result.transferred_volume_m3, 1.0)
+        self.assertAlmostEqual(result.minimum_total_mass_delta_from_initial_kg, 0.0)
+        self.assertAlmostEqual(result.maximum_total_mass_delta_from_initial_kg, 1000.0)
         self.assertEqual(result.starts, 1)
         self.assertFalse(result.target_reached)
+        np.testing.assert_allclose(
+            result.state.previous_block_tank_mass_delta_kg,
+            result.mass_delta_kg,
+        )
         np.testing.assert_allclose(
             result.state.primary_target_masses_kg,
             [5000.0, 1000.0, 1000.0],
@@ -74,6 +80,25 @@ class ExecutionRolloutTests(unittest.TestCase):
             result.state.rate_limited_target_kg,
             result.shaped_target_kg,
         )
+
+    def test_execution_state_and_step_arrays_are_immutable_facts(self):
+        state = self.state([1000.0, 1000.0, 1000.0])
+        result = simulate_execution_step(
+            state,
+            np.array([5000.0, 1000.0, 1000.0]),
+            self.cfg,
+        )
+
+        with self.assertRaises(ValueError):
+            state.masses_kg[0] = 0.0
+        with self.assertRaises(ValueError):
+            result.state.pump_command_rates_m3_min[0] = 0.0
+        with self.assertRaises(ValueError):
+            result.state.previous_block_tank_mass_delta_kg[0] = 0.0
+        with self.assertRaises(ValueError):
+            result.mass_delta_kg[0] = 0.0
+        with self.assertRaises(ValueError):
+            result.start_counts[0] = 0
 
     def test_capacity_clip_and_hold_report_actual_pumped_volume(self):
         state = self.state([9900.0, 1000.0, 1000.0])
@@ -190,6 +215,92 @@ class ExecutionRolloutTests(unittest.TestCase):
         self.assertFalse(second.state.pump_latched[0])
         self.assertEqual(second.stops, 1)
         np.testing.assert_array_equal(second.stop_counts, [1, 0, 0])
+
+    def test_exact_target_stops_a_latched_pump_when_stop_error_is_zero(self):
+        running = self.state(
+            [100.0, 0.0, 0.0],
+            target=[100.0, 0.0, 0.0],
+            rates=[1.0, 0.0, 0.0],
+            latched=[True, False, False],
+            pump_command_rates_m3_min=[1.0, 0.0, 0.0],
+            pump_off_elapsed_s=np.zeros(3),
+        )
+
+        result = simulate_execution_step(running, [100.0, 0.0, 0.0], self.cfg)
+
+        self.assertFalse(result.state.pump_latched[0])
+        self.assertEqual(result.stops, 1)
+        self.assertAlmostEqual(result.active_time_s, 0.0)
+
+    def test_positive_stop_boundary_is_not_reported_as_target_reached(self):
+        cfg = ExecutionRolloutConfig(
+            block_duration_s=1.0,
+            water_density_kg_m3=60.0,
+            max_pump_rate_m3_min=1.0,
+            target_slew_enabled=False,
+            stop_error_kg=10.0,
+            tank_capacity_kg=1000.0,
+            internal_step_s=1.0,
+            restart_error_kg=20.0,
+            min_on_s=0.0,
+            min_off_s=0.0,
+            near_target_hold_s=0.0,
+            ramp_up_m3_min_per_s=np.inf,
+            ramp_down_m3_min_per_s=np.inf,
+            pump_rate_schedule_m3_min=CONSTANT_ONE_M3_MIN,
+        )
+
+        result = simulate_execution_step(
+            self.state([100.0, 0.0, 0.0]),
+            [110.0, 0.0, 0.0],
+            cfg,
+        )
+
+        self.assertFalse(result.target_reached)
+        self.assertFalse(result.state.pump_latched[0])
+
+    def test_zero_stop_threshold_epsilon_residual_does_not_restart(self):
+        result = simulate_execution_step(
+            self.state([100.0, 0.0, 0.0]),
+            [100.0 + 0.5e-12, 0.0, 0.0],
+            self.cfg,
+        )
+
+        self.assertTrue(result.target_reached)
+        self.assertEqual(result.starts, 0)
+        self.assertFalse(result.state.pump_latched[0])
+
+    def test_exact_target_accumulates_dwell_when_stop_error_is_zero(self):
+        cfg = ExecutionRolloutConfig(
+            block_duration_s=2.0,
+            water_density_kg_m3=60.0,
+            max_pump_rate_m3_min=1.0,
+            target_slew_enabled=False,
+            stop_error_kg=0.0,
+            tank_capacity_kg=1000.0,
+            internal_step_s=1.0,
+            restart_error_kg=0.0,
+            min_on_s=0.0,
+            min_off_s=0.0,
+            near_target_hold_s=2.0,
+            ramp_up_m3_min_per_s=np.inf,
+            ramp_down_m3_min_per_s=np.inf,
+            pump_rate_schedule_m3_min=CONSTANT_ONE_M3_MIN,
+        )
+        running = self.state(
+            [100.0, 0.0, 0.0],
+            target=[100.0, 0.0, 0.0],
+            rates=[1.0, 0.0, 0.0],
+            latched=[True, False, False],
+            pump_command_rates_m3_min=[1.0, 0.0, 0.0],
+            pump_off_elapsed_s=np.zeros(3),
+        )
+
+        result = simulate_execution_step(running, [100.0, 0.0, 0.0], cfg)
+
+        self.assertFalse(result.state.pump_latched[0])
+        self.assertEqual(result.stops, 1)
+        self.assertAlmostEqual(result.pump_runtime_s[0], 1.0)
 
     def test_flow_ramp_sets_real_volume_runtime_and_signed_flow(self):
         cfg = ExecutionRolloutConfig(

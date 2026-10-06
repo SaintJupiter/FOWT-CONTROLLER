@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import itertools
 import math
+from copy import deepcopy
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Mapping
@@ -51,6 +52,7 @@ from .forecast_action_policy import (
     evaluate_forecast_action_policy,
 )
 from .forecast_evidence import ForecastEvidence, validate_forecast_evidence
+from .forecast_stage_grid import build_forecast_stage_grid
 
 
 _EPS = 1e-12
@@ -284,6 +286,7 @@ class CandidateEvaluation:
     sequence: tuple[ControlAction, ...]
     feasible: bool
     reject_reason: str
+    first_rejection_stage_index: int | None
     score: float
     residual_cost: float
     terminal_residual_cost: float
@@ -302,6 +305,41 @@ class CandidateEvaluation:
         default=None,
         compare=False,
         repr=False,
+    )
+    stage_evaluations: tuple["CandidateStageEvaluation", ...] = field(
+        default_factory=tuple,
+        compare=False,
+        repr=False,
+    )
+
+
+@dataclass(frozen=True)
+class CandidateStageEvaluation:
+    """One candidate action's factual rollout within one planning stage.
+
+    This is an audit record of the existing candidate calculation.  It does
+    not add a plant prediction or alter the ranking; it retains the demand,
+    target lifecycle and pump result that the evaluator already used for this
+    stage so a later physical diagnostic can be aligned to the same horizon.
+    """
+
+    stage_index: int
+    action: ControlAction
+    target_operation: TargetOperation
+    authorization: ActionAuthorization
+    combined_demand_deg: tuple[float, float]
+    residual_before_deg: tuple[float, float]
+    action_vector_deg: tuple[float, float]
+    executed_compensation_deg: tuple[float, float]
+    residual_after_deg: tuple[float, float]
+    residual_cost_contribution: float
+    execution_request: ExecutionRolloutRequest = field(
+        repr=False,
+        compare=False,
+    )
+    execution: ExecutionRolloutStep = field(
+        repr=False,
+        compare=False,
     )
 
 
@@ -350,6 +388,7 @@ class ControlDecision:
     context: ControlContext
     ranked_candidates: tuple[CandidateEvaluation, ...]
     rejected_candidate_count: int
+    candidate_outcomes: Mapping[str, Any] = field(repr=False, compare=False)
     first_execution: ExecutionRolloutStep
     action_plan: Mapping[str, Any]
     config: ControlCoreConfig = field(repr=False, compare=False)
@@ -384,6 +423,7 @@ class ControlDecision:
             "score": self.score,
             "candidate_count": len(self.ranked_candidates),
             "rejected_candidate_count": self.rejected_candidate_count,
+            "candidate_outcomes": deepcopy(self.candidate_outcomes),
             "selection": {
                 "selected_sequence": [
                     action.value for action in first.sequence
@@ -410,6 +450,10 @@ class ControlDecision:
                     "direction_switches": self.config.w_direction_switches,
                 },
             },
+            "selected_stage_rollout": [
+                _candidate_stage_trace(stage)
+                for stage in first.stage_evaluations
+            ],
             "forecast": {
                 "available": self.context.forecast_available,
                 "source": self.context.forecast_source,
@@ -558,6 +602,7 @@ def _forecast_stage_evidence_trace(
         "reason": policy.reason,
         "lead_start_s": stage.lead_start_s,
         "lead_end_s": stage.lead_end_s,
+        "point_indices": list(stage.point_indices),
         "mean_speed_ms": stage.mean_speed_ms,
         "speed_change_ms": stage.speed_change_ms,
         "relative_speed_change": stage.relative_speed_change,
@@ -677,6 +722,11 @@ def build_control_context(
         reliability = np.ones(config.stage_count, dtype=float)
         sample_period_s = float(config.stage_duration_s)
         source = "none"
+        grid = build_forecast_stage_grid(
+            sample_period_s=sample_period_s,
+            stage_duration_s=config.stage_duration_s,
+            stage_count=config.stage_count,
+        )
         policy = _disabled_policy("forecast_unavailable", config.stage_duration_s)
     else:
         validate_forecast_evidence(evidence)
@@ -684,25 +734,22 @@ def build_control_context(
         reliability = np.asarray(evidence.lead_reliability, dtype=float)
         sample_period_s = float(evidence.sample_period_s)
         source = str(evidence.source)
+        grid = build_forecast_stage_grid(
+            sample_period_s=sample_period_s,
+            stage_duration_s=config.stage_duration_s,
+            stage_count=config.stage_count,
+            available_point_count=vectors.shape[0],
+        )
         if forecast_available:
             policy = evaluate_forecast_action_policy(
                 evidence,
                 current_uv_ms=observation.current_wind_uv_ms,
+                stage_grid=grid,
                 config=config.forecast_policy,
             )
         else:
             policy = _disabled_policy("no_future_preview", config.stage_duration_s)
-
-    points_per_stage_float = float(config.stage_duration_s) / sample_period_s
-    points_per_stage = int(round(points_per_stage_float))
-    if points_per_stage <= 0 or not math.isclose(
-        points_per_stage_float,
-        points_per_stage,
-        rel_tol=0.0,
-        abs_tol=1e-9,
-    ):
-        raise ValueError("stage_duration_s must be an integer multiple of forecast sample period")
-    required_points = points_per_stage * config.stage_count
+    required_points = grid.required_point_count
     if vectors.shape[0] < required_points:
         if evidence is not None:
             raise ValueError("forecast evidence does not cover the configured control horizon")
@@ -716,15 +763,16 @@ def build_control_context(
         sign_multiplier=config.pressure_sign_multiplier,
     )
     stages: list[ControlStage] = []
-    for index in range(config.stage_count):
-        start = index * points_per_stage
-        end = start + points_per_stage
+    for window in grid.windows:
+        index = window.index
+        start = window.point_start_index
+        end = window.point_end_index
         if forecast_available:
             # Forecast points are timestamped after the origin.  Keep the
             # trace aligned with those point leads rather than the policy's
             # enclosing planning interval.
-            stage_lead_start_s = float((start + 1) * sample_period_s)
-            stage_lead_end_s = float(end * sample_period_s)
+            stage_lead_start_s = window.lead_start_s
+            stage_lead_end_s = window.lead_end_s
         else:
             stage_lead_start_s = float(index * config.stage_duration_s)
             stage_lead_end_s = float((index + 1) * config.stage_duration_s)
@@ -821,6 +869,106 @@ def _candidate_sequences(stage_count: int) -> tuple[tuple[ControlAction, ...], .
     return tuple(itertools.product(ACTION_ORDER, repeat=stage_count))
 
 
+def _candidate_outcome_trace(
+    evaluated: tuple[CandidateEvaluation, ...],
+    *,
+    stage0_authorizations: Mapping[ControlAction, ActionAuthorization],
+    selected_score: float,
+) -> dict[str, Any]:
+    """Summarize candidate outcomes without affecting evaluation or ranking.
+
+    Each rejected sequence is counted against its first action and the first
+    stage at which the existing evaluator stopped considering it.  This keeps
+    action authorization, downstream rejection and final ranking distinct in
+    the decision trace.
+    """
+
+    by_first_action: dict[str, dict[str, Any]] = {
+        action.value: {
+            "evaluated_sequence_count": 0,
+            "feasible_sequence_count": 0,
+            "rejected_sequence_count": 0,
+            "first_rejection_counts": {},
+        }
+        for action in ACTION_ORDER
+    }
+    best_by_first_action: dict[ControlAction, CandidateEvaluation | None] = {
+        action: None for action in ACTION_ORDER
+    }
+    for candidate in evaluated:
+        if not candidate.sequence:
+            continue
+        summary = by_first_action[candidate.sequence[0].value]
+        summary["evaluated_sequence_count"] += 1
+        if candidate.feasible:
+            summary["feasible_sequence_count"] += 1
+            current_best = best_by_first_action[candidate.sequence[0]]
+            if current_best is None or candidate.score < current_best.score:
+                best_by_first_action[candidate.sequence[0]] = candidate
+            continue
+
+        summary["rejected_sequence_count"] += 1
+        key = (
+            candidate.first_rejection_stage_index,
+            candidate.reject_reason or "unspecified_rejection",
+        )
+        rejections = summary["first_rejection_counts"]
+        rejections[key] = rejections.get(key, 0) + 1
+
+    serialized_by_first_action: dict[str, dict[str, Any]] = {}
+    for action, summary in by_first_action.items():
+        control_action = ControlAction(action)
+        authorization = stage0_authorizations[control_action]
+        best = best_by_first_action[control_action]
+        rejection_counts = summary.pop("first_rejection_counts")
+        best_feasible_sequence: dict[str, Any] | None = None
+        if best is not None:
+            semantics = action_semantics_for(control_action)
+            normalized_vector = np.asarray(
+                best.first_action_vector_deg,
+                dtype=float,
+            )
+            best_feasible_sequence = {
+                "sequence": [candidate_action.value for candidate_action in best.sequence],
+                "score": best.score,
+                "score_gap_to_selected": best.score - selected_score,
+                "first_target_operation": semantics.target_operation.value,
+                "first_action_vector_nonzero": bool(
+                    np.linalg.norm(normalized_vector) > _EPS
+                ),
+            }
+        serialized_by_first_action[action] = {
+            **summary,
+            "stage0_authorization": {
+                "allowed": authorization.allowed,
+                "reason": authorization.reason,
+            },
+            "best_feasible_sequence": best_feasible_sequence,
+            "first_rejection_counts": [
+                {
+                    "stage_index": stage_index,
+                    "reason": reason,
+                    "count": count,
+                }
+                for (stage_index, reason), count in sorted(
+                    rejection_counts.items(),
+                    key=lambda item: (
+                        item[0][0] is None,
+                        -1 if item[0][0] is None else item[0][0],
+                        item[0][1],
+                    ),
+                )
+            ],
+        }
+    feasible_count = sum(candidate.feasible for candidate in evaluated)
+    return {
+        "evaluated_sequence_count": len(evaluated),
+        "feasible_sequence_count": int(feasible_count),
+        "rejected_sequence_count": len(evaluated) - int(feasible_count),
+        "by_first_action": serialized_by_first_action,
+    }
+
+
 def _candidate_score_terms(
     *,
     residual_cost: float,
@@ -865,6 +1013,38 @@ def _candidate_score_terms(
     )
 
 
+def _candidate_stage_trace(stage: CandidateStageEvaluation) -> dict[str, Any]:
+    """Serialize one already-evaluated stage without recomputing it."""
+
+    execution = stage.execution
+    return {
+        "stage_index": stage.stage_index,
+        "action": stage.action.value,
+        "target_operation": stage.target_operation.value,
+        "authorization": {
+            "allowed": stage.authorization.allowed,
+            "reason": stage.authorization.reason,
+        },
+        "combined_demand_deg": list(stage.combined_demand_deg),
+        "residual_before_deg": list(stage.residual_before_deg),
+        "action_vector_deg": list(stage.action_vector_deg),
+        "requested_target_masses_kg": execution.requested_target_kg.tolist(),
+        "executed_mass_delta_kg": execution.mass_delta_kg.tolist(),
+        "executed_compensation_deg": list(stage.executed_compensation_deg),
+        "residual_after_deg": list(stage.residual_after_deg),
+        "residual_cost_contribution": stage.residual_cost_contribution,
+        "execution": {
+            "operation": execution.target_operation.value,
+            "transferred_volume_m3": execution.transferred_volume_m3,
+            "active_time_s": execution.active_time_s,
+            "starts": execution.starts,
+            "stops": execution.stops,
+            "direction_switches": execution.direction_switches,
+            "target_reached": execution.target_reached,
+        },
+    }
+
+
 def _evaluate_candidate(
     sequence: tuple[ControlAction, ...],
     observation: ControlObservation,
@@ -872,10 +1052,14 @@ def _evaluate_candidate(
     config: ControlCoreConfig,
     initial_previous_vector_deg: np.ndarray,
 ) -> CandidateEvaluation:
-    for action, stage in zip(sequence, context.stages):
+    for stage_index, (action, stage) in enumerate(zip(sequence, context.stages)):
         authorization = stage.authorizations[action]
         if not authorization.allowed:
-            return _rejected_candidate(sequence, authorization.reason)
+            return _rejected_candidate(
+                sequence,
+                authorization.reason,
+                first_rejection_stage_index=stage_index,
+            )
 
     state = observation.execution_state
     compensation = np.zeros(2, dtype=float)
@@ -893,6 +1077,7 @@ def _evaluate_candidate(
     first_target = state.actual_masses_kg.copy()
     first_request: ExecutionRolloutRequest | None = None
     first_step: ExecutionRolloutStep | None = None
+    stage_evaluations: list[CandidateStageEvaluation] = []
     final_residual = np.zeros(2, dtype=float)
 
     for index, (action, stage) in enumerate(zip(sequence, context.stages)):
@@ -905,7 +1090,11 @@ def _evaluate_candidate(
         if semantics.requires_nonzero_demand and residual_demand_ratio < float(
             config.minimum_action_demand_ratio
         ):
-            return _rejected_candidate(sequence, "demand_below_action_threshold")
+            return _rejected_candidate(
+                sequence,
+                "demand_below_action_threshold",
+                first_rejection_stage_index=index,
+            )
         action_vector = _action_vector(
             action,
             residual_before,
@@ -916,7 +1105,11 @@ def _evaluate_candidate(
             semantics.requires_nonzero_demand
             and np.linalg.norm(action_vector / demand_scale) <= _EPS
         ):
-            return _rejected_candidate(sequence, "active_action_has_zero_effect")
+            return _rejected_candidate(
+                sequence,
+                "active_action_has_zero_effect",
+                first_rejection_stage_index=index,
+            )
 
         request = execution_request_for_action(
             action,
@@ -936,7 +1129,8 @@ def _evaluate_candidate(
         )
         final_residual = demand - compensation
         residual_norm = float(np.linalg.norm(final_residual / demand_scale))
-        residual_cost += float(config.stage_discounts[index]) * residual_norm**2
+        residual_cost_contribution = float(config.stage_discounts[index]) * residual_norm**2
+        residual_cost += residual_cost_contribution
         transferred_volume += float(step.transferred_volume_m3)
         active_time += float(step.active_time_s)
         starts += int(step.starts)
@@ -947,6 +1141,24 @@ def _evaluate_candidate(
             first_target = step.requested_target_kg.copy()
             first_request = request
             first_step = step
+        stage_evaluations.append(
+            CandidateStageEvaluation(
+                stage_index=index,
+                action=action,
+                target_operation=semantics.target_operation,
+                authorization=authorization,
+                combined_demand_deg=tuple(float(value) for value in demand),
+                residual_before_deg=tuple(float(value) for value in residual_before),
+                action_vector_deg=tuple(float(value) for value in action_vector),
+                executed_compensation_deg=tuple(
+                    float(value) for value in executed_compensation
+                ),
+                residual_after_deg=tuple(float(value) for value in final_residual),
+                residual_cost_contribution=float(residual_cost_contribution),
+                execution_request=request,
+                execution=step,
+            )
+        )
         if semantics.target_operation is TargetOperation.RELEASE:
             previous_vector = np.zeros(2, dtype=float)
         elif semantics.vector_source is not ActionVectorSource.NONE:
@@ -969,6 +1181,7 @@ def _evaluate_candidate(
         sequence=sequence,
         feasible=True,
         reject_reason="",
+        first_rejection_stage_index=None,
         score=score_terms.total,
         residual_cost=float(residual_cost),
         terminal_residual_cost=float(terminal_norm**2),
@@ -980,17 +1193,21 @@ def _evaluate_candidate(
         first_target_masses_kg=tuple(float(value) for value in first_target),
         first_execution_request=first_request,
         first_execution=first_step,
+        stage_evaluations=tuple(stage_evaluations),
     )
 
 
 def _rejected_candidate(
     sequence: tuple[ControlAction, ...],
     reason: str,
+    *,
+    first_rejection_stage_index: int | None = None,
 ) -> CandidateEvaluation:
     return CandidateEvaluation(
         sequence=sequence,
         feasible=False,
         reject_reason=str(reason),
+        first_rejection_stage_index=first_rejection_stage_index,
         score=float("inf"),
         residual_cost=float("inf"),
         terminal_residual_cost=float("inf"),
@@ -1071,6 +1288,11 @@ def decide_control_cycle(
         context=context,
         ranked_candidates=tuple(feasible),
         rejected_candidate_count=len(evaluated) - len(feasible),
+        candidate_outcomes=_candidate_outcome_trace(
+            evaluated,
+            stage0_authorizations=context.stages[0].authorizations,
+            selected_score=best.score,
+        ),
         first_execution=best.first_execution,
         action_plan=MappingProxyType(snapshot),
         config=config,

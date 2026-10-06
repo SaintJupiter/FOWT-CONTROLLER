@@ -1,6 +1,6 @@
 # P4控制决策、执行器与平台状态交接
 
-更新时间：2026-08-19
+更新时间：2026-08-22
 
 ## 目的
 
@@ -21,12 +21,14 @@
 
 1. 由` t_n `实际舱水量建立`BallastModelSnapshot`，并由` t_n `平台状态和环境输入构造显式风、浪和其他广义载荷。
 2. 以该快照和载荷推进平台至` t_n + dt `。
-3. 使用同一` t_n `执行器状态及同一已提交请求，将执行器推进至` t_n + dt `。执行器通过现有`simulate_execution_step`配合短步`block_duration_s`副本完成，不修改其内部泵模型。对于`RELEASE_TO_CURRENT`请求，释放目标在每个子步均由该子步起始的实际水量确定，这是执行器既有的释放语义。
+3. 使用同一` t_n `执行器状态及同一已提交请求，将执行器推进至` t_n + dt `。执行器通过现有`simulate_execution_step`配合短步`block_duration_s`副本完成，不修改其内部泵模型。对于`RELEASE_TO_CURRENT`请求，P4路径在每个子步重新调用执行器，并由该子步起始的实际水量生成释放目标。这是P4子步路径的明确释放语义，不等同于一次长执行器调用的唯一解释。
 4. 新得到的实际舱水量只用于下一子步的`BallastModelSnapshot`。
 
 该顺序是一阶冻结近似，不表示已实现连续变质量动力学、自由液面或执行器流动动量通量。
 
 该顺序由`wind_prediction.controller_platform_handoff.advance_controller_platform_substep`实现。该函数只接收已提交的`ExecutionRolloutRequest`，不接收控制器、预测信息或长时运行配置，从而将单步状态交接与决策层保持分离。下一决策时刻可通过同一模块的`control_observation_from_incremental_state`将P4平台状态和实际执行器状态转回既有`ControlObservation`，其中状态向量的`[roll, pitch]`按既有控制器约定转为`(pitch, roll)`角度及角速度。
+
+为避免各处手写子步循环，`advance_controller_platform_path`可在一个已提交的控制周期内按`execution_config.internal_step_s`重复上述顺序。它接受原始`TRACK`和`RELEASE_TO_CURRENT`请求，且总时长不得超过该执行配置的`block_duration_s`。对同一请求，路径末端的执行器状态可与一次`simulate_execution_step`逐项核对，包括目标缓变、泵锁存、计时器、命令流量和最后流向。释放路径会将目标重置为每个子步起始的实际水量，因此不产生实际水量转移，但已有锁存、最小开机时间或斜坡下降仍可能留下泵秒数。该比较只验证执行器状态交接，不要求平台整段响应与单次冻结步等价，因为平台快照会随实际舱水量逐步更新。
 
 当前短步回归显式传入`static_restoring_aligned_with_aux_frc_inertia_mooring`。该装配以同源质量、重心和静水恢复修正旧候选的静态恢复基线，完整转动惯量与局部线性系泊仍保留辅助`.frc`来源，因此只可称为静态恢复已对齐的过渡动态基准，不能表述为完整同源六自由度模型。`historical_mixed_frc_candidate`仍保留，仅用于复现旧链路结果。
 
@@ -35,6 +37,7 @@
 - 不直接将`ForecastAssistedBallastController.step()`接入平台。该方法会采用候选预演结束时的执行状态推进完整规划周期，不满足上述物理子步的因果顺序。
 - 不从`first_execution`或其质量变化反推实际执行请求。实际链路只使用决策中显式保存的`execution_request`。
 - 不在本阶段增加通用控制—平台运行器、多速率调度器、迭代耦合器或控制性能试验。
+- 不以`advance_controller_platform_path`跨越多个控制周期，或把它视为环境载荷插值、预测调度和候选选择工具。
 
 ## 最小核对
 

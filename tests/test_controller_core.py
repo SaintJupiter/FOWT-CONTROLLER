@@ -4,6 +4,7 @@ from dataclasses import replace
 import numpy as np
 
 from wind_prediction.action_plan import TargetOperation
+from wind_prediction.action_target import ACTION_ORDER
 from wind_prediction.controller_core import (
     ActionVectorSource,
     ControlAction,
@@ -386,6 +387,13 @@ class ControllerCoreTests(unittest.TestCase):
             "forecast_direction_inconsistent_recorded",
         )
         self.assertGreater(abs(first.forecast_increment_deg[0]), 0.0)
+        self.assertFalse(
+            first.authorizations[ControlAction.RELEASE_TARGET].allowed
+        )
+        self.assertEqual(
+            first.authorizations[ControlAction.RELEASE_TARGET].reason,
+            "no_sustained_decline",
+        )
 
     def test_policy_disabled_is_recorded_without_disabling_future_demand(self):
         context = build_control_context(
@@ -404,6 +412,41 @@ class ControllerCoreTests(unittest.TestCase):
             "forecast_policy_disabled",
         )
         self.assertGreater(abs(context.stages[0].forecast_increment_deg[0]), 0.0)
+        self.assertFalse(
+            context.stages[0].authorizations[
+                ControlAction.RELEASE_TARGET
+            ].allowed
+        )
+        self.assertEqual(
+            context.stages[0].authorizations[
+                ControlAction.RELEASE_TARGET
+            ].reason,
+            "future_relief_unavailable",
+        )
+
+    def test_posture_priority_overrides_release_authorization(self):
+        context = build_control_context(
+            _observation(posture_deg=(4.0, 0.0), current_wind_uv_ms=(0.0, -12.0)),
+            _evidence(
+                [
+                    (0.0, -11.0),
+                    (0.0, -10.0),
+                    (0.0, -9.0),
+                    (0.0, -8.0),
+                    (0.0, -7.0),
+                    (0.0, -6.0),
+                ]
+            ),
+            _config(),
+        )
+
+        first = context.stages[0]
+        self.assertTrue(context.posture_priority)
+        self.assertFalse(first.authorizations[ControlAction.RELEASE_TARGET].allowed)
+        self.assertEqual(
+            first.authorizations[ControlAction.RELEASE_TARGET].reason,
+            "measured_posture_priority_requires_correction",
+        )
 
     def test_measured_posture_uses_physical_deadzone_before_decay(self):
         context = build_control_context(
@@ -459,6 +502,18 @@ class ControllerCoreTests(unittest.TestCase):
         )
         self.assertIsNone(releasing.target_masses_kg)
 
+    def test_policy_hold_advice_does_not_equal_continue_target_lifecycle(self):
+        context = build_control_context(
+            _observation(current_wind_uv_ms=(0.0, -10.0)),
+            _evidence([(0.0, -12.0)] * 6),
+            _config(),
+        )
+
+        self.assertFalse(context.forecast_policy.stages[0].hold.allowed)
+        self.assertTrue(
+            context.stages[0].authorizations[ControlAction.CONTINUE_TARGET].allowed
+        )
+
     def test_reverse_uses_the_previous_action_vector_for_a_new_target(self):
         config = _config(reverse_ratio=0.12)
         state = _execution_state()
@@ -481,6 +536,16 @@ class ControllerCoreTests(unittest.TestCase):
         self.assertFalse(
             np.allclose(request.target_masses_kg, state.actual_masses_kg)
         )
+
+    def test_reverse_has_no_effect_without_a_previous_action_vector(self):
+        vector = _action_vector(
+            ControlAction.REVERSE,
+            demand_deg=np.array((4.0, 0.0)),
+            previous_action_vector_deg=np.zeros(2),
+            config=_config(),
+        )
+
+        np.testing.assert_allclose(vector, np.zeros(2))
 
     def test_high_posture_priority_selects_a_corrective_action(self):
         config = _config(
@@ -586,6 +651,194 @@ class ControllerCoreTests(unittest.TestCase):
         self.assertTrue(forecast_evidence["direction_consistent"])
         self.assertTrue(forecast_evidence["trend"]["sustained"])
 
+    def test_selected_stage_rollout_retains_the_existing_candidate_execution_path(self):
+        decision = decide_control_cycle(
+            _observation(posture_deg=(2.2, -0.6)),
+            _evidence(
+                [
+                    (0.0, -11.0),
+                    (0.0, -12.0),
+                    (0.0, -11.0),
+                    (0.0, -10.0),
+                    (0.0, -9.0),
+                    (0.0, -9.0),
+                ]
+            ),
+            _config(),
+        )
+
+        selected = decision.ranked_candidates[0]
+        self.assertEqual(
+            len(selected.stage_evaluations),
+            decision.config.stage_count,
+        )
+        self.assertIs(selected.stage_evaluations[0].execution, decision.first_execution)
+        self.assertIs(
+            selected.stage_evaluations[0].execution_request,
+            decision.execution_request,
+        )
+        self.assertEqual(selected.stage_evaluations[0].action, decision.action)
+        np.testing.assert_allclose(
+            selected.stage_evaluations[0].execution.requested_target_kg,
+            decision.target_masses_kg,
+        )
+        for index, stage in enumerate(selected.stage_evaluations):
+            self.assertEqual(stage.stage_index, index)
+            self.assertEqual(stage.action, selected.sequence[index])
+            self.assertTrue(stage.authorization.allowed)
+            self.assertGreaterEqual(stage.residual_cost_contribution, 0.0)
+            self.assertEqual(stage.execution.target_operation.value, stage.execution_request.operation.value)
+            self.assertTrue(np.all(np.isfinite(stage.execution.mass_delta_kg)))
+
+        trace = decision.as_trace()["selected_stage_rollout"]
+        self.assertEqual(len(trace), decision.config.stage_count)
+        self.assertEqual(trace[0]["action"], decision.action.value)
+        self.assertEqual(
+            trace[0]["target_operation"],
+            decision.target_operation.value,
+        )
+        np.testing.assert_allclose(
+            trace[0]["requested_target_masses_kg"],
+            decision.target_masses_kg,
+        )
+        self.assertEqual(
+            trace[-1]["stage_index"],
+            decision.config.stage_count - 1,
+        )
+
+    def test_trace_groups_candidate_outcomes_by_first_action_and_rejection(self):
+        decision = decide_control_cycle(
+            _observation(posture_deg=(2.2, 0.0)),
+            _evidence([(0.0, -10.0)] * 6),
+            _config(),
+        )
+
+        outcomes = decision.as_trace()["candidate_outcomes"]
+        self.assertEqual(
+            outcomes["evaluated_sequence_count"],
+            len(ACTION_ORDER) ** decision.config.stage_count,
+        )
+        self.assertEqual(
+            outcomes["feasible_sequence_count"],
+            len(decision.ranked_candidates),
+        )
+        self.assertEqual(
+            outcomes["rejected_sequence_count"],
+            decision.rejected_candidate_count,
+        )
+        release = outcomes["by_first_action"][
+            ControlAction.RELEASE_TARGET.value
+        ]
+        self.assertEqual(
+            release["evaluated_sequence_count"],
+            len(ACTION_ORDER) ** (decision.config.stage_count - 1),
+        )
+        self.assertEqual(release["feasible_sequence_count"], 0)
+        self.assertEqual(
+            release["first_rejection_counts"],
+            [
+                {
+                    "stage_index": 0,
+                    "reason": "no_sustained_decline",
+                    "count": len(ACTION_ORDER) ** (decision.config.stage_count - 1),
+                }
+            ],
+        )
+
+    def test_trace_records_release_rejection_after_an_authorized_first_stage(self):
+        decision = decide_control_cycle(
+            _observation(
+                posture_deg=(0.0, 0.0),
+                current_wind_uv_ms=(0.0, -12.0),
+            ),
+            _evidence(
+                [
+                    (0.0, -10.0),
+                    (0.0, -10.0),
+                    (0.0, -10.0),
+                    (0.0, -10.0),
+                    (0.0, -10.0),
+                    (0.0, -10.0),
+                ]
+            ),
+            _config(),
+        )
+
+        trace = decision.as_trace()
+        self.assertTrue(
+            trace["stages"][0]["action_authorizations"]["release_target"]
+            ["allowed"]
+        )
+        self.assertFalse(
+            trace["stages"][1]["action_authorizations"]["release_target"]
+            ["allowed"]
+        )
+        release = trace["candidate_outcomes"]["by_first_action"][
+            ControlAction.RELEASE_TARGET.value
+        ]
+        self.assertGreater(release["feasible_sequence_count"], 0)
+        self.assertNotEqual(trace["selected_action"], ControlAction.RELEASE_TARGET.value)
+        self.assertIn(
+            {
+                "stage_index": 1,
+                "reason": "no_sustained_decline",
+                "count": len(ACTION_ORDER),
+            },
+            release["first_rejection_counts"],
+        )
+
+    def test_trace_distinguishes_release_authorization_from_ranking_outcome(self):
+        decision = decide_control_cycle(
+            _observation(
+                posture_deg=(0.0, 0.0),
+                current_wind_uv_ms=(0.0, -12.0),
+            ),
+            _evidence(
+                [(0.0, -10.0)] * 6,
+            ),
+            _config(),
+        )
+
+        release = decision.as_trace()["candidate_outcomes"]["by_first_action"][
+            ControlAction.RELEASE_TARGET.value
+        ]
+        self.assertTrue(release["stage0_authorization"]["allowed"])
+        best = release["best_feasible_sequence"]
+        self.assertIsNotNone(best)
+        assert best is not None
+        self.assertEqual(best["first_target_operation"], "release")
+        self.assertFalse(best["first_action_vector_nonzero"])
+        self.assertGreater(best["score_gap_to_selected"], 0.0)
+        self.assertNotEqual(decision.action, ControlAction.RELEASE_TARGET)
+
+    def test_trace_is_copied_and_records_a_nonzero_reverse_candidate(self):
+        decision = decide_control_cycle(
+            _observation(
+                posture_deg=(2.2, 0.0),
+                current_wind_uv_ms=(10.0, 0.0),
+                target_offset_kg=(180_000.0, -180_000.0, 0.0),
+            ),
+            _evidence([(-10.0, 0.0)] * 6),
+            _config(),
+        )
+        trace = decision.as_trace()
+        reverse = trace["candidate_outcomes"]["by_first_action"][
+            ControlAction.REVERSE.value
+        ]
+        self.assertTrue(reverse["stage0_authorization"]["allowed"])
+        best = reverse["best_feasible_sequence"]
+        self.assertIsNotNone(best)
+        assert best is not None
+        self.assertTrue(best["first_action_vector_nonzero"])
+        trace["candidate_outcomes"]["by_first_action"][
+            ControlAction.REVERSE.value
+        ]["stage0_authorization"]["allowed"] = False
+        self.assertTrue(
+            decision.as_trace()["candidate_outcomes"]["by_first_action"][
+                ControlAction.REVERSE.value
+            ]["stage0_authorization"]["allowed"]
+        )
+
     def test_trace_marks_stage_forecast_policy_evidence_unavailable_without_preview(self):
         decision = decide_control_cycle(
             _observation(posture_deg=(2.2, 0.0)),
@@ -656,6 +909,10 @@ class ControllerCoreTests(unittest.TestCase):
             self.assertTrue(policy_evidence["policy_evaluated"])
             self.assertEqual(stage["lead_start_s"], policy_evidence["lead_start_s"])
             self.assertEqual(stage["lead_end_s"], policy_evidence["lead_end_s"])
+        self.assertEqual(
+            [stage["forecast_policy_evidence"]["point_indices"] for stage in decision.as_trace()["stages"]],
+            [[0, 1], [2, 3], [4, 5]],
+        )
 
     def test_trace_distinguishes_disabled_policy_from_unavailable_forecast(self):
         decision = decide_control_cycle(

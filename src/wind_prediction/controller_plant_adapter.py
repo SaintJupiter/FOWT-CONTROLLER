@@ -18,26 +18,16 @@ from .controller_runtime import (
 )
 from .execution_rollout import ExecutionRolloutState
 from .forecast_evidence import ForecastEvidence
+from .wind_conventions import wind_observation_to_enu_downwind_ms
 
 
 ForecastEvidenceSource = Callable[[float, Mapping[str, Any]], ForecastEvidence | None]
 
 
 def wind_observation_to_uv_ms(wind_obs: Mapping[str, Any]) -> tuple[float, float]:
-    """Convert a wind-from observation to ENU downwind ``[east, north]`` m/s."""
+    """Compatibility name for the shared ENU downwind conversion."""
 
-    try:
-        speed = float(wind_obs["ws"])
-        direction_deg = float(wind_obs["wd_deg"])
-    except (KeyError, TypeError, ValueError) as exc:
-        raise ValueError("wind_obs must contain numeric ws and wd_deg") from exc
-    if not math.isfinite(speed) or speed < 0.0 or not math.isfinite(direction_deg):
-        raise ValueError("wind speed and direction must be finite and speed non-negative")
-    direction_rad = math.radians(direction_deg)
-    return (
-        -speed * math.sin(direction_rad),
-        -speed * math.cos(direction_rad),
-    )
+    return wind_observation_to_enu_downwind_ms(wind_obs)
 
 
 def _strict_three(name: str, values: Any) -> np.ndarray:

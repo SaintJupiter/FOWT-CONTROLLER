@@ -54,6 +54,7 @@ class ReplayForecastEvidenceSourceTests(unittest.TestCase):
             history_start=origin - timedelta(minutes=110),
             history_end=origin,
             y_uv_raw=np.full((6, 2), 999.0, dtype=np.float32),
+            wind_obs={"ws": 10.0, "wd_deg": 0.0},
         )
         source = ReplayForecastEvidenceSource(
             replay_dataset=_Dataset(sample),
@@ -72,6 +73,76 @@ class ReplayForecastEvidenceSourceTests(unittest.TestCase):
         self.assertEqual(evidence.metadata["event_thresholds"]["attention_event"], 0.6)
         self.assertEqual(evidence.metadata["series_id"], "synthetic-series")
         self.assertEqual(len(evidence.metadata["input_window_sha256"]), 64)
+
+    def test_source_bound_pair_uses_one_sample_for_current_wind_and_model_forecast(self):
+        origin = datetime(2026, 8, 12, 0, 0, 0)
+        sample = SimpleNamespace(
+            series_id="synthetic-series",
+            x_window=np.zeros((12, 4), dtype=np.float32),
+            history_start=origin - timedelta(minutes=110),
+            history_end=origin,
+            y_uv_raw=np.full((6, 2), 999.0, dtype=np.float32),
+            wind_obs={"ws": 11.5, "wd_deg": 225.0},
+        )
+        source = ReplayForecastEvidenceSource(
+            replay_dataset=_Dataset(sample),
+            start_timestamp=origin,
+            forecast_adapter=_Adapter(),
+        )
+
+        pair = source.source_bound_forecast_and_current_observation(0.0)
+
+        self.assertIsNotNone(pair)
+        evidence, current_wind = pair
+        self.assertEqual(current_wind, sample.wind_obs)
+        self.assertIsNot(current_wind, sample.wind_obs)
+        self.assertEqual(evidence.origin_time, "2026-08-12 00:00:00")
+        self.assertEqual(evidence.metadata["history_end"], evidence.origin_time)
+        np.testing.assert_allclose(evidence.uv_ms[:, 1], -10.0)
+        self.assertNotEqual(float(evidence.uv_ms[0, 0]), 999.0)
+
+    def test_source_bound_enu_wind_uses_the_same_current_observation(self):
+        origin = datetime(2026, 8, 12, 0, 0, 0)
+        sample = SimpleNamespace(
+            series_id="synthetic-series",
+            x_window=np.zeros((12, 4), dtype=np.float32),
+            history_start=origin - timedelta(minutes=110),
+            history_end=origin,
+            y_uv_raw=np.full((6, 2), 999.0, dtype=np.float32),
+            wind_obs={"ws": 10.0, "wd_deg": 90.0},
+        )
+        source = ReplayForecastEvidenceSource(
+            replay_dataset=_Dataset(sample),
+            start_timestamp=origin,
+            forecast_adapter=_Adapter(),
+        )
+
+        pair = source.source_bound_forecast_and_current_enu_wind(0.0)
+
+        self.assertIsNotNone(pair)
+        evidence, current_enu = pair
+        self.assertEqual(evidence.origin_time, "2026-08-12 00:00:00")
+        np.testing.assert_allclose(current_enu, [-10.0, 0.0], atol=1e-12)
+        self.assertFalse(current_enu.flags.writeable)
+
+    def test_source_rejects_a_sample_with_a_different_history_end(self):
+        origin = datetime(2026, 8, 12, 0, 0, 0)
+        sample = SimpleNamespace(
+            series_id="synthetic-series",
+            x_window=np.zeros((12, 4), dtype=np.float32),
+            history_start=origin - timedelta(minutes=100),
+            history_end=origin + timedelta(minutes=10),
+            y_uv_raw=np.zeros((6, 2), dtype=np.float32),
+            wind_obs={"ws": 10.0, "wd_deg": 0.0},
+        )
+        source = ReplayForecastEvidenceSource(
+            replay_dataset=_Dataset(sample),
+            start_timestamp=origin,
+            forecast_adapter=_Adapter(),
+        )
+
+        with self.assertRaisesRegex(ValueError, "history_end must match"):
+            source.source_bound_forecast_and_current_observation(0.0)
 
     def test_missing_replay_sample_returns_no_evidence(self):
         origin = datetime(2026, 8, 12, 0, 0, 0)

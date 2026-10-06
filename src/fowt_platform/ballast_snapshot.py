@@ -38,6 +38,25 @@ def _readonly_matrix(name: str, value: Any) -> np.ndarray:
     return result
 
 
+def _readonly_tank_coordinates(name: str, value: Any) -> np.ndarray:
+    array = np.asarray(value, dtype=float)
+    if array.shape != (3, 3) or not np.all(np.isfinite(array)):
+        raise ValueError(f"{name} must be a finite matrix with shape (3, 3)")
+    result = np.array(array, dtype=float, copy=True)
+    result.setflags(write=False)
+    return result
+
+
+def _positive_gravity(value: Any) -> float:
+    try:
+        gravity = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("gravity_m_s2 must be finite and positive") from exc
+    if not np.isfinite(gravity) or gravity <= 0.0:
+        raise ValueError("gravity_m_s2 must be finite and positive")
+    return gravity
+
+
 @dataclass(frozen=True)
 class BallastModelSnapshot:
     """Matrices and incremental load derived from one frozen tank state.
@@ -50,6 +69,9 @@ class BallastModelSnapshot:
     actual_tank_masses_kg: Any
     reference_tank_masses_kg: Any
     tank_mass_deltas_kg: Any
+    tank_capacities_kg: Any
+    tank_coordinates_m: Any
+    gravity_m_s2: float
     matrices: PlatformMatrices
     incremental_ballast_load: Any
     runtime_provenance: str
@@ -64,6 +86,34 @@ class BallastModelSnapshot:
                 self,
                 name,
                 _readonly_three(name, getattr(self, name)),
+            )
+        capacities = _readonly_three("tank_capacities_kg", self.tank_capacities_kg)
+        if np.any(capacities <= 0.0):
+            raise ValueError("tank_capacities_kg values must be positive")
+        object.__setattr__(self, "tank_capacities_kg", capacities)
+        coordinates = _readonly_tank_coordinates(
+            "tank_coordinates_m",
+            self.tank_coordinates_m,
+        )
+        object.__setattr__(self, "tank_coordinates_m", coordinates)
+        object.__setattr__(self, "gravity_m_s2", _positive_gravity(self.gravity_m_s2))
+        if np.any(self.actual_tank_masses_kg < 0.0) or np.any(
+            self.actual_tank_masses_kg > capacities
+        ):
+            raise ValueError("actual_tank_masses_kg must remain within tank capacities")
+        if np.any(self.reference_tank_masses_kg < 0.0) or np.any(
+            self.reference_tank_masses_kg > capacities
+        ):
+            raise ValueError("reference_tank_masses_kg must remain within tank capacities")
+        if not np.allclose(
+            self.tank_mass_deltas_kg,
+            self.actual_tank_masses_kg - self.reference_tank_masses_kg,
+            rtol=0.0,
+            atol=1.0e-8,
+        ):
+            raise ValueError(
+                "tank_mass_deltas_kg must equal actual_tank_masses_kg minus "
+                "reference_tank_masses_kg"
             )
         load = np.asarray(self.incremental_ballast_load, dtype=float)
         if load.shape != (6,) or not np.all(np.isfinite(load)):
@@ -166,10 +216,12 @@ def assemble_ballast_model_snapshot(
         "reference_tank_masses_kg",
         reference_tank_masses_kg,
     )
+    capacities = _readonly_three("tank_capacities_kg", tank_capacities_kg)
+    coordinates = _readonly_tank_coordinates("tank_coordinates_m", tank_coordinates_m)
     deltas = tank_mass_deltas_from_actual_masses(
         actual_tank_masses_kg=actual,
         reference_tank_masses_kg=baseline,
-        tank_capacities_kg=tank_capacities_kg,
+        tank_capacities_kg=capacities,
     )
     reference_properties = runtime_assembly.reference_mass_properties
     updated_properties = compute_incremental_ballast_mass_properties(
@@ -179,7 +231,7 @@ def assemble_ballast_model_snapshot(
             reference_properties.inertia_about_reference_kg_m2
         ),
         tank_mass_deltas_kg=deltas,
-        tank_coordinates_m=tank_coordinates_m,
+        tank_coordinates_m=coordinates,
     )
     reference_rigid_body_mass = rigid_body_mass_matrix_about_reference(
         total_mass_kg=reference_properties.total_mass_kg,
@@ -218,13 +270,16 @@ def assemble_ballast_model_snapshot(
     )
     load = ballast_gravity_load_about_reference(
         tank_mass_deltas_kg=deltas,
-        tank_coordinates_m=tank_coordinates_m,
+        tank_coordinates_m=coordinates,
         gravity_m_s2=runtime_assembly.gravity_m_s2,
     )
     return BallastModelSnapshot(
         actual_tank_masses_kg=actual,
         reference_tank_masses_kg=baseline,
         tank_mass_deltas_kg=deltas,
+        tank_capacities_kg=capacities,
+        tank_coordinates_m=coordinates,
+        gravity_m_s2=runtime_assembly.gravity_m_s2,
         matrices=matrices,
         incremental_ballast_load=load,
         runtime_provenance=runtime_assembly.provenance,

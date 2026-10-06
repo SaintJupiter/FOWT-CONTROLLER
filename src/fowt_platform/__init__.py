@@ -41,6 +41,10 @@ from .source_consistent_reference import (
     assemble_volturnus_static_restoring_aligned_runtime_assembly,
     load_volturnus_source_consistent_static_reference,
 )
+from .wamit_radiation_damping import (
+    LocalRadiationDamping,
+    load_local_radiation_damping,
+)
 from .modal import UndampedModes, analyze_undamped_modes
 from .rotor_performance import (
     RotorPerformanceOperatingPoint,
@@ -48,6 +52,15 @@ from .rotor_performance import (
     load_rosco_rotor_performance_table,
     load_rosco_rotor_performance_table_from_zip,
     parse_rosco_rotor_performance_table,
+)
+from .rotor_operating_schedule import (
+    NOMINAL_BELOW_RATED_GENERATING,
+    NominalBelowRatedRotorOperatingForecast,
+    NominalBelowRatedRotorOperatingPoint,
+    NominalBelowRatedRotorSchedule,
+    assemble_nominal_below_rated_operating_forecast,
+    inspect_nominal_below_rated_operating_inputs,
+    load_rosco_nominal_below_rated_schedule_from_zip,
 )
 from .rotor_loads import (
     RotorNormalLoad,
@@ -71,6 +84,7 @@ from .ballast_moment_allocation import (
     allocate_pitch_roll_moment_to_tanks,
     pitch_roll_moment_from_tank_mass_deltas,
 )
+from .ballast_modes import DifferentialModeProjection, ThreeTankDifferentialModes
 from .ballast_endpoint_path import (
     BallastEndpointPathSample,
     sample_ballast_endpoint_path,
@@ -82,6 +96,10 @@ from .candidate_response_diagnostic import (
 from .pitch_roll_restoring_diagnostic import (
     PitchRollRestoringDiagnostic,
     diagnose_pitch_roll_restoring_demand,
+)
+from .current_posture_feedback_diagnostic import (
+    CurrentPosturePassiveLoadDiagnostic,
+    diagnose_current_posture_passive_load,
 )
 from .forecast_ballast_diagnostic import (
     ForecastBallastDemandDiagnostic,
@@ -104,10 +122,13 @@ __all__ = [
     "BallastMomentAllocation",
     "BallastModelSnapshot",
     "BallastRuntimeAssembly",
+    "DifferentialModeProjection",
     "CandidateResponseDiagnostic",
     "compute_ballast_mass_properties",
     "compute_incremental_ballast_mass_properties",
     "compare_hypothetical_candidate_response",
+    "CurrentPosturePassiveLoadDiagnostic",
+    "diagnose_current_posture_passive_load",
     "diagnose_pitch_roll_restoring_demand",
     "diagnose_forecast_ballast_redistribution",
     "diagnose_generalized_load_forecast_ballast_redistribution",
@@ -136,12 +157,19 @@ __all__ = [
     "ReferenceVerticalBalanceEvidence",
     "RotorPerformanceTable",
     "RotorPerformanceOperatingPoint",
+    "NominalBelowRatedRotorOperatingForecast",
+    "NominalBelowRatedRotorOperatingPoint",
+    "NominalBelowRatedRotorSchedule",
+    "NOMINAL_BELOW_RATED_GENERATING",
     "RotorNormalLoad",
     "RotorGeneralizedLoad",
     "load_volturnus_reference_components",
     "load_rosco_rotor_performance_table",
     "load_rosco_rotor_performance_table_from_zip",
+    "load_rosco_nominal_below_rated_schedule_from_zip",
     "load_volturnus_source_consistent_static_reference",
+    "LocalRadiationDamping",
+    "load_local_radiation_damping",
     "parse_rosco_rotor_performance_table",
     "pitch_roll_moment_from_tank_mass_deltas",
     "sample_ballast_endpoint_path",
@@ -149,10 +177,13 @@ __all__ = [
     "quasi_steady_rotor_normal_load_from_relative_air",
     "quasi_steady_rotor_generalized_load_from_enu_wind",
     "quasi_steady_rotor_generalized_load_from_platform_motion",
+    "assemble_nominal_below_rated_operating_forecast",
+    "inspect_nominal_below_rated_operating_inputs",
     "advance_frozen_open_loop_step",
     "solve_incremental_static_offset",
     "simulate_linear_free_response",
     "tank_mass_deltas_from_actual_masses",
+    "ThreeTankDifferentialModes",
     "true_heading_from_yaw",
     "UndampedModes",
     "VolturnusReferenceComponents",

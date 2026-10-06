@@ -87,10 +87,23 @@ def quasi_steady_rotor_normal_load_from_relative_air(
     yaw alignment, or represent a parked/reversed-flow operating state.
     """
 
+    coefficient = _nonnegative_scalar("thrust_coefficient", thrust_coefficient)
     normal_speed = downwind_normal_relative_wind_component(
         relative_air_velocity_platform_mps,
         downwind_rotor_normal_platform,
     )
+    if coefficient == 0.0:
+        # A caller may explicitly represent a no-thrust operating state while
+        # still carrying the platform-relative air vector for diagnostics.
+        # In that state the positive-thrust branch has no load to evaluate, so
+        # a reversed normal component must not be turned into a false error.
+        return quasi_steady_rotor_normal_load(
+            air_density_kg_m3=air_density_kg_m3,
+            rotor_radius_m=rotor_radius_m,
+            thrust_coefficient=coefficient,
+            relative_normal_wind_speed_mps=0.0,
+            downwind_rotor_normal_platform=downwind_rotor_normal_platform,
+        )
     if normal_speed < 0.0:
         raise ValueError(
             "relative_air_velocity_platform_mps has a negative component "
@@ -99,7 +112,7 @@ def quasi_steady_rotor_normal_load_from_relative_air(
     return quasi_steady_rotor_normal_load(
         air_density_kg_m3=air_density_kg_m3,
         rotor_radius_m=rotor_radius_m,
-        thrust_coefficient=thrust_coefficient,
+        thrust_coefficient=coefficient,
         relative_normal_wind_speed_mps=normal_speed,
         downwind_rotor_normal_platform=downwind_rotor_normal_platform,
     )

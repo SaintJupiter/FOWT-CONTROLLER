@@ -14,6 +14,7 @@ from typing import Mapping, Sequence
 import numpy as np
 
 from .forecast_evidence import ForecastEvidence, validate_forecast_evidence
+from .forecast_stage_grid import ForecastStageGrid
 
 
 DEFAULT_STAGE_EVENT_KEYS = (
@@ -188,6 +189,7 @@ def _coerce_inputs(
     np.ndarray,
     dict[str, float],
     Mapping[str, object],
+    float,
 ]:
     if evidence is not None:
         raw_inputs = (uv_ms, lead_reliability, event_probs, sample_period_s)
@@ -237,7 +239,7 @@ def _coerce_inputs(
             raise ValueError("lead_times_s must be positive and finite")
         if np.any(np.diff(lead_times) <= 0.0):
             raise ValueError("lead_times_s must be strictly increasing")
-    return vectors, reliability, lead_times, probabilities, metadata
+    return vectors, reliability, lead_times, probabilities, metadata, period_s
 
 
 def _event_thresholds_from_metadata(
@@ -338,6 +340,77 @@ def _high_impact_gate(
     return ActionAuthorization(True, f"{action}_trend_reliable_and_event_supported")
 
 
+def _policy_stage_windows(
+    *,
+    lead_times_s: np.ndarray,
+    sample_period_s: float,
+    stage_duration_s: float,
+    stage_grid: ForecastStageGrid | None,
+) -> tuple[tuple[int, np.ndarray, float, float], ...]:
+    """Return the discrete records owned by each policy stage.
+
+    ``stage_grid`` is supplied by the compact controller when it already owns
+    the planning horizon.  Reusing it prevents demand formation and action
+    authorization from assigning the same forecast point to different stages.
+    Standalone policy callers retain the historical timestamp grouping.
+    """
+
+    if stage_grid is not None:
+        if not isinstance(stage_grid, ForecastStageGrid):
+            raise TypeError("stage_grid must be a ForecastStageGrid")
+        if not np.isclose(
+            stage_grid.sample_period_s,
+            sample_period_s,
+            rtol=0.0,
+            atol=1e-9,
+        ):
+            raise ValueError("stage_grid.sample_period_s must match forecast evidence")
+        if not np.isclose(
+            stage_grid.stage_duration_s,
+            stage_duration_s,
+            rtol=0.0,
+            atol=1e-9,
+        ):
+            raise ValueError("stage_grid.stage_duration_s must match policy configuration")
+        required = stage_grid.required_point_count
+        if lead_times_s.shape[0] < required:
+            raise ValueError("forecast evidence does not cover the supplied stage_grid")
+        expected_leads = np.arange(1, required + 1, dtype=float) * sample_period_s
+        if not np.allclose(
+            lead_times_s[:required],
+            expected_leads,
+            rtol=0.0,
+            atol=1e-9,
+        ):
+            raise ValueError(
+                "stage_grid requires discrete forecast leads at its sample cadence"
+            )
+        return tuple(
+            (
+                window.index,
+                np.arange(window.point_start_index, window.point_end_index),
+                window.lead_start_s,
+                window.lead_end_s,
+            )
+            for window in stage_grid.windows
+        )
+
+    # Standalone policy users may evaluate a horizon that is not owned by a
+    # controller.  Preserve the previous right-closed timestamp grouping for
+    # that path rather than silently truncating a partial last window.
+    stage_ids = np.ceil(lead_times_s / stage_duration_s).astype(int) - 1
+    return tuple(
+        (
+            int(stage_index),
+            indices,
+            float(lead_times_s[indices[0]]),
+            float(lead_times_s[indices[-1]]),
+        )
+        for stage_index in np.unique(stage_ids)
+        for indices in (np.flatnonzero(stage_ids == stage_index),)
+    )
+
+
 def evaluate_forecast_action_policy(
     evidence: ForecastEvidence | None = None,
     *,
@@ -347,6 +420,7 @@ def evaluate_forecast_action_policy(
     lead_times_s: Sequence[float] | np.ndarray | None = None,
     event_probs: Mapping[str, float] | None = None,
     sample_period_s: float | None = None,
+    stage_grid: ForecastStageGrid | None = None,
     config: ForecastActionPolicyConfig = ForecastActionPolicyConfig(),
 ) -> ForecastActionPolicyResult:
     """Interpret forecast evidence without changing any controller state.
@@ -367,7 +441,14 @@ def evaluate_forecast_action_policy(
     if not config.enabled:
         return ForecastActionPolicyResult(enabled=False, reason="policy_disabled")
 
-    vectors, reliability, lead_times, probabilities, metadata = _coerce_inputs(
+    (
+        vectors,
+        reliability,
+        lead_times,
+        probabilities,
+        metadata,
+        forecast_sample_period_s,
+    ) = _coerce_inputs(
         evidence,
         uv_ms=uv_ms,
         lead_reliability=lead_reliability,
@@ -378,12 +459,13 @@ def evaluate_forecast_action_policy(
     current_vector = _coerce_current_uv(current_uv_ms)
     model_event_thresholds = _event_thresholds_from_metadata(metadata)
     speeds = np.linalg.norm(vectors, axis=1)
-    # Prediction stages are right-closed: 10/20 min belong to stage 0,
-    # 30/40 min to stage 1, and 50/60 min to stage 2.
-    stage_ids = np.ceil(lead_times / config.stage_duration_s).astype(int) - 1
-
-    first_stage_id = int(np.min(stage_ids))
-    first_stage_indices = np.flatnonzero(stage_ids == first_stage_id)
+    stage_windows = _policy_stage_windows(
+        lead_times_s=lead_times,
+        sample_period_s=forecast_sample_period_s,
+        stage_duration_s=config.stage_duration_s,
+        stage_grid=stage_grid,
+    )
+    first_stage_indices = stage_windows[0][1]
     reference = (
         current_vector
         if current_vector is not None
@@ -407,8 +489,7 @@ def evaluate_forecast_action_policy(
 
     stages: list[ForecastStageTrend] = []
     previous_stage_speed: float | None = None
-    for stage_index in np.unique(stage_ids):
-        indices = np.flatnonzero(stage_ids == stage_index)
+    for stage_index, indices, lead_start_s, lead_end_s in stage_windows:
         stage_vectors = vectors[indices]
         mean_speed = float(np.mean(speeds[indices]))
         if previous_stage_speed is None:
@@ -489,8 +570,8 @@ def evaluate_forecast_action_policy(
         stages.append(
             ForecastStageTrend(
                 stage_index=int(stage_index),
-                lead_start_s=float(lead_times[indices[0]]),
-                lead_end_s=float(lead_times[indices[-1]]),
+                lead_start_s=lead_start_s,
+                lead_end_s=lead_end_s,
                 point_indices=tuple(int(i) for i in indices),
                 mean_speed_ms=mean_speed,
                 speed_change_ms=speed_change,

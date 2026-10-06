@@ -60,6 +60,13 @@ class ForecastBallastProfileDiagnosticTests(unittest.TestCase):
 
         self.assertEqual(len(profile), 2)
         self.assertEqual([item.lead_time_s for item in profile], [600.0, 1200.0])
+        np.testing.assert_allclose(profile[0].actual_tank_masses_kg, ACTUAL_MASSES_KG)
+        self.assertFalse(profile[0].actual_tank_masses_kg.flags.writeable)
+        np.testing.assert_allclose(profile[0].tank_capacities_kg, CAPACITIES_KG)
+        self.assertFalse(profile[0].tank_capacities_kg.flags.writeable)
+        np.testing.assert_allclose(profile[0].tank_coordinates_m, TANK_COORDINATES_M)
+        self.assertFalse(profile[0].tank_coordinates_m.flags.writeable)
+        self.assertEqual(profile[0].gravity_m_s2, 10.0)
         np.testing.assert_allclose(
             profile[0].diagnostic.restoring_diagnostic.relative_pitch_roll_load_nm,
             [-30.0, 20.0],
@@ -100,6 +107,7 @@ class ForecastBallastProfileDiagnosticTests(unittest.TestCase):
                     timed.diagnostic.remaining_relative_pitch_roll_load_nm,
                     direct.remaining_relative_pitch_roll_load_nm,
                 )
+                np.testing.assert_allclose(timed.actual_tank_masses_kg, ACTUAL_MASSES_KG)
 
     def test_later_leads_reuse_the_current_actual_tank_state_not_prior_endpoints(self):
         actual = np.array([120.0, 540.0, 810.0])

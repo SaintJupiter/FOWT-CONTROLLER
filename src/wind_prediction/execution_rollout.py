@@ -28,6 +28,13 @@ _DEFAULT_RATE_SCHEDULE_M3_MIN = (
 )
 
 
+def _within_stop_error(abs_error: Any, stop_error: float) -> np.ndarray:
+    """Return the single completion predicate used by the pump state machine."""
+
+    values = np.asarray(abs_error, dtype=float)
+    return values <= _EPS if stop_error == 0.0 else values < stop_error
+
+
 class ExecutionTargetOperation(str, Enum):
     """Target operation understood by the actuator rollout."""
 
@@ -86,6 +93,33 @@ def _three(values: Any, *, default: float = 0.0) -> np.ndarray:
     if array.size < 3:
         array = np.pad(array, (0, 3 - array.size), constant_values=default)
     return array
+
+
+def _readonly_three(values: Any, *, default: float = 0.0, dtype=float) -> np.ndarray:
+    """Copy one normalized three-tank vector into an immutable fact record."""
+
+    result = np.array(_three(values, default=default), dtype=dtype, copy=True)
+    result.setflags(write=False)
+    return result
+
+
+def _readonly_count_three(name: str, values: Any) -> np.ndarray:
+    """Normalize a non-negative integral three-pump counter vector."""
+
+    try:
+        raw = np.asarray(values, dtype=float)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must contain three non-negative integers") from exc
+    if (
+        raw.shape != (3,)
+        or not np.all(np.isfinite(raw))
+        or np.any(raw < 0.0)
+        or not np.allclose(raw, np.rint(raw), rtol=0.0, atol=0.0)
+    ):
+        raise ValueError(f"{name} must contain three non-negative integers")
+    result = np.array(raw, dtype=int, copy=True)
+    result.setflags(write=False)
+    return result
 
 
 @dataclass(frozen=True)
@@ -185,6 +219,7 @@ class ExecutionRolloutState:
     pump_near_target_s: np.ndarray | None = None
     pump_command_rates_m3_min: np.ndarray | None = None
     last_flow_directions: np.ndarray | None = None
+    previous_block_tank_mass_delta_kg: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         masses = _three(self.masses_kg)
@@ -201,29 +236,51 @@ class ExecutionRolloutState:
             if self.last_flow_directions is None
             else np.sign(_three(self.last_flow_directions))
         )
+        previous_block_delta = _three(
+            self.previous_block_tank_mass_delta_kg
+        )
 
-        object.__setattr__(self, "masses_kg", masses.copy())
-        object.__setattr__(self, "target_masses_kg", target.copy())
-        object.__setattr__(self, "pump_rates_m3_min", rates.copy())
-        object.__setattr__(self, "pump_latched", _three(self.pump_latched).astype(bool))
-        object.__setattr__(self, "primary_target_kg", primary.copy())
+        object.__setattr__(self, "masses_kg", _readonly_three(masses))
+        object.__setattr__(self, "target_masses_kg", _readonly_three(target))
+        object.__setattr__(self, "pump_rates_m3_min", _readonly_three(rates))
+        object.__setattr__(
+            self,
+            "pump_latched",
+            _readonly_three(self.pump_latched, dtype=bool),
+        )
+        object.__setattr__(self, "primary_target_kg", _readonly_three(primary))
         object.__setattr__(
             self,
             "pump_on_elapsed_s",
-            np.maximum(_three(self.pump_on_elapsed_s), 0.0),
+            _readonly_three(np.maximum(_three(self.pump_on_elapsed_s), 0.0)),
         )
         object.__setattr__(
             self,
             "pump_off_elapsed_s",
-            np.maximum(_three(self.pump_off_elapsed_s, default=np.inf), 0.0),
+            _readonly_three(
+                np.maximum(_three(self.pump_off_elapsed_s, default=np.inf), 0.0)
+            ),
         )
         object.__setattr__(
             self,
             "pump_near_target_s",
-            np.maximum(_three(self.pump_near_target_s), 0.0),
+            _readonly_three(np.maximum(_three(self.pump_near_target_s), 0.0)),
         )
-        object.__setattr__(self, "pump_command_rates_m3_min", commands.copy())
-        object.__setattr__(self, "last_flow_directions", last_directions.copy())
+        object.__setattr__(
+            self,
+            "pump_command_rates_m3_min",
+            _readonly_three(commands),
+        )
+        object.__setattr__(
+            self,
+            "last_flow_directions",
+            _readonly_three(last_directions),
+        )
+        object.__setattr__(
+            self,
+            "previous_block_tank_mass_delta_kg",
+            _readonly_three(previous_block_delta),
+        )
 
     @property
     def actual_masses_kg(self) -> np.ndarray:
@@ -287,6 +344,9 @@ class ExecutionRolloutState:
             pump_near_target_s=plant_info.get("pump_near_target_s"),
             pump_command_rates_m3_min=command_rates,
             last_flow_directions=np.sign(signed_rates),
+            previous_block_tank_mass_delta_kg=plant_info.get(
+                "previous_block_tank_mass_delta_kg"
+            ),
         )
 
 
@@ -311,6 +371,71 @@ class ExecutionRolloutStep:
     )
     target_operation: ExecutionTargetOperation = ExecutionTargetOperation.TRACK
     target_slew_reset: bool = False
+    minimum_total_mass_delta_from_initial_kg: float = 0.0
+    maximum_total_mass_delta_from_initial_kg: float = 0.0
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.state, ExecutionRolloutState):
+            raise TypeError("state must be ExecutionRolloutState")
+        operation = ExecutionTargetOperation(self.target_operation)
+        object.__setattr__(self, "target_operation", operation)
+        if type(self.target_reached) is not bool:
+            raise ValueError("target_reached must be a boolean")
+        if type(self.target_slew_reset) is not bool:
+            raise ValueError("target_slew_reset must be a boolean")
+        for name in (
+            "requested_target_kg",
+            "shaped_target_kg",
+            "mass_delta_kg",
+            "pump_volume_m3",
+            "pump_runtime_s",
+        ):
+            object.__setattr__(self, name, _readonly_three(getattr(self, name)))
+        for name in (
+            "start_counts",
+            "stop_counts",
+            "direction_switch_counts",
+        ):
+            object.__setattr__(self, name, _readonly_count_three(name, getattr(self, name)))
+        for name in ("transferred_volume_m3", "active_time_s"):
+            value = float(getattr(self, name))
+            if not math.isfinite(value) or value < 0.0:
+                raise ValueError(f"{name} must be a finite non-negative scalar")
+            object.__setattr__(self, name, value)
+        minimum_total_delta = float(self.minimum_total_mass_delta_from_initial_kg)
+        maximum_total_delta = float(self.maximum_total_mass_delta_from_initial_kg)
+        if (
+            not math.isfinite(minimum_total_delta)
+            or not math.isfinite(maximum_total_delta)
+            or minimum_total_delta > maximum_total_delta
+        ):
+            raise ValueError("total-mass delta extrema must be finite and ordered")
+        net_total_delta = float(np.sum(self.mass_delta_kg))
+        if not minimum_total_delta - _EPS <= net_total_delta <= maximum_total_delta + _EPS:
+            raise ValueError("net total-mass delta must lie within recorded extrema")
+        object.__setattr__(
+            self,
+            "minimum_total_mass_delta_from_initial_kg",
+            minimum_total_delta,
+        )
+        object.__setattr__(
+            self,
+            "maximum_total_mass_delta_from_initial_kg",
+            maximum_total_delta,
+        )
+        for name in ("starts", "stops", "direction_switches"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or int(value) != value or int(value) < 0:
+                raise ValueError(f"{name} must be a non-negative integer")
+            object.__setattr__(self, name, int(value))
+        if self.starts != int(np.sum(self.start_counts)):
+            raise ValueError("starts must equal the summed start_counts")
+        if self.stops != int(np.sum(self.stop_counts)):
+            raise ValueError("stops must equal the summed stop_counts")
+        if self.direction_switches != int(np.sum(self.direction_switch_counts)):
+            raise ValueError(
+                "direction_switches must equal the summed direction_switch_counts"
+            )
 
     @property
     def per_tank_mass_delta_kg(self) -> np.ndarray:
@@ -437,6 +562,8 @@ def simulate_execution_step(
     start_counts = np.zeros(3, dtype=int)
     stop_counts = np.zeros(3, dtype=int)
     direction_switch_counts = np.zeros(3, dtype=int)
+    minimum_total_mass_delta = 0.0
+    maximum_total_mass_delta = 0.0
 
     elapsed = 0.0
     while elapsed < duration - _EPS:
@@ -461,13 +588,17 @@ def simulate_execution_step(
 
         error = shaped_target - masses
         abs_error = np.abs(error)
-        near_target = np.where(abs_error < stop_error, near_target + dt, 0.0)
+        # Match the physical plant's strict positive stop threshold.  A zero
+        # threshold remains a useful exact-target mode for deterministic tests
+        # and release requests, where equality must still allow shutdown.
+        within_stop_error = _within_stop_error(abs_error, stop_error)
+        near_target = np.where(within_stop_error, near_target + dt, 0.0)
         on_elapsed = np.where(latched, on_elapsed + dt, 0.0)
         off_elapsed = np.where(latched, 0.0, off_elapsed + dt)
 
         stop_ready = (
             latched
-            & (abs_error < stop_error)
+            & within_stop_error
             & (on_elapsed >= min_on)
             & (near_target >= near_target_hold)
         )
@@ -481,6 +612,7 @@ def simulate_execution_step(
         start_ready = (
             ~latched
             & ~stop_ready
+            & ~within_stop_error
             & (abs_error > restart_error)
             & (off_elapsed >= min_off)
         )
@@ -527,6 +659,9 @@ def simulate_execution_step(
             last_directions,
         )
         masses = next_masses
+        total_mass_delta = float(np.sum(masses - initial_masses))
+        minimum_total_mass_delta = min(minimum_total_mass_delta, total_mass_delta)
+        maximum_total_mass_delta = max(maximum_total_mass_delta, total_mass_delta)
         elapsed += dt
 
     next_state = ExecutionRolloutState(
@@ -540,6 +675,7 @@ def simulate_execution_step(
         pump_near_target_s=near_target,
         pump_command_rates_m3_min=command_rates,
         last_flow_directions=last_directions,
+        previous_block_tank_mass_delta_kg=masses - initial_masses,
     )
     net_mass_delta = masses - initial_masses
     return ExecutionRolloutStep(
@@ -551,7 +687,9 @@ def simulate_execution_step(
         active_time_s=float(np.sum(pump_runtime)),
         starts=int(np.sum(start_counts)),
         direction_switches=int(np.sum(direction_switch_counts)),
-        target_reached=bool(np.all(np.abs(requested - masses) <= stop_error)),
+        target_reached=bool(
+            np.all(_within_stop_error(np.abs(requested - masses), stop_error))
+        ),
         stops=int(np.sum(stop_counts)),
         pump_volume_m3=pump_volume,
         pump_runtime_s=pump_runtime,
@@ -560,4 +698,6 @@ def simulate_execution_step(
         direction_switch_counts=direction_switch_counts,
         target_operation=operation,
         target_slew_reset=release_to_current,
+        minimum_total_mass_delta_from_initial_kg=minimum_total_mass_delta,
+        maximum_total_mass_delta_from_initial_kg=maximum_total_mass_delta,
     )

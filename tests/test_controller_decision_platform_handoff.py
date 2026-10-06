@@ -1,3 +1,4 @@
+from dataclasses import replace
 import unittest
 from pathlib import Path
 
@@ -21,10 +22,20 @@ from wind_prediction.execution_rollout import (
     ExecutionRolloutRequest,
     ExecutionRolloutState,
     ExecutionTargetOperation,
+    simulate_execution_step,
 )
 from wind_prediction.controller_platform_handoff import (
+    ControllerPlatformPath,
+    ControllerPlatformSubstep,
+    advance_controller_platform_path,
     advance_controller_platform_substep,
     control_observation_from_incremental_state,
+)
+from wind_prediction.physical_execution_platform_path import (
+    PhysicalExecutionPlatformPath,
+    PhysicalExecutionPlatformSubstep,
+    advance_physical_execution_platform_path,
+    advance_physical_execution_platform_substep,
 )
 from wind_prediction.forecast_action_policy import ForecastActionPolicyConfig
 from wind_prediction.forecast_evidence import ForecastEvidence
@@ -127,6 +138,18 @@ def _changing_forecast() -> ForecastEvidence:
 
 
 class ControllerDecisionPlatformHandoffTests(unittest.TestCase):
+    def test_legacy_handoff_exports_are_direct_physical_path_aliases(self):
+        self.assertIs(ControllerPlatformPath, PhysicalExecutionPlatformPath)
+        self.assertIs(ControllerPlatformSubstep, PhysicalExecutionPlatformSubstep)
+        self.assertIs(
+            advance_controller_platform_path,
+            advance_physical_execution_platform_path,
+        )
+        self.assertIs(
+            advance_controller_platform_substep,
+            advance_physical_execution_platform_substep,
+        )
+
     @staticmethod
     def _zero_rotor_load() -> RotorGeneralizedLoad:
         return RotorGeneralizedLoad(
@@ -177,6 +200,34 @@ class ControllerDecisionPlatformHandoffTests(unittest.TestCase):
             wave_load=np.zeros(6),
             other_load=np.zeros(6),
             duration_s=1.0,
+        )
+
+    def _advance_path(
+        self,
+        *,
+        platform_state: IncrementalState,
+        execution_state: ExecutionRolloutState,
+        request: ExecutionRolloutRequest,
+        execution_config: ExecutionRolloutConfig,
+        duration_s: float,
+    ):
+        runtime_assembly = assemble_volturnus_static_restoring_aligned_runtime_assembly(
+            REFERENCE_MANIFEST,
+            np.zeros((6, 6)),
+        )
+        return advance_controller_platform_path(
+            platform_state=platform_state,
+            execution_state=execution_state,
+            execution_request=request,
+            execution_config=execution_config,
+            runtime_assembly=runtime_assembly,
+            reference_tank_masses_kg=REFERENCE_TANK_MASSES_KG,
+            tank_capacities_kg=np.full(3, TANK_CAPACITY_KG),
+            tank_coordinates_m=TANK_COORDINATES_M,
+            rotor_load=ControllerDecisionPlatformHandoffTests._zero_rotor_load(),
+            wave_load=np.zeros(6),
+            other_load=np.zeros(6),
+            duration_s=duration_s,
         )
 
     def test_substep_rejects_platform_capacity_mismatch_with_execution_config(self):
@@ -502,6 +553,279 @@ class ControllerDecisionPlatformHandoffTests(unittest.TestCase):
         self.assertEqual(
             released.execution_step.target_operation,
             ExecutionTargetOperation.RELEASE_TO_CURRENT,
+        )
+
+    def test_committed_track_path_matches_one_execution_rollout_with_target_slew(self):
+        config = replace(
+            _controller_config().execution,
+            block_duration_s=5.5,
+            internal_step_s=2.0,
+            target_slew_enabled=True,
+            target_slew_rate_m3_min=3.0,
+            min_on_s=3.0,
+            min_off_s=1.0,
+            near_target_hold_s=1.0,
+            ramp_up_m3_min_per_s=0.4,
+            ramp_down_m3_min_per_s=0.3,
+        )
+        initial_execution = ExecutionRolloutState(
+            masses_kg=REFERENCE_TANK_MASSES_KG,
+            target_masses_kg=REFERENCE_TANK_MASSES_KG,
+            primary_target_kg=REFERENCE_TANK_MASSES_KG,
+            pump_rates_m3_min=np.zeros(3),
+            pump_latched=np.zeros(3, dtype=bool),
+        )
+        request = ExecutionRolloutRequest.track(
+            REFERENCE_TANK_MASSES_KG + np.array([25_000.0, -12_000.0, 0.0])
+        )
+
+        path = self._advance_path(
+            platform_state=IncrementalState.zeros(),
+            execution_state=initial_execution,
+            request=request,
+            execution_config=config,
+            duration_s=5.5,
+        )
+        direct = simulate_execution_step(initial_execution, request, config)
+
+        self.assertEqual(len(path.substeps), 3)
+        self.assertAlmostEqual(path.duration_s, 5.5)
+        np.testing.assert_allclose(
+            path.substeps[0].ballast_snapshot.actual_tank_masses_kg,
+            initial_execution.actual_masses_kg,
+        )
+        np.testing.assert_allclose(
+            path.substeps[1].ballast_snapshot.actual_tank_masses_kg,
+            path.substeps[0].next_execution_state.actual_masses_kg,
+        )
+        np.testing.assert_allclose(
+            path.final_execution_state.actual_masses_kg,
+            direct.state.actual_masses_kg,
+        )
+        np.testing.assert_allclose(
+            path.final_execution_state.rate_limited_target_kg,
+            direct.state.rate_limited_target_kg,
+        )
+        np.testing.assert_allclose(
+            path.final_execution_state.primary_target_masses_kg,
+            direct.state.primary_target_masses_kg,
+        )
+        np.testing.assert_allclose(
+            path.final_execution_state.signed_flow_m3_min,
+            direct.state.signed_flow_m3_min,
+        )
+        np.testing.assert_array_equal(
+            path.final_execution_state.pump_latched,
+            direct.state.pump_latched,
+        )
+        np.testing.assert_allclose(
+            path.final_execution_state.pump_on_elapsed_s,
+            direct.state.pump_on_elapsed_s,
+        )
+        np.testing.assert_allclose(
+            path.final_execution_state.pump_off_elapsed_s,
+            direct.state.pump_off_elapsed_s,
+        )
+        np.testing.assert_allclose(
+            path.final_execution_state.pump_near_target_s,
+            direct.state.pump_near_target_s,
+        )
+        np.testing.assert_allclose(
+            path.final_execution_state.pump_command_rates_m3_min,
+            direct.state.pump_command_rates_m3_min,
+        )
+        np.testing.assert_allclose(
+            path.final_execution_state.last_flow_directions,
+            direct.state.last_flow_directions,
+        )
+        np.testing.assert_allclose(
+            path.final_execution_state.previous_block_tank_mass_delta_kg,
+            path.actual_tank_mass_delta_kg,
+        )
+        self.assertIs(
+            path.final_execution_state,
+            path.final_execution_state,
+        )
+        self.assertFalse(
+            np.allclose(
+                path.substeps[-1]
+                .next_execution_state
+                .previous_block_tank_mass_delta_kg,
+                path.final_execution_state.previous_block_tank_mass_delta_kg,
+            )
+        )
+        self.assertGreater(np.linalg.norm(path.final_platform_state.position[3:5]), 0.0)
+
+        with self.assertRaisesRegex(ValueError, "must not exceed"):
+            self._advance_path(
+                platform_state=IncrementalState.zeros(),
+                execution_state=initial_execution,
+                request=request,
+                execution_config=config,
+                duration_s=5.500001,
+            )
+
+    def test_committed_release_path_matches_one_execution_rollout(self):
+        config = replace(
+            _controller_config().execution,
+            block_duration_s=5.5,
+            internal_step_s=2.0,
+            target_slew_enabled=True,
+            target_slew_rate_m3_min=3.0,
+            min_on_s=3.0,
+            min_off_s=1.0,
+            near_target_hold_s=2.0,
+            ramp_up_m3_min_per_s=0.4,
+            ramp_down_m3_min_per_s=0.3,
+        )
+        initial_execution = ExecutionRolloutState(
+            masses_kg=REFERENCE_TANK_MASSES_KG,
+            target_masses_kg=REFERENCE_TANK_MASSES_KG + np.array([5_000.0, 0.0, 0.0]),
+            primary_target_kg=REFERENCE_TANK_MASSES_KG + np.array([5_000.0, 0.0, 0.0]),
+            pump_rates_m3_min=np.array([1.0, 0.0, 0.0]),
+            pump_command_rates_m3_min=np.array([1.0, 0.0, 0.0]),
+            pump_latched=np.array([True, False, False]),
+            pump_on_elapsed_s=np.array([1.0, 0.0, 0.0]),
+            pump_off_elapsed_s=np.array([0.0, 2.0, 2.0]),
+            pump_near_target_s=np.zeros(3),
+        )
+        request = ExecutionRolloutRequest.release_to_current()
+        path = self._advance_path(
+            platform_state=IncrementalState(
+                position=[0.0, 0.0, 0.0, 0.0, 0.01, 0.0],
+                velocity=np.zeros(6),
+            ),
+            execution_state=initial_execution,
+            request=request,
+            execution_config=config,
+            duration_s=5.5,
+        )
+        direct = simulate_execution_step(initial_execution, request, config)
+
+        self.assertEqual(len(path.substeps), 3)
+        self.assertTrue(
+            all(
+                step.execution_step.target_operation
+                is ExecutionTargetOperation.RELEASE_TO_CURRENT
+                for step in path.substeps
+            )
+        )
+        for substep in path.substeps:
+            np.testing.assert_allclose(
+                substep.execution_step.mass_delta_kg,
+                np.zeros(3),
+            )
+            self.assertAlmostEqual(
+                substep.execution_step.transferred_volume_m3,
+                0.0,
+            )
+        np.testing.assert_allclose(
+            path.final_execution_state.actual_masses_kg,
+            direct.state.actual_masses_kg,
+        )
+        np.testing.assert_allclose(
+            path.final_execution_state.rate_limited_target_kg,
+            direct.state.rate_limited_target_kg,
+        )
+        np.testing.assert_allclose(
+            path.final_execution_state.primary_target_masses_kg,
+            direct.state.primary_target_masses_kg,
+        )
+        np.testing.assert_allclose(
+            path.final_execution_state.signed_flow_m3_min,
+            direct.state.signed_flow_m3_min,
+        )
+        np.testing.assert_array_equal(
+            path.final_execution_state.pump_latched,
+            direct.state.pump_latched,
+        )
+        np.testing.assert_allclose(
+            path.final_execution_state.pump_on_elapsed_s,
+            direct.state.pump_on_elapsed_s,
+        )
+        np.testing.assert_allclose(
+            path.final_execution_state.pump_off_elapsed_s,
+            direct.state.pump_off_elapsed_s,
+        )
+        np.testing.assert_allclose(
+            path.final_execution_state.pump_near_target_s,
+            direct.state.pump_near_target_s,
+        )
+        np.testing.assert_allclose(
+            path.final_execution_state.pump_command_rates_m3_min,
+            direct.state.pump_command_rates_m3_min,
+        )
+        np.testing.assert_allclose(
+            path.final_execution_state.last_flow_directions,
+            direct.state.last_flow_directions,
+        )
+        np.testing.assert_allclose(
+            path.final_execution_state.actual_masses_kg,
+            initial_execution.actual_masses_kg,
+        )
+        self.assertAlmostEqual(
+            sum(step.execution_step.transferred_volume_m3 for step in path.substeps),
+            direct.transferred_volume_m3,
+        )
+        self.assertAlmostEqual(
+            sum(step.execution_step.active_time_s for step in path.substeps),
+            direct.active_time_s,
+        )
+        self.assertEqual(
+            sum(step.execution_step.starts for step in path.substeps),
+            direct.starts,
+        )
+        self.assertEqual(
+            sum(step.execution_step.stops for step in path.substeps), direct.stops)
+        self.assertEqual(
+            sum(step.execution_step.direction_switches for step in path.substeps),
+            direct.direction_switches,
+        )
+        self.assertGreater(direct.active_time_s, 0.0)
+        self.assertNotEqual(path.final_platform_state.position[4], 0.01)
+
+    def test_path_exports_whole_block_delta_when_pump_stops_before_final_substep(self):
+        config = replace(
+            _controller_config().execution,
+            block_duration_s=5.5,
+            internal_step_s=2.0,
+            target_slew_enabled=False,
+            stop_error_kg=0.0,
+            restart_error_kg=0.0,
+            min_on_s=0.0,
+            min_off_s=0.0,
+            near_target_hold_s=0.0,
+            ramp_up_m3_min_per_s=np.inf,
+            ramp_down_m3_min_per_s=np.inf,
+        )
+        initial_execution = ExecutionRolloutState(
+            masses_kg=REFERENCE_TANK_MASSES_KG,
+            target_masses_kg=REFERENCE_TANK_MASSES_KG,
+            primary_target_kg=REFERENCE_TANK_MASSES_KG,
+            pump_rates_m3_min=np.zeros(3),
+            pump_latched=np.zeros(3, dtype=bool),
+        )
+        requested_delta_kg = np.array([20.0, 0.0, 0.0])
+        path = self._advance_path(
+            platform_state=IncrementalState.zeros(),
+            execution_state=initial_execution,
+            request=ExecutionRolloutRequest.track(
+                REFERENCE_TANK_MASSES_KG + requested_delta_kg
+            ),
+            execution_config=config,
+            duration_s=5.5,
+        )
+
+        np.testing.assert_allclose(path.actual_tank_mass_delta_kg, requested_delta_kg)
+        np.testing.assert_allclose(
+            path.final_execution_state.previous_block_tank_mass_delta_kg,
+            requested_delta_kg,
+        )
+        np.testing.assert_allclose(
+            path.substeps[-1]
+            .next_execution_state
+            .previous_block_tank_mass_delta_kg,
+            np.zeros(3),
         )
 
 

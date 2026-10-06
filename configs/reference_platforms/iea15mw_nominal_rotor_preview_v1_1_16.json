@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "identity": {
+    "name": "IEA 15 MW nominal below-rated rotor preview",
+    "status": "research_low_order_source_bound_not_dynamic_rosco"
+  },
+  "source_model": {
+    "archive_path": "references/fowt_reference_models/3_核心必用_官方模型文件包_IEAWindSystems_v1.1.16/IEAWindSystems_IEA-15-240-RWT_v1.1.16.zip",
+    "archive_sha256": "c96c6be345abf9440170764e2d9a2c201b5da6191192cef66537c5bc16805b80",
+    "rotor_performance_member": "IEA-15-240-RWT-1.1.16/OpenFAST/IEA-15-240-RWT/Cp_Ct_Cq.IEA15MW.txt",
+    "rosco_tuning_member": "IEA-15-240-RWT-1.1.16/OpenFAST/IEA-15-240-RWT-UMaineSemi/IEA-15-240-RWT-UMaineSemi_ROSCO.yaml"
+  },
+  "reference_state": {
+    "path": "configs/reference_platforms/volturnus_s_openfast_nominal_reference_state_v1.json",
+    "sha256": "a6a7e4db47c1217a53865f669cc9f541290e33e80e92efba2ff74df11f6a8133"
+  },
+  "load_parameters": {
+    "air_density_kg_m3": 1.225,
+    "rotor_radius_m": 120.97,
+    "wind_reference_height_m": 102.0,
+    "rotor_plane_height_m": 150.25679847592477,
+    "power_law_shear_exponent": 0.0,
+    "frozen_equilibrium_heading_rad": 0.0,
+    "rotor_force_application_point_from_reference_m": [
+      -8.2269401512536,
+      0.0,
+      150.25679847592477
+    ],
+    "nacelle_yaw_axis_point_from_reference_m": [
+      0.0,
+      0.0,
+      150.25679847592477
+    ],
+    "downwind_rotor_normal_platform": [
+      0.9915538628110231,
+      0.0,
+      -0.1296955556082736
+    ]
+  },
+  "operating_assumptions": {
+    "operating_mode": "nominal_below_rated_generating",
+    "operating_mode_source": "explicit_iea15mw_rosco_nominal_below_rated_schedule",
+    "current_nacelle_yaw_mode": "align_with_current_horizontal_wind_at_control_update",
+    "current_nacelle_yaw_source": "ideal_current_wind_alignment_without_yaw_actuator_dynamics",
+    "future_rotor_orientation_mode": "frozen_current",
+    "future_rotor_orientation_source": "current_wind_aligned_orientation_frozen_over_control_horizon",
+    "future_platform_kinematics_mode": "frozen_zero",
+    "future_platform_kinematics_source": "zero_future_velocity_low_order_preview_approximation",
+    "independent_hub_aerodynamic_moment_included": false,
+    "out_of_domain_behavior": "reject_without_clipping_extrapolation_or_fallback"
+  }
+}
